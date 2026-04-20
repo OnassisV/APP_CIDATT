@@ -195,6 +195,24 @@
     
     .empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 15px 0; }
 
+    .btn-mic {
+      width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line);
+      background: var(--bg); font-size: 1.2rem; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all 0.2s; flex-shrink: 0;
+    }
+    .btn-mic.recording {
+      background: #ef4444; border-color: #ef4444; animation: mic-pulse 1s infinite;
+    }
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+    }
+    .voice-status {
+      font-size: 0.75rem; color: var(--muted); margin-top: 2px; min-height: 1em;
+      transition: color 0.2s;
+    }
+    .voice-status.active { color: #ef4444; font-weight: 600; }
+
     @media (max-width: 380px) { .chips, .chips-4, .chips-5 { grid-template-columns: repeat(2, 1fr); } }
   </style>
   <link rel="manifest" href="./app.webmanifest">
@@ -298,8 +316,11 @@
 
             <div class="group-card" id="groupPlacaPrincipal" style="margin: 0; padding: 6px;">
               <label for="placaPrincipal">Placa principal</label>
-              <input id="placaPrincipal" class="placa-input" type="text" maxlength="7" placeholder="ABC-123" 
-                     autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters" required style="padding: 9px;" />
+              <div style="display:flex; gap:4px; align-items:center;">
+                <input id="placaPrincipal" class="placa-input" type="text" maxlength="7" placeholder="ABC-123" 
+                       autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters" required style="padding: 9px; flex:1;" />
+                <button type="button" class="btn-mic" id="btnMicPrincipal" title="Dictar placa por voz">🎤</button>
+              </div>
             </div>
           </div>
 
@@ -338,8 +359,11 @@
             <div class="secundaria-box" id="secundariaBox">
               <div style="margin-bottom:10px;">
                 <label for="placaSecundaria">Placa secundaria</label>
-                <input id="placaSecundaria" class="placa-input" type="text" maxlength="7" placeholder="T1A-123" 
-                       autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters" style="padding: 9px;" />
+                <div style="display:flex; gap:4px; align-items:center;">
+                  <input id="placaSecundaria" class="placa-input" type="text" maxlength="7" placeholder="T1A-123" 
+                         autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters" style="padding: 9px; flex:1;" />
+                  <button type="button" class="btn-mic" id="btnMicSecundaria" title="Dictar placa por voz">🎤</button>
+                </div>
               </div>
 
               <div>
@@ -965,6 +989,248 @@
         let url = URL.createObjectURL(blob); let a = document.createElement('a');
         a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
       }
+
+      // ===================== DICTADO POR VOZ =====================
+      var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      var voiceSupported = !!SpeechRecognition;
+
+      // Diccionario exhaustivo: palabra hablada → carácter de placa
+      var VOICE_MAP = {
+        // === LETRAS: nombre directo en español ===
+        'a': 'A', 'be': 'B', 'ce': 'C', 'de': 'D', 'e': 'E', 'efe': 'F',
+        'ge': 'G', 'hache': 'H', 'i': 'I', 'jota': 'J', 'ka': 'K', 'ele': 'L',
+        'eme': 'M', 'ene': 'N', 'eñe': 'Ñ', 'o': 'O', 'pe': 'P', 'cu': 'Q',
+        'erre': 'R', 'ese': 'S', 'te': 'T', 'u': 'U', 've': 'V', 'uve': 'V',
+        'doble ve': 'W', 'doble uve': 'W', 'equis': 'X', 'ye': 'Y', 'i griega': 'Y',
+        'zeta': 'Z',
+        // === NATO fonético ===
+        'alfa': 'A', 'alpha': 'A', 'bravo': 'B', 'charlie': 'C', 'delta': 'D',
+        'echo': 'E', 'eco': 'E', 'foxtrot': 'F', 'golf': 'G', 'hotel': 'H',
+        'india': 'I', 'juliet': 'J', 'julieta': 'J', 'kilo': 'K', 'lima': 'L',
+        'mike': 'M', 'november': 'N', 'noviembre': 'N', 'oscar': 'O', 'papa': 'P',
+        'quebec': 'Q', 'romeo': 'R', 'sierra': 'S', 'tango': 'T', 'uniform': 'U',
+        'uniforme': 'U', 'victor': 'V', 'víctor': 'V', 'whiskey': 'W', 'xray': 'X',
+        'yankee': 'Y', 'zulu': 'Z', 'zulú': 'Z',
+        // === Fonético peruano / informal ===
+        'antonio': 'A', 'bernardo': 'B', 'carlos': 'C', 'david': 'D',
+        'ernesto': 'E', 'francisco': 'F', 'gerardo': 'G', 'héctor': 'H', 'hector': 'H',
+        'ignacio': 'I', 'josé': 'J', 'jose': 'J', 'lorenzo': 'L',
+        'manuel': 'M', 'nicolás': 'N', 'nicolas': 'N', 'pedro': 'P',
+        'ramón': 'R', 'ramon': 'R', 'santiago': 'S', 'tomás': 'T', 'tomas': 'T',
+        'uruguay': 'U', 'washington': 'W',
+        // === Confusiones comunes del motor de voz en español ===
+        'b': 'B', 'c': 'C', 'd': 'D', 'f': 'F', 'g': 'G', 'h': 'H',
+        'j': 'J', 'k': 'K', 'l': 'L', 'm': 'M', 'n': 'N', 'p': 'P',
+        'q': 'Q', 'r': 'R', 's': 'S', 't': 'T', 'v': 'V', 'w': 'W',
+        'x': 'X', 'y': 'Y', 'z': 'Z',
+        'la': 'A', 'él': 'L', 'el': 'L', 'hay': 'I',
+        'ave': 'B', 'ver': 'V', 'ves': 'V', 'vez': 'V', 'bé': 'B', 'vé': 'V',
+        'se': 'C', 'si': 'C', 'sé': 'C', 'sea': 'C',
+        'ji': 'G', 'gé': 'G',
+        'haz': 'H', 'has': 'H', 'ash': 'H',
+        'jota a': 'J', 'ka a': 'K',
+        'ley': 'L',
+        'en': 'N',
+        'qué': 'Q', 'que': 'Q',
+        'era': 'R', 'aire': 'R',
+        'uve doble': 'W',
+        // === NÚMEROS ===
+        'cero': '0', 'uno': '1', 'una': '1', 'dos': '2', 'tres': '3',
+        'cuatro': '4', 'cinco': '5', 'seis': '6', 'siete': '7', 'ocho': '8',
+        'nueve': '9',
+        '0': '0', '1': '1', '2': '2', '3': '3', '4': '4',
+        '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
+        // === Comandos ===
+        'guión': '-', 'guion': '-', 'raya': '-', 'menos': '-',
+        'borrar': '__BORRAR__', 'borra': '__BORRAR__', 'quitar': '__BORRAR__',
+        'limpiar': '__LIMPIAR__', 'limpia': '__LIMPIAR__',
+        'espacio': '', 'punto': ''
+      };
+
+      function normalizeVoiceText(raw) {
+        var text = raw.toLowerCase().trim()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar acentos para matching
+          .replace(/[.,;:!?¡¿]/g, '') // quitar puntuación
+          .trim();
+        return text;
+      }
+
+      function voiceToPlate(rawTranscript) {
+        var normalized = normalizeVoiceText(rawTranscript);
+        var result = '';
+
+        // Primero intentar mapeo de frase completa (ej: "doble ve", "i griega")
+        for (var phrase of Object.keys(VOICE_MAP).sort((a, b) => b.length - a.length)) {
+          var np = phrase.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          if (normalized === np) {
+            var val = VOICE_MAP[phrase];
+            if (val === '__BORRAR__') return '__BORRAR__';
+            if (val === '__LIMPIAR__') return '__LIMPIAR__';
+            return val;
+          }
+        }
+
+        // Dividir en palabras y mapear cada una
+        var words = normalized.split(/\s+/);
+        var i = 0;
+        while (i < words.length) {
+          var matched = false;
+          // Intentar frases de 2 palabras primero
+          if (i + 1 < words.length) {
+            var twoWord = words[i] + ' ' + words[i + 1];
+            for (var phrase of Object.keys(VOICE_MAP)) {
+              var np = phrase.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              if (twoWord === np) {
+                var val = VOICE_MAP[phrase];
+                if (val === '__BORRAR__') return '__BORRAR__';
+                if (val === '__LIMPIAR__') return '__LIMPIAR__';
+                result += val;
+                i += 2;
+                matched = true;
+                break;
+              }
+            }
+          }
+          if (!matched) {
+            var word = words[i];
+            var found = false;
+            for (var phrase of Object.keys(VOICE_MAP)) {
+              var np = phrase.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              if (word === np) {
+                var val = VOICE_MAP[phrase];
+                if (val === '__BORRAR__') return '__BORRAR__';
+                if (val === '__LIMPIAR__') return '__LIMPIAR__';
+                result += val;
+                found = true;
+                break;
+              }
+            }
+            // Si no matchea, intentar como carácter individual si es 1 letra/dígito
+            if (!found && word.length === 1 && /[a-z0-9]/i.test(word)) {
+              result += word.toUpperCase();
+            }
+            i++;
+          }
+        }
+
+        return result;
+      }
+
+      function setupVoiceDictation(btnMic, inputField) {
+        if (!voiceSupported) {
+          btnMic.style.display = 'none';
+          return;
+        }
+
+        var recognition = null;
+        var isRecording = false;
+        var statusEl = document.createElement('div');
+        statusEl.className = 'voice-status';
+        statusEl.textContent = '';
+        btnMic.parentElement.parentElement.appendChild(statusEl);
+
+        function startRecording() {
+          recognition = new SpeechRecognition();
+          recognition.lang = 'es-PE';
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.maxAlternatives = 5;
+
+          recognition.onresult = function(event) {
+            for (var i = event.resultIndex; i < event.results.length; i++) {
+              if (event.results[i].isFinal) {
+                var bestResult = '';
+                var bestScore = -1;
+
+                // Evaluar todas las alternativas y quedarnos con la mejor
+                for (var alt = 0; alt < event.results[i].length; alt++) {
+                  var transcript = event.results[i][alt].transcript;
+                  var confidence = event.results[i][alt].confidence;
+                  var converted = voiceToPlate(transcript);
+
+                  // Priorizar resultados que producen caracteres válidos de placa
+                  var plateChars = converted.replace(/[^A-Z0-9\-]/g, '').length;
+                  var score = confidence + (plateChars > 0 ? 0.5 : 0);
+
+                  if (score > bestScore) {
+                    bestScore = score;
+                    bestResult = converted;
+                  }
+                }
+
+                if (bestResult === '__BORRAR__') {
+                  inputField.value = inputField.value.slice(0, -1);
+                  statusEl.textContent = '⌫ Borrado último carácter';
+                } else if (bestResult === '__LIMPIAR__') {
+                  inputField.value = '';
+                  statusEl.textContent = '🧹 Campo limpiado';
+                } else if (bestResult) {
+                  var current = inputField.value;
+                  var newVal = (current + bestResult).toUpperCase().replace(/[^A-Z0-9\-]/g, '');
+                  if (newVal.length > 7) newVal = newVal.substring(0, 7);
+                  inputField.value = newVal;
+                  statusEl.textContent = '✅ ' + bestResult;
+                  inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+
+                setTimeout(() => { if (isRecording) statusEl.textContent = '🔴 Escuchando...'; }, 1500);
+              } else {
+                // Resultado intermedio - mostrar lo que se está escuchando
+                statusEl.textContent = '🎧 "' + event.results[i][0].transcript + '"';
+              }
+            }
+          };
+
+          recognition.onerror = function(event) {
+            if (event.error === 'no-speech') {
+              statusEl.textContent = '⏳ No se detectó voz...';
+            } else if (event.error === 'not-allowed') {
+              statusEl.textContent = '❌ Permiso de micrófono denegado';
+              stopRecording();
+            } else {
+              statusEl.textContent = '⚠️ Error: ' + event.error;
+            }
+          };
+
+          recognition.onend = function() {
+            // Reiniciar si sigue grabando (mantiene el modo continuo)
+            if (isRecording) {
+              try { recognition.start(); } catch(e) {}
+            }
+          };
+
+          try {
+            recognition.start();
+            isRecording = true;
+            btnMic.classList.add('recording');
+            btnMic.textContent = '⏹';
+            statusEl.textContent = '🔴 Escuchando... diga letra por letra';
+            statusEl.classList.add('active');
+          } catch(e) {
+            statusEl.textContent = '❌ No se pudo iniciar el micrófono';
+          }
+        }
+
+        function stopRecording() {
+          isRecording = false;
+          if (recognition) {
+            recognition.abort();
+            recognition = null;
+          }
+          btnMic.classList.remove('recording');
+          btnMic.textContent = '🎤';
+          statusEl.textContent = '';
+          statusEl.classList.remove('active');
+        }
+
+        btnMic.addEventListener('click', function() {
+          if (isRecording) { stopRecording(); } else { startRecording(); }
+        });
+      }
+
+      setupVoiceDictation(document.getElementById('btnMicPrincipal'), placaPrincipal);
+      setupVoiceDictation(document.getElementById('btnMicSecundaria'), document.getElementById('placaSecundaria'));
+      // ===================== FIN DICTADO POR VOZ =====================
 
       window.addEventListener('beforeunload', function (e) { if (placaPrincipal.value.length > 0 && !editingId) { e.preventDefault(); e.returnValue = ''; } });
 
