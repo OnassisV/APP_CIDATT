@@ -223,6 +223,7 @@
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
+        <button class="theme-toggle" id="btnHelp" title="Ayuda">❓</button>
         <button class="theme-toggle" id="btnTheme">🌙</button>
       </div>
     </div>
@@ -416,6 +417,111 @@
   </div>
 
   <button class="fab-save hidden" id="fabSave" title="Guardar">💾</button>
+
+  <!-- Modal Ayuda -->
+  <div id="helpOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:16px; padding:24px; margin:16px; max-width:400px; width:100%; box-shadow:0 8px 32px rgba(0,0,0,0.25); max-height:85vh; overflow-y:auto;">
+      <h3 style="margin:0 0 16px; font-size:1.1rem;">❓ Centro de Ayuda</h3>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:16px;">
+        <button type="button" id="btnHelpApp" style="padding:14px; border:1px solid #ddd; border-radius:12px; background:#f8fafc; text-align:left; cursor:pointer; font-size:0.9rem;">
+          <strong>📋 Guía de Uso del Aplicativo</strong><br>
+          <small style="color:#666;">Cómo registrar vehículos, exportar y sincronizar</small>
+        </button>
+        <button type="button" id="btnHelpVoice" style="padding:14px; border:1px solid #ddd; border-radius:12px; background:#f8fafc; text-align:left; cursor:pointer; font-size:0.9rem;">
+          <strong>🎤 Comandos de Voz para Placas</strong><br>
+          <small style="color:#666;">Dictar placas con máxima efectividad</small>
+        </button>
+      </div>
+      <button type="button" id="btnHelpClose" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:10px; background:#fff; color:#666; font-size:0.9rem; cursor:pointer;">Cerrar</button>
+
+      <!-- Contenido Guía App -->
+      <div id="helpAppContent" style="display:none; margin-top:16px; border-top:1px solid #eee; padding-top:16px;">
+        <h4 style="margin:0 0 10px; color:#1a6b5a;">📋 Guía de Uso</h4>
+        <div style="font-size:0.85rem; line-height:1.6; color:#333;">
+          <p><strong>1. Iniciar Sesión</strong><br>
+          Ingresa tu usuario y contraseña proporcionados por el administrador.</p>
+
+          <p><strong>2. Configurar Turno</strong><br>
+          • Selecciona la <em>fecha de operación</em><br>
+          • Completa: nombre del peaje, número de caseta, operador y sentido<br>
+          • Si trabajas en 2 casetas, activa "Multiperfil"<br>
+          • Presiona <strong>Iniciar Operación</strong></p>
+
+          <p><strong>3. Registrar Vehículos</strong><br>
+          • La <em>hora</em> se pone automática (o pulsa ⌚ Ahora)<br>
+          • Escribe o dicta la <strong>placa principal</strong><br>
+          • Selecciona <strong>tipo de vehículo</strong> (L, C, M2, O, PNP, A)<br>
+          • Selecciona <strong>ejes</strong> (2-9)<br>
+          • Si lleva tráiler, activa la casilla y llena placa/ejes secundarios<br>
+          • Presiona 💾 para guardar</p>
+
+          <p><strong>4. Editar / Eliminar</strong><br>
+          • Desliza un registro a la izquierda para ver las opciones ✏️ editar o 🗑️ eliminar<br>
+          • Usa el buscador de placas para encontrar registros rápidamente</p>
+
+          <p><strong>5. Exportar / Cerrar Turno</strong><br>
+          Presiona el botón verde y elige:<br>
+          • ☁️ <strong>Enviar a la nube</strong> — sincroniza con la base de datos central<br>
+          • 📊 <strong>Exportar CSV</strong> — descarga el archivo para Excel<br>
+          • ☁️📊 <strong>Ambos</strong> — nube + archivo CSV<br>
+          Después podrás borrar los registros locales del dispositivo.</p>
+
+          <p><strong>6. Modo Offline</strong><br>
+          La app funciona sin internet. Los registros se guardan localmente y se sincronizan cuando haya conexión.</p>
+
+          <p><strong>⚙️ Ajustes</strong><br>
+          Presiona "Ajustes" en la barra superior para cambiar de caseta, fecha o cerrar sesión.</p>
+        </div>
+      </div>
+
+      <!-- Contenido Comandos de Voz -->
+      <div id="helpVoiceContent" style="display:none; margin-top:16px; border-top:1px solid #eee; padding-top:16px;">
+        <h4 style="margin:0 0 10px; color:#1a6b5a;">🎤 Comandos de Voz</h4>
+        <div style="font-size:0.85rem; line-height:1.6; color:#333;">
+          <p><strong>Cómo funciona:</strong><br>
+          Presiona el botón 🎤 al lado del campo de placa. El micrófono se activará (se pondrá rojo). Dicta letra por letra y el sistema convierte tu voz en caracteres de placa.</p>
+
+          <p><strong>✅ Ejemplo completo:</strong><br>
+          Di: <em>"alfa uno bravo guión uno dos tres"</em><br>
+          Resultado: <strong>A1B-123</strong></p>
+
+          <p><strong>📖 Alfabeto NATO (recomendado):</strong></p>
+          <table style="width:100%; border-collapse:collapse; font-size:0.8rem; margin:8px 0;">
+            <tr style="background:#f0fdf4;"><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Alfa</strong> → A</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Bravo</strong> → B</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Charlie</strong> → C</td></tr>
+            <tr><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Delta</strong> → D</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Echo</strong> → E</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Foxtrot</strong> → F</td></tr>
+            <tr style="background:#f0fdf4;"><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Golf</strong> → G</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Hotel</strong> → H</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>India</strong> → I</td></tr>
+            <tr><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Julieta</strong> → J</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Kilo</strong> → K</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Lima</strong> → L</td></tr>
+            <tr style="background:#f0fdf4;"><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Mike</strong> → M</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Noviembre</strong> → N</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Oscar</strong> → O</td></tr>
+            <tr><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Papa</strong> → P</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Quebec</strong> → Q</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Romeo</strong> → R</td></tr>
+            <tr style="background:#f0fdf4;"><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Sierra</strong> → S</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Tango</strong> → T</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Uniforme</strong> → U</td></tr>
+            <tr><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Víctor</strong> → V</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Whiskey</strong> → W</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Equis</strong> → X</td></tr>
+            <tr style="background:#f0fdf4;"><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Yankee</strong> → Y</td><td style="padding:4px 8px; border:1px solid #ddd;"><strong>Zulú</strong> → Z</td><td style="padding:4px 8px; border:1px solid #ddd;"></td></tr>
+          </table>
+
+          <p><strong>🇵🇪 También puedes usar nombres:</strong><br>
+          Antonio→A, Bernardo→B, Carlos→C, David→D, Ernesto→E, Francisco→F, Gerardo→G, Héctor→H, Ignacio→I, José→J, Lorenzo→L, Manuel→M, Nicolás→N, Pedro→P, Ramón→R, Santiago→S, Tomás→T</p>
+
+          <p><strong>🔢 Números:</strong><br>
+          Di: "cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve"</p>
+
+          <p><strong>📌 Caracteres especiales:</strong><br>
+          • <strong>"guión"</strong> o <strong>"menos"</strong> → inserta <strong>-</strong></p>
+
+          <p><strong>🛠️ Comandos de control:</strong><br>
+          • <strong>"borrar"</strong> o <strong>"quitar"</strong> → borra el último carácter<br>
+          • <strong>"limpiar"</strong> → borra todo el campo</p>
+
+          <p><strong>💡 Consejos para mejor precisión:</strong><br>
+          • Habla <strong>claro y pausado</strong>, una letra/número a la vez<br>
+          • Usa el <strong>alfabeto NATO</strong> (alfa, bravo, charlie...) para mayor precisión<br>
+          • Acerca el celular a tu boca<br>
+          • Evita ambientes con mucho ruido<br>
+          • Si una letra sale mal, di <strong>"borrar"</strong> y repite<br>
+          • Siempre puedes corregir manualmente con el teclado</p>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal Exportar / Cerrar Turno -->
   <div id="exportOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:none; align-items:center; justify-content:center;">
@@ -1240,6 +1346,31 @@
         localStorage.setItem('cidatt_theme', isDark ? 'dark' : 'light'); btnTheme.textContent = isDark ? '☀️' : '🌙';
       });
       if (localStorage.getItem('cidatt_theme') === 'dark' || (!localStorage.getItem('cidatt_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) { document.body.classList.add('dark-mode'); btnTheme.textContent = '☀️'; }
+
+      // --- LOGICA DE AYUDA ---
+      var helpOverlay = document.getElementById('helpOverlay');
+      var helpAppContent = document.getElementById('helpAppContent');
+      var helpVoiceContent = document.getElementById('helpVoiceContent');
+
+      document.getElementById('btnHelp').addEventListener('click', () => {
+        helpAppContent.style.display = 'none';
+        helpVoiceContent.style.display = 'none';
+        helpOverlay.style.display = 'flex';
+      });
+      document.getElementById('btnHelpClose').addEventListener('click', () => {
+        helpOverlay.style.display = 'none';
+      });
+      helpOverlay.addEventListener('click', (e) => {
+        if (e.target === helpOverlay) helpOverlay.style.display = 'none';
+      });
+      document.getElementById('btnHelpApp').addEventListener('click', () => {
+        helpAppContent.style.display = helpAppContent.style.display === 'none' ? 'block' : 'none';
+        helpVoiceContent.style.display = 'none';
+      });
+      document.getElementById('btnHelpVoice').addEventListener('click', () => {
+        helpVoiceContent.style.display = helpVoiceContent.style.display === 'none' ? 'block' : 'none';
+        helpAppContent.style.display = 'none';
+      });
 
       // --- LOGICA DE ACCESO ---
       licenseForm.addEventListener('submit', async e => {
