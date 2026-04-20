@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  
+  <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="TollFast" />
+  
+  <title>TollFast - Peaje Pro</title>
+  <style>
+    :root {
+      --bg: #eef2f5;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --line: #d1d5db;
+      --accent: #0f766e;
+      --accent-dark: #115e59;
+      --soft: #ecfeff;
+      --danger: #b91c1c;
+      --danger-bg: #fee2e2;
+      --ok: #166534;
+      --ok-bg: #dcfce7;
+      --warn: #eab308;
+      --warn-bg: #fef08a;
+      --radius: 16px;
+      --shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      --fab-size: 60px;
+    }
+
+    body.dark-mode {
+      --bg: #111827; --card: #1f2937; --text: #f9fafb; --muted: #9ca3af;
+      --line: #374151; --accent: #2dd4bf; --accent-dark: #14b8a6; --soft: #374151;
+      --danger: #fca5a5; --danger-bg: #7f1d1d; --ok: #6ee7b7; --ok-bg: #064e3b;
+      --warn: #fde047; --warn-bg: #854d0e;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      margin: 0; font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg); color: var(--text); transition: background-color 0.3s, color 0.3s;
+    }
+
+    .app {
+      max-width: 520px; margin: 0 auto;
+      padding-top: max(10px, env(safe-area-inset-top));
+      padding-left: max(12px, env(safe-area-inset-left));
+      padding-right: max(12px, env(safe-area-inset-right));
+      padding-bottom: max(100px, calc(100px + env(safe-area-inset-bottom)));
+    }
+
+    .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .header-actions { display: flex; gap: 8px; }
+
+    .theme-toggle {
+      background: var(--card); border: 1px solid var(--line); color: var(--text);
+      padding: 6px 10px; border-radius: 10px; cursor: pointer; font-size: 1.1rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+
+    .btn-install { background: #3b82f6; color: white; font-weight: bold; font-size: 0.85rem; border: none; }
+
+    .banner {
+      display: none; background: var(--ok-bg); color: var(--ok); border-radius: 12px;
+      padding: 10px; font-weight: bold; margin-bottom: 10px; text-align: center;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+    .warning-banner {
+      background: #fef08a; color: #854d0e; border-radius: 12px; padding: 10px;
+      font-weight: bold; font-size: 0.9rem; margin-bottom: 10px; display: none;
+    }
+
+    .card {
+      background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 12px; margin-bottom: 12px; transition: background-color 0.3s;
+    }
+
+    /* PANTALLA DE LICENCIA */
+    #licenseCard { text-align: center; padding: 30px 15px; border: 2px solid var(--danger); }
+    .pin-input { font-size: 1.5rem; letter-spacing: 4px; text-align: center; text-transform: uppercase; font-weight: bold; }
+
+    .site-info-bar {
+      display: flex; justify-content: space-between; align-items: center; background: var(--card);
+      border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin-bottom: 12px;
+      box-shadow: var(--shadow); font-size: 0.85rem; gap: 6px;
+    }
+    .site-info-text { font-weight: bold; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; }
+    .site-actions { display: flex; gap: 5px; flex-shrink: 0; }
+    
+    .section-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .section-title h2 { margin: 0; font-size: 1rem; }
+    .meta { font-size: 0.8rem; color: var(--muted); font-weight: bold; }
+
+    label { display: block; font-size: 0.85rem; font-weight: bold; margin-bottom: 4px; color: var(--muted); }
+
+    input, select {
+      width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 12px;
+      font-size: 1rem; background: var(--card); color: var(--text); transition: all 0.2s;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18); }
+
+    input.valid-plate { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok-bg); background: rgba(220, 252, 231, 0.1); }
+    input.warning-plate { border-color: var(--warn); box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.2); background: rgba(254, 240, 138, 0.1); }
+
+    .hidden { display: none !important; }
+
+    .placa-input { text-transform: uppercase; font-size: 1.15rem; font-weight: bold; text-align: center; letter-spacing: 2px; }
+    .hora-input { font-size: 1.15rem; font-weight: bold; text-align: center; letter-spacing: 1px; }
+
+    button {
+      border: none; border-radius: 12px; font-weight: bold; cursor: pointer;
+      padding: 12px 14px; font-size: 0.95rem; transition: transform 0.1s, opacity 0.2s;
+    }
+    button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-soft { background: var(--soft); color: var(--text); border: 1px solid var(--line); }
+    .btn-danger { background: var(--danger-bg); color: var(--danger); }
+    .btn-ok { background: var(--ok-bg); color: var(--ok); }
+    .btn-sm { padding: 6px 10px; font-size: 0.8rem; border-radius: 8px; }
+    .btn-switch { background: #3b82f6; color: white; } /* Azul para destacar el switch */
+
+    .helper { color: var(--muted); font-size: 0.8rem; line-height: 1.3; margin-top: 8px; }
+
+    .group-card {
+      border: 1px solid transparent; border-radius: 14px; padding: 8px; margin-bottom: 8px;
+      background: var(--card); transition: all 0.15s ease;
+    }
+    .group-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.1); background: var(--soft); }
+
+    .grid-2-col { display: grid; grid-template-columns: 1fr 1.5fr; gap: 8px; margin-bottom: 8px; }
+
+    .chips, .chips-4 { display: grid; gap: 6px; }
+    .chips { grid-template-columns: repeat(3, 1fr); }
+    .chips-4 { grid-template-columns: repeat(4, 1fr); }
+
+    .chip {
+      min-height: 48px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+      border-radius: 12px; font-weight: bold; font-size: 0.9rem; padding: 6px; line-height: 1.1;
+      text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center;
+    }
+    .chip small { font-size: 0.7rem; font-weight: bold; opacity: 0.8; margin-top: 2px; }
+    .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    .toggle-line { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .toggle-line input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+
+    .secundaria-box { display: none; margin-top: 8px; border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: var(--bg); }
+    .perfil-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 12px; background: var(--bg); }
+
+    .summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+    .stat { border: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; }
+    .stat .label { font-size: 0.8rem; color: var(--muted); margin-bottom: 0; }
+    .stat .value { font-size: 1.1rem; font-weight: bold; }
+
+    .toolbar { display: grid; grid-template-columns: 1fr; gap: 8px; margin-bottom: 10px; }
+
+    .history-list { display: grid; gap: 8px; overflow: hidden; }
+    .history-item { position: relative; border-radius: 12px; background: var(--danger-bg); overflow: hidden; }
+    
+    .history-swipe-content {
+      position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 10px 12px; transition: transform 0.3s cubic-bezier(0.1, 0.7, 0.1, 1); z-index: 2;
+    }
+    .history-item.swiped .history-swipe-content { transform: translateX(-120px); }
+
+    .history-actions { position: absolute; top: 0; right: 0; bottom: 0; width: 120px; display: flex; align-items: stretch; justify-content: flex-end; z-index: 1; }
+    .history-actions button { border-radius: 0; margin: 0; width: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; }
+
+    .history-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .history-time { font-weight: bold; font-size: 0.9rem; }
+    .history-meta { font-size: 0.8rem; color: var(--muted); }
+    .history-plate { font-size: 1rem; font-weight: bold; letter-spacing: 0.5px; margin-bottom: 2px; }
+
+    .form-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+    .form-actions button { padding: 10px; font-size: 0.85rem; }
+
+    .fab-save {
+      position: fixed; bottom: max(20px, calc(20px + env(safe-area-inset-bottom))); right: max(20px, env(safe-area-inset-right));
+      width: var(--fab-size); height: var(--fab-size); background: var(--accent); color: white; border-radius: 50%;
+      box-shadow: 0 4px 12px rgba(15, 118, 110, 0.5); display: flex; align-items: center; justify-content: center;
+      font-size: 1.6rem; z-index: 1000; transition: transform 0.2s, opacity 0.2s;
+    }
+    .fab-save:active { transform: scale(0.9); }
+    .fab-save.hidden { display: none !important; transform: scale(0); }
+    
+    .empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 15px 0; }
+
+    @media (max-width: 380px) { .chips, .chips-4 { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+  <link rel="manifest" href="./app.webmanifest">
+</head>
+<body>
+  <div class="app">
+    <div class="header-top">
+      <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">TollFast 🚗</h2>
+      <div class="header-actions">
+        <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
+        <button class="theme-toggle" id="btnTheme">🌙</button>
+      </div>
+    </div>
+
+    <section class="card hidden" id="licenseCard">
+      <h2 style="margin:0 0 10px 0; font-size:1.3rem; color: var(--danger);">🔐 Acceso de Operador</h2>
+      <p class="helper" style="margin-top:0; margin-bottom:20px; font-size:0.9rem;">Ingrese su usuario y clave para operar y sincronizar con Railway.</p>
+      <form id="licenseForm">
+        <div style="margin-bottom:15px;">
+          <input id="inputUsername" type="text" maxlength="80" placeholder="Usuario" required autocomplete="username" style="margin-bottom:10px; text-align:center; font-weight:bold;" />
+          <input id="inputPassword" type="password" maxlength="120" placeholder="Clave" required autocomplete="current-password" style="text-align:center; font-weight:bold;" />
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%; font-size: 1.1rem; padding: 14px;">Ingresar</button>
+      </form>
+    </section>
+
+    <div class="site-info-bar hidden" id="siteInfoBar">
+      <span class="site-info-text" id="siteInfoLabel">📍 Cargando...</span>
+      <div class="site-actions">
+        <button type="button" class="btn-switch btn-sm hidden" id="btnSwitchCaseta">🔄 Cambiar</button>
+        <button type="button" class="btn-soft btn-sm" id="btnCambiarDatos">⚙️ Ajustes</button>
+      </div>
+    </div>
+
+    <div class="warning-banner" id="warningBanner"></div>
+    <div class="banner" id="statusBanner">Registro guardado.</div>
+
+    <section class="card" id="setupCard">
+      <h2 style="margin:0 0 5px 0; font-size:1.05rem;">Configuración del Turno</h2>
+      <p class="helper" style="margin-top:0; margin-bottom:12px;">Datos base para la exportación y registros.</p>
+      <form id="setupForm">
+        
+        <div style="margin-bottom:12px;">
+          <label>Fecha de Operación (Para Digitación)</label>
+          <input id="setupFecha" type="date" required />
+        </div>
+
+        <div class="perfil-box">
+          <label style="color:var(--accent);">▶ PERFIL 1 (Caseta Principal)</label>
+          <input id="setupPeaje1" type="text" maxlength="60" placeholder="Nombre del Peaje" style="margin-bottom:8px;" required />
+          <input id="setupCaseta1" type="text" maxlength="20" placeholder="Número de Caseta" style="margin-bottom:8px;" required />
+          <input id="setupOperador1" type="text" maxlength="60" placeholder="Nombre del Operador" style="margin-bottom:8px;" required />
+          <select id="setupSentido1" required>
+            <option value="">Seleccione sentido...</option>
+            <option value="Este a Oeste">Este a Oeste</option>
+            <option value="Oeste a Este">Oeste a Este</option>
+            <option value="Norte a Sur">Norte a Sur</option>
+            <option value="Sur a Norte">Sur a Norte</option>
+          </select>
+        </div>
+
+        <div class="toggle-line" style="margin-bottom:12px;">
+          <input type="checkbox" id="setupMultiCaseta" />
+          <label for="setupMultiCaseta" style="margin:0; font-size:0.9rem; color:var(--text);">+ Configurar Caseta Secundaria (Multiperfil)</label>
+        </div>
+
+        <div class="perfil-box hidden" id="setupCaseta2Box">
+          <label style="color:var(--warn);">▶ PERFIL 2 (Caseta Secundaria)</label>
+          <input id="setupPeaje2" type="text" maxlength="60" placeholder="Nombre del Peaje" style="margin-bottom:8px;" />
+          <input id="setupCaseta2" type="text" maxlength="20" placeholder="Número de Caseta" style="margin-bottom:8px;" />
+          <input id="setupOperador2" type="text" maxlength="60" placeholder="Nombre del Operador" style="margin-bottom:8px;" />
+          <select id="setupSentido2">
+            <option value="">Seleccione sentido...</option>
+            <option value="Este a Oeste">Este a Oeste</option>
+            <option value="Oeste a Este">Oeste a Este</option>
+            <option value="Norte a Sur">Norte a Sur</option>
+            <option value="Sur a Norte">Sur a Norte</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn-primary" style="width:100%;">Iniciar Operación</button>
+      </form>
+    </section>
+
+    <div id="mainContent" class="hidden">
+      <section class="card" style="padding-top:8px;">
+        <div class="section-title" style="margin-bottom:6px;">
+          <h2 id="formTitle">Nuevo registro</h2>
+        </div>
+
+        <form id="registroForm">
+          
+          <div class="grid-2-col">
+            <div class="group-card" id="groupHora" style="margin: 0; padding: 6px;">
+              <label style="display:flex; justify-content:space-between; align-items:center;">
+                Hora 
+                <button type="button" class="btn-soft btn-sm" id="btnAhora" style="padding: 2px 6px; font-size: 0.7rem;">⌚ Ahora</button>
+              </label>
+              <input id="horaPaso" type="tel" class="hora-input" placeholder="14:30" maxlength="8" required style="padding: 9px;" autocomplete="off"/>
+            </div>
+
+            <div class="group-card" id="groupPlacaPrincipal" style="margin: 0; padding: 6px;">
+              <label for="placaPrincipal">Placa principal</label>
+              <input id="placaPrincipal" class="placa-input" type="text" maxlength="7" placeholder="ABC-123" 
+                     autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters" required style="padding: 9px;" />
+            </div>
+          </div>
+
+          <div class="group-card" id="groupTipo">
+            <label>Tipo de vehículo</label>
+            <div class="chips" id="tipoChips">
+              <button type="button" class="chip" data-tipo="L">L<br><small>Ligeros</small></button>
+              <button type="button" class="chip" data-tipo="C">C<br><small>Camiones</small></button>
+              <button type="button" class="chip" data-tipo="M2">M2<br><small>Van/Mini</small></button>
+              <button type="button" class="chip" data-tipo="O">O<br><small>Ómnibus</small></button>
+              <button type="button" class="chip" data-tipo="PNP">PNP<br><small>Policía</small></button>
+              <button type="button" class="chip" data-tipo="A">A<br><small>Ambulancia</small></button>
+            </div>
+          </div>
+
+          <div class="group-card" id="groupEjesPrincipal">
+            <label>Ejes de la unidad</label>
+            <div class="chips-4" id="ejesPrincipalChips">
+              <button type="button" class="chip" data-ejes-principal="2">2</button>
+              <button type="button" class="chip" data-ejes-principal="3">3</button>
+              <button type="button" class="chip" data-ejes-principal="4">4</button>
+              <button type="button" class="chip" data-ejes-principal="5">5</button>
+              <button type="button" class="chip" data-ejes-principal="6">6</button>
+              <button type="button" class="chip" data-ejes-principal="7">7</button>
+              <button type="button" class="chip" data-ejes-principal="8">8</button>
+              <button type="button" class="chip" data-ejes-principal="9">9</button>
+            </div>
+          </div>
+
+          <div class="group-card" id="groupSecundaria">
+            <div class="toggle-line" style="margin-bottom:0;">
+              <input type="checkbox" id="tieneSecundaria" />
+              <label for="tieneSecundaria" style="margin:0; font-size:0.9rem; color:var(--text);">+ Agregar Tráiler (Secundaria)</label>
+            </div>
+
+            <div class="secundaria-box" id="secundariaBox">
+              <div style="margin-bottom:10px;">
+                <label for="placaSecundaria">Placa secundaria</label>
+                <input id="placaSecundaria" class="placa-input" type="text" maxlength="7" placeholder="T1A-123" 
+                       autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters" style="padding: 9px;" />
+              </div>
+
+              <div>
+                <label>Ejes secundaria</label>
+                <div class="chips-4" id="ejesSecundariaChips">
+                  <button type="button" class="chip" data-ejes-secundaria="1">1</button>
+                  <button type="button" class="chip" data-ejes-secundaria="2">2</button>
+                  <button type="button" class="chip" data-ejes-secundaria="3">3</button>
+                  <button type="button" class="chip" data-ejes-secundaria="4">4</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-actions">
+            <button type="button" class="btn-soft" id="btnDeshacerUltimo">↩️ Deshacer Último</button>
+            <button type="button" class="btn-soft" id="btnLimpiar">🧹 Limpiar Formulario</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="section-title">
+          <h2>Registros y Exportación</h2>
+          <span class="meta" id="fechaHoyLabel"></span>
+        </div>
+
+        <div class="summary-grid">
+          <div class="stat"><span class="label">Autos:</span> <span class="value" id="totalRegistros">0</span></div>
+          <div class="stat"><span class="label">Tráilers:</span> <span class="value" id="conSecundaria">0</span></div>
+        </div>
+
+        <div class="toolbar">
+          <button type="button" class="btn-ok" id="btnCerrarTurno">📤 Exportar / Cerrar Turno</button>
+          <button type="button" class="btn-soft" id="btnToggleHistorial" style="padding: 8px;">Ver todo el historial</button>
+        </div>
+        
+        <input type="text" id="searchHistory" placeholder="🔍 Buscar placa..." style="margin-bottom: 8px; font-size: 0.9rem; padding: 10px;" autocomplete="off" />
+        
+        <div id="historialList" class="history-list"></div>
+        <p class="empty" id="emptyMessage">No hay registros todavía.</p>
+      </section>
+    </div>
+  </div>
+
+  <button class="fab-save hidden" id="fabSave" title="Guardar">💾</button>
+
+  <script>
+    (async function () {
+      'use strict';
+
+      // ==========================================
+      // CAPA 1: BLOQUEO DE DOMINIO (Domain Lock)
+      // ==========================================
+        const APP_CONFIG = {
+          apiBaseUrl: window.RLV_CIDATT_CONFIG && window.RLV_CIDATT_CONFIG.apiBaseUrl
+            ? window.RLV_CIDATT_CONFIG.apiBaseUrl
+            : `${window.location.origin}/api`,
+          enforceDomainLock: false,
+          allowedDomains: ['localhost', '127.0.0.1']
+        };
+
+        if (APP_CONFIG.enforceDomainLock && !APP_CONFIG.allowedDomains.includes(window.location.hostname)) {
+           document.body.innerHTML = '<h2 style="color:#b91c1c; text-align:center; margin-top:50px; padding:20px;">Acceso denegado para este dominio.</h2>';
+           return;
+        }
+      // ==========================================
+
+      // REGISTRO DEL SERVICE WORKER PARA MODO OFFLINE
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', async () => {
+          try {
+            const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+            console.log('✅ Service Worker registrado:', reg.scope);
+          } catch (err) {
+            console.error('❌ Error registrando Service Worker:', err);
+          }
+        });
+      }
+
+      let deferredPrompt;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault(); deferredPrompt = e; document.getElementById('btnInstall').classList.remove('hidden');
+      });
+      document.getElementById('btnInstall').addEventListener('click', async () => {
+        if (deferredPrompt) { deferredPrompt.prompt(); await deferredPrompt.userChoice; document.getElementById('btnInstall').classList.add('hidden'); deferredPrompt = null; }
+      });
+
+      const DB_NAME = 'TollFastDB'; const DB_VERSION = 1; let db;
+
+      function initDB() {
+        return new Promise((resolve, reject) => {
+          let req = indexedDB.open(DB_NAME, DB_VERSION);
+          req.onupgradeneeded = e => { if (!e.target.result.objectStoreNames.contains('store')) e.target.result.createObjectStore('store'); };
+          req.onsuccess = e => { db = e.target.result; resolve(); };
+          req.onerror = e => reject(e);
+        });
+      }
+
+      function putDB(key, val) {
+        return new Promise((resolve, reject) => {
+          if (!db) return resolve();
+          let tx = db.transaction('store', 'readwrite');
+          tx.objectStore('store').put(val, key);
+          tx.oncomplete = () => resolve(); tx.onerror = e => reject(e);
+        });
+      }
+
+      function getDB(key) {
+        return new Promise(resolve => {
+          if (!db) return resolve(null);
+          let tx = db.transaction('store', 'readonly');
+          let req = tx.objectStore('store').get(key);
+          req.onsuccess = () => resolve(req.result); req.onerror = () => resolve(null);
+        });
+      }
+
+      var STORAGE_KEY = 'rlv_cidatt_records_v1';
+      var SITE_INFO_KEY = 'rlv_cidatt_site_info_v1';
+      var DRAFT_KEY = 'rlv_cidatt_draft_v1';
+      var LICENSE_KEY = 'rlv_cidatt_auth_v1';
+      var AUTH_TOKEN_STORAGE_KEY = 'rlv_cidatt_auth_token';
+      var AUTH_USER_STORAGE_KEY = 'rlv_cidatt_auth_user';
+      
+      var HISTORY_LIMIT = 5; var NEWLINE = String.fromCharCode(10); var CSV_BOM = String.fromCharCode(65279);
+
+      var licenseCard = document.getElementById('licenseCard'); var licenseForm = document.getElementById('licenseForm'); var inputUsername = document.getElementById('inputUsername'); var inputPassword = document.getElementById('inputPassword');
+      var setupCard = document.getElementById('setupCard'); var siteInfoBar = document.getElementById('siteInfoBar'); var siteInfoLabel = document.getElementById('siteInfoLabel');
+      var mainContent = document.getElementById('mainContent'); var form = document.getElementById('registroForm'); var formTitle = document.getElementById('formTitle');
+      
+      var horaPaso = document.getElementById('horaPaso');
+      var placaPrincipal = document.getElementById('placaPrincipal');
+      var tieneSecundaria = document.getElementById('tieneSecundaria'); var secundariaBox = document.getElementById('secundariaBox'); var placaSecundaria = document.getElementById('placaSecundaria');
+      
+      var btnAhora = document.getElementById('btnAhora'); var btnLimpiar = document.getElementById('btnLimpiar'); var btnDeshacerUltimo = document.getElementById('btnDeshacerUltimo');
+      var fabSave = document.getElementById('fabSave'); var searchHistory = document.getElementById('searchHistory'); var historialList = document.getElementById('historialList');
+      var btnSwitchCaseta = document.getElementById('btnSwitchCaseta');
+
+      var registros = []; var siteInfo = null; var draftInfo = null; var editingId = null;
+      var selectedTipo = ''; var selectedEjesPrincipal = 0; var selectedEjesSecundaria = 0;
+  var lastCreatedId = null; var showAllHistory = false; var audioCtx = null; var isSaving = false; var searchTerm = ''; var hasValidLicense = false;
+  var authToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
+  var authUser = null;
+
+      function pad(val) { return String(val).padStart(2, '0'); }
+      function todayDate() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+      function currentTime() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+
+      // --- HORA INTELIGENTE (Digitación) ---
+      function formatSmartTime(val) {
+        let v = val.replace(/\D/g, ''); // Quita todo lo que no sea numero
+        if(!v) return currentTime();
+        let h = v.substring(0,2).padStart(2, '0');
+        let m = v.substring(2,4).padEnd(2, '0');
+        let s = v.substring(4,6).padEnd(2, '0');
+        if (parseInt(h) > 23) h = '23';
+        if (parseInt(m) > 59) m = '59';
+        if (parseInt(s) > 59) s = '59';
+        return `${h}:${m}:${s}`;
+      }
+
+      horaPaso.addEventListener('blur', () => {
+         horaPaso.value = formatSmartTime(horaPaso.value);
+      });
+
+      function formatPlate(value) {
+        let clean = String(value || '').toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+        if (clean.length > 3) return clean.substring(0, 3) + '-' + clean.substring(3, 6);
+        return clean;
+      }
+
+      function csvEscape(val) { return '"' + String(val == null ? '' : val).replace(/"/g, '""') + '"'; }
+
+      function generateId() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+        return 'cidatt-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      }
+
+      async function apiRequest(path, options) {
+        var requestOptions = options || {};
+        var headers = Object.assign({ 'Content-Type': 'application/json' }, requestOptions.headers || {});
+        if (authToken) headers.Authorization = 'Bearer ' + authToken;
+        var response = await fetch(APP_CONFIG.apiBaseUrl + path, {
+          method: requestOptions.method || 'GET',
+          headers: headers,
+          body: requestOptions.body ? JSON.stringify(requestOptions.body) : undefined
+        });
+
+        if (!response.ok) {
+          let payload;
+          try { payload = await response.json(); } catch (err) { payload = null; }
+          if (response.status === 401) {
+            authToken = '';
+            authUser = null;
+            localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+            localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+            putDB(LICENSE_KEY, null).catch(()=>{});
+            hasValidLicense = false;
+            applySetupVisibility();
+          }
+          throw new Error(payload && payload.error ? payload.error : 'No se pudo completar la sincronizacion.');
+        }
+
+        return response.json();
+      }
+
+      async function syncSessionToServer(sessionInfo) {
+        if (!sessionInfo || !sessionInfo.remoteSessionId) return null;
+        return apiRequest('/sessions/upsert', {
+          method: 'POST',
+          body: {
+            id: sessionInfo.remoteSessionId,
+            operationDate: sessionInfo.fechaTurno,
+            multi: sessionInfo.multi,
+            activeIndex: sessionInfo.activeIndex,
+            status: 'open',
+            profiles: sessionInfo.profiles
+          }
+        });
+      }
+
+      async function syncRecordToServer(record) {
+        if (!record || !record.sessionId) throw new Error('Registro sin sesion remota.');
+        return apiRequest('/records/upsert', {
+          method: 'POST',
+          body: record
+        });
+      }
+
+      async function deleteRecordFromServer(recordId) {
+        return apiRequest('/records/' + recordId, { method: 'DELETE' });
+      }
+
+      function applyAuthenticatedUserDefaults() {
+        if (!authUser || !authUser.fullName) return;
+        var operador1 = document.getElementById('setupOperador1');
+        var operador2 = document.getElementById('setupOperador2');
+        if (operador1 && !operador1.value) operador1.value = authUser.fullName;
+        if (operador2 && !operador2.value) operador2.value = authUser.fullName;
+      }
+
+      async function restoreAuthenticatedSession() {
+        if (!authToken) return false;
+        try {
+          var payload = await apiRequest('/auth/me');
+          authUser = payload.user || null;
+          if (authUser) localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser));
+          await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
+          hasValidLicense = true;
+          applyAuthenticatedUserDefaults();
+          return true;
+        } catch (err) {
+          authToken = '';
+          authUser = null;
+          localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+          localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+          await putDB(LICENSE_KEY, null).catch(()=>{});
+          hasValidLicense = false;
+          return false;
+        }
+      }
+
+      function setStatus(text, type = 'ok') {
+        let sb = document.getElementById('statusBanner'); sb.textContent = text;
+        sb.style.background = type === 'ok' ? 'var(--ok-bg)' : 'var(--danger-bg)'; sb.style.color = type === 'ok' ? 'var(--ok)' : 'var(--danger)';
+        sb.style.display = 'block'; clearTimeout(sb.timer); sb.timer = setTimeout(() => { sb.style.display = 'none'; }, 2000);
+      }
+
+      function playFeedback() {
+        if (navigator.vibrate) navigator.vibrate(60);
+        try {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+          const osc = audioCtx.createOscillator(); const gainNode = audioCtx.createGain();
+          osc.connect(gainNode); gainNode.connect(audioCtx.destination);
+          osc.type = 'sine'; osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+          gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        } catch(e) {}
+      }
+
+      function saveDraft() {
+        if (editingId) return; 
+        draftInfo = { placaPrincipal: placaPrincipal.value, tipo: selectedTipo, ejesPrincipal: selectedEjesPrincipal, tieneSecundaria: tieneSecundaria.checked, placaSecundaria: placaSecundaria.value, ejesSecundaria: selectedEjesSecundaria };
+        putDB(DRAFT_KEY, draftInfo).catch(()=>{});
+      }
+
+      function validatePlateInput(inputEl) {
+        inputEl.value = formatPlate(inputEl.value); inputEl.classList.remove('valid-plate', 'warning-plate');
+        if (inputEl.value.length === 7) {
+          if (/^[A-Z0-9]{3}-\d{3}$/.test(inputEl.value)) inputEl.classList.add('valid-plate'); else inputEl.classList.add('warning-plate');
+        }
+      }
+
+      function handleSecundariaChange() {
+        toggleSecundaria(tieneSecundaria.checked);
+        if (tieneSecundaria.checked) placaSecundaria.focus(); else placaPrincipal.focus();
+        saveDraft();
+      }
+
+      placaPrincipal.addEventListener('input', function () { validatePlateInput(placaPrincipal); setActiveGroup('groupPlacaPrincipal'); saveDraft(); });
+      placaSecundaria.addEventListener('input', function () { validatePlateInput(placaSecundaria); setActiveGroup('groupSecundaria'); saveDraft(); });
+      tieneSecundaria.addEventListener('change', handleSecundariaChange);
+
+      function activateChip(selector, attr, val) { document.querySelectorAll(selector).forEach(btn => btn.classList.toggle('active', btn.getAttribute(attr) === String(val))); }
+
+      function setTipo(val, isUserAction = true) { 
+        selectedTipo = val || ''; activateChip('[data-tipo]', 'data-tipo', selectedTipo); 
+        if (isUserAction && ['L', 'M2', 'PNP', 'A'].includes(val)) setEjesPrincipal(2, true);
+        if (isUserAction) saveDraft(); 
+      }
+      function setEjesPrincipal(val, isUserAction = true) { selectedEjesPrincipal = Number(val) || 0; activateChip('[data-ejes-principal]', 'data-ejes-principal', selectedEjesPrincipal); if (isUserAction) saveDraft(); }
+      function setEjesSecundaria(val, isUserAction = true) { selectedEjesSecundaria = Number(val) || 0; activateChip('[data-ejes-secundaria]', 'data-ejes-secundaria', selectedEjesSecundaria); if (isUserAction) saveDraft(); }
+
+      function toggleSecundaria(show) {
+        secundariaBox.style.display = show ? 'block' : 'none';
+        if (!show) { placaSecundaria.value = ''; placaSecundaria.classList.remove('valid-plate', 'warning-plate'); setEjesSecundaria(0, false); }
+      }
+
+      function setDisplayedTime(val) { horaPaso.value = val; }
+
+      function setActiveGroup(id) { document.querySelectorAll('.group-card').forEach(el => el.classList.toggle('active', el.id === id)); }
+
+      function getCurrentSiteInfo() { return siteInfo && siteInfo.profiles ? siteInfo.profiles[siteInfo.activeIndex] : null; }
+      function getActiveDate() { return siteInfo && siteInfo.fechaTurno ? siteInfo.fechaTurno : todayDate(); }
+
+      function renderSiteInfo() {
+        var active = getCurrentSiteInfo();
+        if (!active) return;
+        let opName = active.operador ? active.operador.split(' ')[0] : 'Op'; 
+        siteInfoLabel.innerHTML = `📍 C:${active.numeroCaseta} | 👤 ${opName} | 📅 ${getActiveDate()}`;
+        
+        if (siteInfo.multi) {
+           btnSwitchCaseta.classList.remove('hidden');
+           // Cambiar color para notar cual está activa
+           siteInfoLabel.style.color = siteInfo.activeIndex === 0 ? 'var(--accent)' : 'var(--warn)';
+        } else {
+           btnSwitchCaseta.classList.add('hidden');
+           siteInfoLabel.style.color = 'var(--text)';
+        }
+      }
+
+      function applySetupVisibility() {
+        if (!hasValidLicense) {
+            licenseCard.classList.remove('hidden'); setupCard.classList.add('hidden');
+            mainContent.classList.add('hidden'); siteInfoBar.classList.add('hidden'); fabSave.classList.add('hidden'); return;
+        }
+        licenseCard.classList.add('hidden');
+        var hasSite = Boolean(getCurrentSiteInfo());
+        setupCard.classList.toggle('hidden', hasSite); mainContent.classList.toggle('hidden', !hasSite);
+        siteInfoBar.classList.toggle('hidden', !hasSite); fabSave.classList.toggle('hidden', !hasSite);
+      }
+
+      function resetForm(loadDraft = false) {
+        if (!getCurrentSiteInfo()) return;
+        editingId = null; formTitle.textContent = 'Nuevo registro'; btnLimpiar.textContent = '🧹 Limpiar Formulario'; fabSave.innerHTML = '💾';
+        btnAhora.disabled = false;
+        
+        setDisplayedTime(currentTime()); setActiveGroup('groupHora');
+        
+        if (loadDraft && draftInfo) {
+          placaPrincipal.value = draftInfo.placaPrincipal || ''; validatePlateInput(placaPrincipal);
+          tieneSecundaria.checked = Boolean(draftInfo.tieneSecundaria);
+          setTipo(draftInfo.tipo || '', false); setEjesPrincipal(draftInfo.ejesPrincipal || 0, false); setEjesSecundaria(draftInfo.ejesSecundaria || 0, false);
+          toggleSecundaria(tieneSecundaria.checked); placaSecundaria.value = draftInfo.placaSecundaria || ''; validatePlateInput(placaSecundaria);
+        } else {
+          placaPrincipal.value = ''; placaSecundaria.value = ''; placaPrincipal.classList.remove('valid-plate', 'warning-plate'); placaSecundaria.classList.remove('valid-plate', 'warning-plate');
+          tieneSecundaria.checked = false; setTipo('', false); setEjesPrincipal(0, false); setEjesSecundaria(0, false); toggleSecundaria(false);
+          draftInfo = null; putDB(DRAFT_KEY, null).catch(()=>{});
+        }
+        setTimeout(() => placaPrincipal.focus(), 50);
+      }
+
+      searchHistory.addEventListener('input', (e) => { searchTerm = e.target.value.trim().toUpperCase(); renderAll(); });
+
+      function renderAll() {
+        var activeDate = getActiveDate();
+        var hoy = registros.filter(r => r.fecha === activeDate);
+        
+        document.getElementById('totalRegistros').textContent = hoy.length;
+        document.getElementById('conSecundaria').textContent = hoy.filter(r => r.placaSecundaria).length;
+        document.getElementById('fechaHoyLabel').textContent = activeDate;
+        
+        if (searchTerm) hoy = hoy.filter(r => r.placaPrincipal.includes(searchTerm) || (r.placaSecundaria && r.placaSecundaria.includes(searchTerm)));
+        hoy = hoy.sort((a,b) => b.horaPaso.localeCompare(a.horaPaso));
+        
+        var visibleData = (showAllHistory || searchTerm) ? hoy : hoy.slice(0, HISTORY_LIMIT);
+        
+        historialList.innerHTML = '';
+        document.getElementById('emptyMessage').style.display = visibleData.length ? 'none' : 'block';
+        if(searchTerm && visibleData.length === 0) document.getElementById('emptyMessage').textContent = "No se encontraron placas.";
+        else if(visibleData.length === 0) document.getElementById('emptyMessage').textContent = "No hay registros todavía.";
+        
+        let btnToggle = document.getElementById('btnToggleHistorial');
+        btnToggle.style.display = (hoy.length > HISTORY_LIMIT && !searchTerm) ? 'inline-block' : 'none';
+        btnToggle.textContent = showAllHistory ? 'Ver menos' : 'Ver todo el historial';
+
+        visibleData.forEach(item => {
+          var sec = item.placaSecundaria ? `+ Sec: ${item.placaSecundaria} (${item.ejesSecundaria}e)` : '';
+          var html = `
+            <div class="history-item" data-id="${item.id}">
+              <div class="history-actions"><button type="button" class="btn-soft btn-edit">✏️</button><button type="button" class="btn-danger btn-delete">🗑️</button></div>
+              <div class="history-swipe-content">
+                <div class="history-top"><div class="history-time">${item.horaPaso} <span style="font-size:0.75rem; font-weight:normal; opacity:0.7;">(C:${item.numeroCaseta})</span></div><div class="history-meta">${item.tipoVehiculo} · ${item.totalEjes} ejes</div></div>
+                <div class="history-plate">${item.placaPrincipal} ${sec}</div>
+              </div>
+            </div>`;
+          historialList.insertAdjacentHTML('beforeend', html);
+        });
+        btnDeshacerUltimo.disabled = !lastCreatedId || !registros.some(r => r.id === lastCreatedId);
+      }
+
+      let touchStartX = 0, touchStartY = 0;
+      historialList.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; }, {passive: true});
+      historialList.addEventListener('touchend', e => {
+        let diffX = touchStartX - e.changedTouches[0].screenX; let diffY = Math.abs(touchStartY - e.changedTouches[0].screenY);
+        if (diffY > 30) return; let item = e.target.closest('.history-item'); if (!item) return;
+        if (diffX > 40) { document.querySelectorAll('.history-item.swiped').forEach(el => el.classList.remove('swiped')); item.classList.add('swiped'); } 
+        else if (diffX < -40) { item.classList.remove('swiped'); }
+      }, {passive: true});
+
+      historialList.addEventListener('click', async e => {
+        let editBtn = e.target.closest('.btn-edit'); let delBtn = e.target.closest('.btn-delete'); let id = e.target.closest('.history-item')?.dataset.id;
+        if (editBtn && id) {
+          let r = registros.find(x => x.id === id);
+          if (r) {
+            editingId = id; formTitle.textContent = 'Editar registro'; btnLimpiar.textContent = '❌ Cancelar Edición'; fabSave.innerHTML = '✏️';
+            btnAhora.disabled = true;
+            setDisplayedTime(r.horaPaso); placaPrincipal.value = r.placaPrincipal; validatePlateInput(placaPrincipal);
+            setTipo(r.tipoVehiculo, false); setEjesPrincipal(r.ejesPrincipal, false);
+            tieneSecundaria.checked = Boolean(r.placaSecundaria); toggleSecundaria(tieneSecundaria.checked);
+            placaSecundaria.value = r.placaSecundaria || ''; validatePlateInput(placaSecundaria); setEjesSecundaria(r.ejesSecundaria || 0, false);
+            searchHistory.value = ''; searchTerm = ''; renderAll(); window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }
+        if (delBtn && id) {
+          if (confirm('¿Eliminar este registro de forma permanente?')) {
+            registros = registros.filter(x => x.id !== id); await putDB(STORAGE_KEY, registros).catch(e => alert("Error: " + e));
+            deleteRecordFromServer(id).catch(() => {});
+            if (editingId === id) resetForm(false); renderAll(); setStatus('Registro eliminado', 'danger');
+          }
+        }
+      });
+
+      fabSave.addEventListener('click', function(e) {
+        e.preventDefault(); if (isSaving) return; 
+        if (form.reportValidity()) {
+          isSaving = true; fabSave.style.opacity = '0.5';
+          form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+          setTimeout(() => { isSaving = false; fabSave.style.opacity = '1'; }, 1000);
+        }
+      });
+
+      function shouldHandleEnterShortcut(e, hasLicense = hasValidLicense, isMainVisible = !mainContent.classList.contains('hidden')) {
+        if (!e || e.key !== 'Enter' || !hasLicense || !isMainVisible) return false;
+        let target = e.target;
+        if (!target || typeof target.closest !== 'function') return false;
+        if (!target.closest('#registroForm')) return false;
+        return String(target.tagName || '').toUpperCase() !== 'BUTTON';
+      }
+
+      document.addEventListener('keydown', function(e) {
+        if (!shouldHandleEnterShortcut(e)) return;
+        e.preventDefault();
+        fabSave.click();
+      });
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var act = getCurrentSiteInfo();
+        if (!act) return alert('Faltan datos de la caseta.');
+        if (!placaPrincipal.value || !selectedTipo || !selectedEjesPrincipal) return alert('Complete placa, tipo y ejes principales.');
+        if (tieneSecundaria.checked && (!placaSecundaria.value || !selectedEjesSecundaria)) return alert('Complete datos de la placa secundaria.');
+        
+        // Forzamos el formato de hora por si guardaron muy rapido sin que se dispare el onblur
+        horaPaso.value = formatSmartTime(horaPaso.value);
+
+        var data = {
+          id: editingId || generateId(),
+          fecha: getActiveDate(), nombrePeaje: act.nombrePeaje, numeroCaseta: act.numeroCaseta, sentidoCirculacion: act.sentidoCirculacion, operador: act.operador,
+          horaPaso: horaPaso.value, placaPrincipal: placaPrincipal.value, tipoVehiculo: selectedTipo, ejesPrincipal: selectedEjesPrincipal,
+          placaSecundaria: tieneSecundaria.checked ? placaSecundaria.value : '', ejesSecundaria: tieneSecundaria.checked ? selectedEjesSecundaria : 0,
+          totalEjes: Number(selectedEjesPrincipal) + (tieneSecundaria.checked ? Number(selectedEjesSecundaria) : 0)
+        };
+
+        data.sessionId = siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : '';
+        data.syncStatus = 'pending';
+
+        if (editingId) { registros = registros.map(r => r.id === editingId ? data : r); lastCreatedId = null; } 
+        else { registros.push(data); lastCreatedId = data.id; }
+
+        try {
+          await putDB(STORAGE_KEY, registros);
+          await syncSessionToServer(siteInfo);
+          await syncRecordToServer(data);
+          data.syncStatus = 'synced';
+          await putDB(STORAGE_KEY, registros);
+          playFeedback(); setStatus(editingId ? 'Cambios guardados y sincronizados' : 'Vehículo registrado y sincronizado');
+          resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
+        } catch(err) {
+          await putDB(STORAGE_KEY, registros).catch(()=>{});
+          playFeedback(); setStatus('Guardado local. Sincronizacion pendiente.', 'danger');
+          resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
+        }
+      });
+
+      document.getElementById('btnCerrarTurno').addEventListener('click', async () => {
+        let currentFecha = getActiveDate();
+        let registrosTurno = registros.filter(r => r.fecha === currentFecha);
+        
+        if (!registrosTurno.length) return alert('No hay registros en esta fecha para exportar.');
+        
+        let rows = [['Fecha', 'Peaje', 'Caseta', 'Sentido', 'Operador', 'Hora', 'Placa 1', 'Tipo', 'Ejes 1', 'Placa 2', 'Ejes 2', 'Total Ejes']];
+        registrosTurno.forEach(r => rows.push([r.fecha, r.nombrePeaje, r.numeroCaseta, r.sentidoCirculacion, (r.operador || ''), r.horaPaso, r.placaPrincipal, r.tipoVehiculo, r.ejesPrincipal, r.placaSecundaria, r.ejesSecundaria, r.totalEjes]));
+        
+        let csv = rows.map(r => r.map(csvEscape).join(',')).join(NEWLINE);
+        let blob = new Blob([CSV_BOM + csv], { type: 'text/csv;charset=utf-8;' });
+        
+        let act = getCurrentSiteInfo() || { nombrePeaje: 'Peaje', numeroCaseta: '00', operador: 'Op' };
+        let safePeaje = act.nombrePeaje.replace(/[^a-z0-9]/gi, '_');
+        let fileName = `${safePeaje}_MultiCaseta_${currentFecha}.csv`;
+
+        let resumenTexto = `🚗 *CIERRE DE TURNO*\n📍 Peaje: ${act.nombrePeaje}\n📅 Fecha de Op: ${currentFecha}\n📊 Total Vehículos: ${registrosTurno.length}\n🚜 Con Tráiler: ${registrosTurno.filter(r => r.placaSecundaria).length}`;
+        try { await navigator.clipboard.writeText(resumenTexto); } catch(e) {}
+
+        if (navigator.share && navigator.canShare) {
+          try {
+            let file = new File([blob], fileName, { type: 'text/csv' });
+            await navigator.share({ title: 'Cierre de Turno', text: resumenTexto, files: [file] });
+          } catch (e) { descargarNormal(blob, fileName); }
+        } else { descargarNormal(blob, fileName); }
+
+        setTimeout(async () => {
+          if (confirm('Se ha exportado el archivo.\n\n¿Deseas BORRAR los registros de este turno para limpiar el dispositivo?')) {
+            registros = registros.filter(r => r.fecha !== currentFecha); // Borra solo los exportados
+            await putDB(STORAGE_KEY, registros).catch(()=>{}); renderAll();
+          }
+        }, 1500);
+      });
+
+      function descargarNormal(blob, fileName) {
+        let url = URL.createObjectURL(blob); let a = document.createElement('a');
+        a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      }
+
+      window.addEventListener('beforeunload', function (e) { if (placaPrincipal.value.length > 0 && !editingId) { e.preventDefault(); e.returnValue = ''; } });
+
+      var btnTheme = document.getElementById('btnTheme');
+      btnTheme.addEventListener('click', () => {
+        document.body.classList.toggle('dark-mode'); let isDark = document.body.classList.contains('dark-mode');
+        localStorage.setItem('tollfast_theme', isDark ? 'dark' : 'light'); btnTheme.textContent = isDark ? '☀️' : '🌙';
+      });
+      if (localStorage.getItem('tollfast_theme') === 'dark' || (!localStorage.getItem('tollfast_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) { document.body.classList.add('dark-mode'); btnTheme.textContent = '☀️'; }
+
+      // --- LOGICA DE ACCESO ---
+      licenseForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          let result = await apiRequest('/auth/login', {
+            method: 'POST',
+            body: {
+              username: inputUsername.value.trim(),
+              password: inputPassword.value
+            }
+          });
+          authToken = result.token || '';
+          authUser = result.user || null;
+          localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, authToken);
+          localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser || {}));
+          await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
+          hasValidLicense = true;
+          applyAuthenticatedUserDefaults();
+          setStatus('Acceso concedido', 'ok');
+          applySetupVisibility();
+          inputPassword.value = '';
+        } catch (err) {
+          alert(err.message || 'No se pudo iniciar sesion.');
+          inputPassword.value = '';
+        }
+      });
+
+      // --- LOGICA MULTIPERFIL (SETUP) ---
+      document.getElementById('setupFecha').value = todayDate(); // Fecha hoy por defecto
+      
+      document.getElementById('setupMultiCaseta').addEventListener('change', (e) => {
+         document.getElementById('setupCaseta2Box').classList.toggle('hidden', !e.target.checked);
+      });
+
+      document.getElementById('setupForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        let perfiles = [];
+        
+        perfiles.push({
+          nombrePeaje: document.getElementById('setupPeaje1').value, numeroCaseta: document.getElementById('setupCaseta1').value,
+          operador: document.getElementById('setupOperador1').value, sentidoCirculacion: document.getElementById('setupSentido1').value
+        });
+
+        if (document.getElementById('setupMultiCaseta').checked) {
+           perfiles.push({
+             nombrePeaje: document.getElementById('setupPeaje2').value || document.getElementById('setupPeaje1').value, 
+             numeroCaseta: document.getElementById('setupCaseta2').value || '00',
+             operador: document.getElementById('setupOperador2').value || document.getElementById('setupOperador1').value, 
+             sentidoCirculacion: document.getElementById('setupSentido2').value
+           });
+        }
+
+        siteInfo = {
+          fechaTurno: document.getElementById('setupFecha').value,
+          multi: perfiles.length > 1,
+          activeIndex: 0,
+          profiles: perfiles,
+          remoteSessionId: generateId()
+        };
+        await putDB(SITE_INFO_KEY, siteInfo).catch(()=>{});
+        try {
+          await syncSessionToServer(siteInfo);
+          setStatus('Turno iniciado y sincronizado', 'ok');
+        } catch (err) {
+          setStatus('Turno guardado localmente. Sincronizacion pendiente.', 'danger');
+        }
+        renderSiteInfo(); applySetupVisibility(); resetForm(true);
+      });
+      
+      document.getElementById('btnCambiarDatos').addEventListener('click', async () => { siteInfo = null; await putDB(SITE_INFO_KEY, null).catch(()=>{}); applySetupVisibility(); });
+      
+      btnSwitchCaseta.addEventListener('click', async () => {
+         if (siteInfo && siteInfo.multi) {
+            siteInfo.activeIndex = siteInfo.activeIndex === 0 ? 1 : 0;
+            await putDB(SITE_INFO_KEY, siteInfo);
+          syncSessionToServer(siteInfo).catch(() => {});
+            renderSiteInfo();
+            setStatus(`Cambiado a Caseta ${getCurrentSiteInfo().numeroCaseta}`, 'ok');
+         }
+      });
+
+      btnAhora.addEventListener('click', () => { setDisplayedTime(currentTime()); placaPrincipal.focus(); });
+      btnLimpiar.addEventListener('click', () => { if(confirm(editingId ? '¿Cancelar edición?' : '¿Limpiar formulario?')) resetForm(false); });
+      
+      btnDeshacerUltimo.addEventListener('click', async () => {
+        if (!lastCreatedId) return;
+        if (!confirm('¿Seguro que deseas ELIMINAR el último vehículo registrado?')) return;
+        registros = registros.filter(r => r.id !== lastCreatedId); await putDB(STORAGE_KEY, registros).catch(()=>{});
+        deleteRecordFromServer(lastCreatedId).catch(() => {});
+        lastCreatedId = null; renderAll(); setStatus('Vehículo eliminado', 'danger');
+      });
+      
+      document.getElementById('btnToggleHistorial').addEventListener('click', () => { showAllHistory = !showAllHistory; renderAll(); });
+      document.querySelectorAll('[data-tipo]').forEach(b => b.addEventListener('click', () => { setTipo(b.dataset.tipo, true); setActiveGroup('groupTipo'); }));
+      document.querySelectorAll('[data-ejes-principal]').forEach(b => b.addEventListener('click', () => { setEjesPrincipal(b.dataset.ejesPrincipal, true); setActiveGroup('groupEjesPrincipal'); }));
+      document.querySelectorAll('[data-ejes-secundaria]').forEach(b => b.addEventListener('click', () => { setEjesSecundaria(b.dataset.ejesSecundaria, true); setActiveGroup('groupSecundaria'); }));
+      
+      try {
+        await initDB();
+        registros = (await getDB(STORAGE_KEY)) || []; siteInfo = (await getDB(SITE_INFO_KEY)) || null; draftInfo = (await getDB(DRAFT_KEY)) || null;
+        let lic = await getDB(LICENSE_KEY);
+        if (lic && lic.usuario) authUser = lic.usuario;
+        await restoreAuthenticatedSession();
+      } catch (err) {
+        let wb = document.getElementById('warningBanner'); wb.textContent = `⚠️ Modo privado detectado. Los datos se perderán si cierra la pestaña.`; wb.style.display = 'block';
+      }
+
+      applySetupVisibility(); 
+      if (hasValidLicense) { applyAuthenticatedUserDefaults(); renderSiteInfo(); if (getCurrentSiteInfo()) resetForm(true); renderAll(); }
+    })();
+  </script>
+</body>
+</html>
