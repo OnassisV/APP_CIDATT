@@ -130,6 +130,10 @@ function mapRecordPayload(body = {}) {
   };
 }
 
+app.get('/healthz', (_req, res) => {
+  res.json({ ok: true, service: 'rlv-cidatt' });
+});
+
 app.get('/api/health', async (_req, res) => {
   try {
     await query('SELECT 1 AS ok');

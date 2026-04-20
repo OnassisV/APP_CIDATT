@@ -80,8 +80,9 @@ La carpeta `rlv-cidatt/` ya quedo preparada para desplegarse como un solo servic
 3. Railway detectara el `Dockerfile` y construira el contenedor.
 4. En Variables, carga las credenciales reales de MySQL Railway.
 5. Despliega el servicio.
-6. Verifica que responda `GET /api/health`.
-7. Abre la URL publica del servicio y prueba login con `admin / CIDATT2026!`.
+6. Verifica que responda `GET /healthz`.
+7. Luego valida la conexion a MySQL con `GET /api/health`.
+8. Abre la URL publica del servicio y prueba login con `admin / CIDATT2026!`.
 
 ### Cambio de clave inicial
 
