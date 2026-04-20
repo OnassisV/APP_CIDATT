@@ -141,6 +141,7 @@
     .chips, .chips-4 { display: grid; gap: 6px; }
     .chips { grid-template-columns: repeat(3, 1fr); }
     .chips-4 { grid-template-columns: repeat(4, 1fr); }
+    .chips-5 { grid-template-columns: repeat(5, 1fr); }
 
     .chip {
       min-height: 48px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
@@ -194,7 +195,7 @@
     
     .empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 15px 0; }
 
-    @media (max-width: 380px) { .chips, .chips-4 { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 380px) { .chips, .chips-4, .chips-5 { grid-template-columns: repeat(2, 1fr); } }
   </style>
   <link rel="manifest" href="./app.webmanifest">
 </head>
@@ -343,11 +344,17 @@
 
               <div>
                 <label>Ejes secundaria</label>
-                <div class="chips-4" id="ejesSecundariaChips">
+                <div class="chips-5" id="ejesSecundariaChips">
                   <button type="button" class="chip" data-ejes-secundaria="1">1</button>
                   <button type="button" class="chip" data-ejes-secundaria="2">2</button>
                   <button type="button" class="chip" data-ejes-secundaria="3">3</button>
                   <button type="button" class="chip" data-ejes-secundaria="4">4</button>
+                  <button type="button" class="chip" data-ejes-secundaria="5">5</button>
+                  <button type="button" class="chip" data-ejes-secundaria="6">6</button>
+                  <button type="button" class="chip" data-ejes-secundaria="7">7</button>
+                  <button type="button" class="chip" data-ejes-secundaria="8">8</button>
+                  <button type="button" class="chip" data-ejes-secundaria="9">9</button>
+                  <button type="button" class="chip" data-ejes-secundaria="10">&gt;9</button>
                 </div>
               </div>
             </div>
