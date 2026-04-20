@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS cidatt_auth_users (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   username VARCHAR(80) NOT NULL,
   full_name VARCHAR(120) NOT NULL,
-  password_hash CHAR(64) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -24,11 +24,7 @@ CREATE TABLE IF NOT EXISTS cidatt_auth_tokens (
   CONSTRAINT fk_cidatt_auth_tokens_user FOREIGN KEY (user_id) REFERENCES cidatt_auth_users (id) ON DELETE CASCADE
 );
 
-INSERT INTO cidatt_auth_users (username, full_name, password_hash, is_active)
-VALUES ('admin', 'Administrador CIDATT', SHA2('CIDATT2026!', 256), 1)
-ON DUPLICATE KEY UPDATE
-  full_name = VALUES(full_name),
-  is_active = VALUES(is_active);
+-- El usuario admin se crea desde el servidor al iniciar (con bcrypt)
 
 CREATE TABLE IF NOT EXISTS cidatt_shift_sessions (
   id CHAR(36) NOT NULL,

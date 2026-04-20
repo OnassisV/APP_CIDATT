@@ -1,5 +1,6 @@
 import 'dotenv/config';
 
+import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import cors from 'cors';
 import express from 'express';
@@ -161,7 +162,9 @@ app.post('/api/auth/login', async (req, res, next) => {
     );
 
     if (!users.length || !users[0].is_active) throw unauthorized('Credenciales invalidas.');
-    if (users[0].password_hash !== hashText(password)) throw unauthorized('Credenciales invalidas.');
+
+    const validPassword = await bcrypt.compare(password, users[0].password_hash);
+    if (!validPassword) throw unauthorized('Credenciales invalidas.');
 
     const plainToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = hashText(plainToken);
@@ -384,6 +387,116 @@ app.use((error, _req, res, _next) => {
   res.status(status).json({ ok: false, error: error.message || 'Error interno.' });
 });
 
-app.listen(port, () => {
-  console.log(`RLV CIDATT escuchando en http://localhost:${port}`);
+async function runMigrations() {
+  console.log('Ejecutando migraciones...');
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS ${TABLES.users} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      username VARCHAR(80) NOT NULL,
+      full_name VARCHAR(120) NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_cidatt_auth_users_username (username)
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS ${TABLES.tokens} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id BIGINT UNSIGNED NOT NULL,
+      token_hash CHAR(64) NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_cidatt_auth_tokens_hash (token_hash),
+      KEY idx_cidatt_auth_tokens_user_id (user_id),
+      CONSTRAINT fk_cidatt_auth_tokens_user FOREIGN KEY (user_id) REFERENCES ${TABLES.users} (id) ON DELETE CASCADE
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS ${TABLES.sessions} (
+      id CHAR(36) NOT NULL,
+      operation_date DATE NOT NULL,
+      is_multi TINYINT(1) NOT NULL DEFAULT 0,
+      active_profile_index INT NOT NULL DEFAULT 0,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_cidatt_shift_sessions_operation_date (operation_date)
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS ${TABLES.profiles} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      session_id CHAR(36) NOT NULL,
+      profile_index INT NOT NULL,
+      toll_name VARCHAR(120) NOT NULL,
+      booth_number VARCHAR(30) NOT NULL,
+      operator_name VARCHAR(120) NOT NULL,
+      direction VARCHAR(60) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_cidatt_shift_profiles_session_profile (session_id, profile_index),
+      CONSTRAINT fk_cidatt_shift_profiles_session FOREIGN KEY (session_id) REFERENCES ${TABLES.sessions} (id) ON DELETE CASCADE
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS ${TABLES.records} (
+      id CHAR(36) NOT NULL,
+      session_id CHAR(36) NOT NULL,
+      operation_date DATE NOT NULL,
+      toll_name VARCHAR(120) NOT NULL,
+      booth_number VARCHAR(30) NOT NULL,
+      direction VARCHAR(60) NOT NULL,
+      operator_name VARCHAR(120) NOT NULL,
+      passed_at TIME NOT NULL,
+      main_plate VARCHAR(20) NOT NULL,
+      vehicle_type VARCHAR(20) NOT NULL,
+      main_axles INT NOT NULL,
+      secondary_plate VARCHAR(20) NULL,
+      secondary_axles INT NOT NULL DEFAULT 0,
+      total_axles INT NOT NULL,
+      sync_status VARCHAR(20) NOT NULL DEFAULT 'synced',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_cidatt_vehicle_records_session_id (session_id),
+      KEY idx_cidatt_vehicle_records_operation_date (operation_date),
+      KEY idx_cidatt_vehicle_records_main_plate (main_plate),
+      CONSTRAINT fk_cidatt_vehicle_records_session FOREIGN KEY (session_id) REFERENCES ${TABLES.sessions} (id) ON DELETE CASCADE
+    )
+  `);
+
+  // Seed admin user con bcrypt
+  const existing = await query(`SELECT id FROM ${TABLES.users} WHERE username = 'admin' LIMIT 1`);
+  if (!existing.length) {
+    const hash = await bcrypt.hash('CIDATT2026!', 12);
+    await query(
+      `INSERT INTO ${TABLES.users} (username, full_name, password_hash, is_active) VALUES (?, ?, ?, 1)`,
+      ['admin', 'Administrador CIDATT', hash]
+    );
+    console.log('Usuario admin creado.');
+  }
+
+  console.log('Migraciones completadas.');
+}
+
+async function start() {
+  await runMigrations();
+  app.listen(port, () => {
+    console.log(`RLV CIDATT escuchando en http://localhost:${port}`);
+  });
+}
+
+start().catch((err) => {
+  console.error('Error al iniciar:', err);
+  process.exit(1);
 });
