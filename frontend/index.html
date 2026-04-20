@@ -393,6 +393,20 @@
 
   <button class="fab-save hidden" id="fabSave" title="Guardar">💾</button>
 
+  <!-- Modal Exportar / Cerrar Turno -->
+  <div id="exportOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:none; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:16px; padding:24px; margin:16px; max-width:360px; width:100%; box-shadow:0 8px 32px rgba(0,0,0,0.25);">
+      <h3 style="margin:0 0 8px; font-size:1.1rem;">📤 Cerrar Turno</h3>
+      <p style="margin:0 0 16px; font-size:0.85rem; color:#666;">¿Qué deseas hacer con los registros?</p>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <button type="button" id="btnExportCloud" style="padding:14px; border:none; border-radius:10px; background:#1a6b5a; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️ Enviar a la nube</button>
+        <button type="button" id="btnExportExcel" style="padding:14px; border:none; border-radius:10px; background:#2563eb; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">📊 Exportar Excel / CSV</button>
+        <button type="button" id="btnExportBoth" style="padding:14px; border:none; border-radius:10px; background:#7c3aed; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️📊 Ambos (nube + Excel)</button>
+        <button type="button" id="btnExportCancel" style="padding:10px; border:1px solid #ddd; border-radius:10px; background:#fff; color:#666; font-size:0.9rem; cursor:pointer; margin-top:4px;">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (async function () {
       'use strict';
@@ -854,35 +868,97 @@
       document.getElementById('btnCerrarTurno').addEventListener('click', async () => {
         let currentFecha = getActiveDate();
         let registrosTurno = registros.filter(r => r.fecha === currentFecha);
-        
         if (!registrosTurno.length) return alert('No hay registros en esta fecha para exportar.');
-        
+
+        // Mostrar modal
+        let overlay = document.getElementById('exportOverlay');
+        overlay.style.display = 'flex';
+      });
+
+      function getExportData() {
+        let currentFecha = getActiveDate();
+        let registrosTurno = registros.filter(r => r.fecha === currentFecha);
         let rows = [['Fecha', 'Peaje', 'Caseta', 'Sentido', 'Operador', 'Hora', 'Placa 1', 'Tipo', 'Ejes 1', 'Placa 2', 'Ejes 2', 'Total Ejes']];
         registrosTurno.forEach(r => rows.push([r.fecha, r.nombrePeaje, r.numeroCaseta, r.sentidoCirculacion, (r.operador || ''), r.horaPaso, r.placaPrincipal, r.tipoVehiculo, r.ejesPrincipal, r.placaSecundaria, r.ejesSecundaria, r.totalEjes]));
-        
+        let act = getCurrentSiteInfo() || { nombrePeaje: 'Peaje', numeroCaseta: '00', operador: 'Op' };
+        return { currentFecha, registrosTurno, rows, act };
+      }
+
+      function exportToExcel() {
+        let { currentFecha, registrosTurno, rows, act } = getExportData();
         let csv = rows.map(r => r.map(csvEscape).join(',')).join(NEWLINE);
         let blob = new Blob([CSV_BOM + csv], { type: 'text/csv;charset=utf-8;' });
-        
-        let act = getCurrentSiteInfo() || { nombrePeaje: 'Peaje', numeroCaseta: '00', operador: 'Op' };
         let safePeaje = act.nombrePeaje.replace(/[^a-z0-9]/gi, '_');
         let fileName = `${safePeaje}_MultiCaseta_${currentFecha}.csv`;
 
         let resumenTexto = `🚗 *CIERRE DE TURNO*\n📍 Peaje: ${act.nombrePeaje}\n📅 Fecha de Op: ${currentFecha}\n📊 Total Vehículos: ${registrosTurno.length}\n🚜 Con Tráiler: ${registrosTurno.filter(r => r.placaSecundaria).length}`;
-        try { await navigator.clipboard.writeText(resumenTexto); } catch(e) {}
+        try { navigator.clipboard.writeText(resumenTexto); } catch(e) {}
 
         if (navigator.share && navigator.canShare) {
           try {
             let file = new File([blob], fileName, { type: 'text/csv' });
-            await navigator.share({ title: 'Cierre de Turno', text: resumenTexto, files: [file] });
+            navigator.share({ title: 'Cierre de Turno', text: resumenTexto, files: [file] }).catch(() => descargarNormal(blob, fileName));
           } catch (e) { descargarNormal(blob, fileName); }
         } else { descargarNormal(blob, fileName); }
+      }
 
+      async function exportToCloud() {
+        let currentFecha = getActiveDate();
+        let registrosTurno = registros.filter(r => r.fecha === currentFecha);
+        let siteInfo = getCurrentSiteInfo();
+        let ok = 0, fail = 0;
+
+        try {
+          await syncSessionToServer(siteInfo);
+        } catch(e) { console.warn('Error sync sesion:', e); }
+
+        for (let r of registrosTurno) {
+          try {
+            await syncRecordToServer(r);
+            r.syncStatus = 'synced';
+            ok++;
+          } catch(e) {
+            r.syncStatus = 'pending';
+            fail++;
+          }
+        }
+        await putDB(STORAGE_KEY, registros).catch(()=>{});
+        return { ok, fail, total: registrosTurno.length };
+      }
+
+      async function postExportCleanup() {
+        let currentFecha = getActiveDate();
         setTimeout(async () => {
-          if (confirm('Se ha exportado el archivo.\n\n¿Deseas BORRAR los registros de este turno para limpiar el dispositivo?')) {
-            registros = registros.filter(r => r.fecha !== currentFecha); // Borra solo los exportados
+          if (confirm('Operación completada.\n\n¿Deseas BORRAR los registros de este turno para limpiar el dispositivo?')) {
+            registros = registros.filter(r => r.fecha !== currentFecha);
             await putDB(STORAGE_KEY, registros).catch(()=>{}); renderAll();
           }
-        }, 1500);
+        }, 800);
+      }
+
+      document.getElementById('btnExportCancel').addEventListener('click', () => {
+        document.getElementById('exportOverlay').style.display = 'none';
+      });
+
+      document.getElementById('btnExportCloud').addEventListener('click', async () => {
+        document.getElementById('exportOverlay').style.display = 'none';
+        let result = await exportToCloud();
+        alert(`☁️ Enviado a la nube:\n✅ ${result.ok} registros sincronizados\n${result.fail ? '❌ ' + result.fail + ' fallidos (se reintentarán)' : ''}`);
+        await postExportCleanup();
+      });
+
+      document.getElementById('btnExportExcel').addEventListener('click', async () => {
+        document.getElementById('exportOverlay').style.display = 'none';
+        exportToExcel();
+        await postExportCleanup();
+      });
+
+      document.getElementById('btnExportBoth').addEventListener('click', async () => {
+        document.getElementById('exportOverlay').style.display = 'none';
+        let result = await exportToCloud();
+        exportToExcel();
+        alert(`☁️📊 Nube + Excel:\n✅ ${result.ok} registros sincronizados\n${result.fail ? '❌ ' + result.fail + ' fallidos' : ''}\n📊 Excel descargado`);
+        await postExportCleanup();
       });
 
       function descargarNormal(blob, fileName) {
