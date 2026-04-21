@@ -130,8 +130,28 @@
     .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; align-items: center; justify-content: center; }
     .modal-overlay.open { display: flex; }
     .modal { background: var(--card); border-radius: var(--radius); padding: 24px; width: min(480px, 95vw); max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,.2); }
+    .modal.modal-wide { width: min(580px, 96vw); }
     .modal-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 16px; }
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+    /* ── DRAG-ASSIGN ── */
+    .assign-panels { display: flex; gap: 12px; align-items: flex-start; }
+    .assign-panel-label { font-size: .68rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+    .assign-available { flex: 1; min-width: 0; }
+    .assign-available-list { min-height: 130px; border: 2px dashed var(--line); border-radius: 10px; padding: 6px; }
+    .assign-available-list.drag-over { border-color: var(--muted); background: #f8fffe; }
+    .assign-role-group { font-size: .67rem; font-weight: 700; color: var(--muted); padding: 5px 4px 2px; text-transform: uppercase; letter-spacing: .05em; }
+    .assign-drag-item { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 7px; font-size: .84rem; cursor: grab; background: var(--bg); border: 1px solid var(--line); margin-bottom: 4px; user-select: none; transition: background .15s, border-color .15s; }
+    .assign-drag-item:hover { background: #e8f5f0; border-color: var(--accent); }
+    .assign-drag-item:active { cursor: grabbing; }
+    .assign-drag-item .tag-warn { font-size: .65rem; color: var(--warn); margin-left: auto; }
+    .assign-slot-wrap { width: 160px; flex-shrink: 0; }
+    .assign-slot { min-height: 90px; border: 2px dashed var(--line); border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: center; text-align: center; transition: border-color .2s, background .2s; }
+    .assign-slot.drag-over { border-color: var(--accent); background: #e8f5f0; }
+    .assign-slot.has-user { border-color: var(--accent); background: #e8f5f0; }
+    .assign-slot-hint { font-size: .78rem; color: var(--muted); }
+    .assign-slot-name { font-size: .88rem; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+    .assign-arrow { display: flex; align-items: center; padding-top: 38px; color: var(--muted); font-size: 1.3rem; flex-shrink: 0; }
 
     /* ── BOOTH MAP ── */
     .booth-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
@@ -516,17 +536,32 @@
 
 <!-- Modal: Asignar usuario a caseta -->
 <div class="modal-overlay" id="modalAssign">
-  <div class="modal">
+  <div class="modal modal-wide">
     <div class="modal-title" id="modalAssignTitle">Asignar Personal</div>
-    <div class="form-group">
-      <label id="assignModalLabel">Seleccionar personal</label>
-      <select id="assignUserSelect" style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:.88rem;"></select>
+    <div id="assignBoothInfo" style="font-size:.85rem;color:var(--muted);margin-bottom:14px;"></div>
+    <div class="assign-panels">
+      <div class="assign-available">
+        <div class="assign-panel-label">Disponibles</div>
+        <div class="assign-available-list" id="assignAvailableList"
+          ondragover="event.preventDefault();this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="assignDropBack(event)">
+        </div>
+      </div>
+      <div class="assign-arrow">→</div>
+      <div class="assign-slot-wrap">
+        <div class="assign-panel-label">Asignado</div>
+        <div class="assign-slot" id="assignedSlot"
+          ondragover="event.preventDefault();this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="assignDropToSlot(event)">
+          <span class="assign-slot-hint">Arrastra aquí<br>o haz clic</span>
+        </div>
+      </div>
     </div>
-    <div id="assignBoothInfo" style="font-size:.85rem;color:var(--muted);margin-bottom:8px;"></div>
     <div class="modal-actions">
       <button class="btn btn-soft" onclick="closeModal('modalAssign')">Cancelar</button>
-      <button class="btn btn-danger btn-sm" id="btnRemoveAssignment" style="margin-right:auto;">Quitar asignación</button>
-      <button class="btn btn-primary" id="btnConfirmAssign">Asignar</button>
+      <button class="btn btn-primary" id="btnConfirmAssign">Confirmar</button>
     </div>
   </div>
 </div>
@@ -833,7 +868,7 @@
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px;">${hours}${coordChip}</div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn btn-soft btn-sm" onclick="openAssignCoord(${s.id},${currentProjectId},'${esc(s.name)}',${s.coord_user_id||'null'},'${esc(s.coord_name||'')}',${s.coord_assignment_id||'null'})">👤 Coord.</button>
+            <button class="btn btn-soft btn-sm" onclick="openAssignCoord(${s.id},${currentProjectId},'${esc(s.name)}',${s.coord_user_id||'null'},'${esc(s.coord_name||'')}',${s.coord_assignment_id||'null'})">� Asignar</button>
             <button class="btn btn-soft btn-sm" onclick="editStation(${s.id},'${esc(s.name)}','${esc(s.location||'')}','${s.daily_start_time||''}','${s.daily_end_time||''}')">Editar</button>
             <button class="btn btn-soft btn-sm" onclick="openAddBooth(${s.id})">+ Caseta</button>
             <button class="btn btn-soft btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteStation(${s.id},'${esc(s.name)}')">Eliminar</button>
@@ -1037,29 +1072,107 @@
 
   // ── ASIGNACIONES ─────────────────────────────────────────────────────────
 
+  var _assignUsers = [];
+  var _assignSelectedUserId = null;
+  var _assignCurrentAssignmentId = null;
+  var _assignDragUserId = null;
+
+  function _renderAssignAvailable() {
+    const roleNames = { coordinador: 'Coordinadores', registrador: 'Registradores' };
+    const available = _assignUsers.filter(u => u.id !== _assignSelectedUserId);
+    const roles = [...new Set(available.map(u => u.role))];
+    let html = '';
+    roles.forEach(role => {
+      const group = available.filter(u => u.role === role);
+      if (roles.length > 1) html += `<div class="assign-role-group">${roleNames[role] || role}</div>`;
+      group.forEach(u => {
+        const warn = (u.booth_id || u.station_id) ? `<span class="tag-warn">ya asignado</span>` : '';
+        html += `<div class="assign-drag-item" draggable="true" data-uid="${u.id}"
+          ondragstart="window._assignDragStart(event,${u.id})"
+          onclick="window._assignClickSelect(${u.id})">
+          👤 ${esc(u.full_name)}${warn}
+        </div>`;
+      });
+    });
+    if (!html) html = '<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:20px 0;">Sin usuarios disponibles</div>';
+    document.getElementById('assignAvailableList').innerHTML = html;
+  }
+
+  function _renderAssignSlot() {
+    const slot = document.getElementById('assignedSlot');
+    if (_assignSelectedUserId) {
+      const u = _assignUsers.find(u => u.id === _assignSelectedUserId);
+      slot.classList.add('has-user');
+      slot.innerHTML = u ? `<div style="width:100%;">
+        <div class="assign-slot-name">👤 ${esc(u.full_name)}</div>
+        <button class="btn btn-soft btn-sm" style="font-size:.7rem;width:100%;" onclick="window._assignClear()">✕ Quitar</button>
+      </div>` : '';
+    } else {
+      slot.classList.remove('has-user');
+      slot.innerHTML = '<span class="assign-slot-hint">Arrastra aquí<br>o haz clic</span>';
+    }
+  }
+
+  window._assignDragStart = function(event, userId) {
+    _assignDragUserId = userId;
+    event.dataTransfer.effectAllowed = 'move';
+  };
+
+  window.assignDropToSlot = function(event) {
+    event.preventDefault();
+    document.getElementById('assignedSlot').classList.remove('drag-over');
+    if (_assignDragUserId !== null) {
+      _assignSelectedUserId = _assignDragUserId;
+      _assignDragUserId = null;
+      _renderAssignAvailable();
+      _renderAssignSlot();
+    }
+  };
+
+  window.assignDropBack = function(event) {
+    event.preventDefault();
+    document.getElementById('assignAvailableList').classList.remove('drag-over');
+    window._assignClear();
+  };
+
+  window._assignClickSelect = function(userId) {
+    _assignSelectedUserId = userId;
+    _renderAssignAvailable();
+    _renderAssignSlot();
+  };
+
+  window._assignClear = function() {
+    _assignSelectedUserId = null;
+    _renderAssignAvailable();
+    _renderAssignSlot();
+  };
+
+  function _openAssignModal(title, info, users, currentUserId, currentAssignmentId) {
+    _assignUsers = users;
+    _assignSelectedUserId = currentUserId || null;
+    _assignCurrentAssignmentId = currentAssignmentId || null;
+    _assignDragUserId = null;
+    document.getElementById('modalAssignTitle').textContent = title;
+    document.getElementById('assignBoothInfo').textContent = info;
+    _renderAssignAvailable();
+    _renderAssignSlot();
+    openModal('modalAssign');
+  }
+
   async function openAssignCoord(stationId, projectId, stationName, currentCoordId, currentCoordName, currentAssignId) {
     assigningStationId  = stationId;
     assigningBoothId    = null;
     assigningProjectId  = projectId;
-    document.getElementById('modalAssignTitle').textContent = `Asignar Coordinador — ${stationName}`;
-    document.getElementById('assignModalLabel').textContent = 'Seleccionar coordinador';
-    document.getElementById('assignBoothInfo').textContent = `Peaje: ${stationName}`;
     try {
       const data = await api('/projects/' + projectId + '/available-users?role=coordinador');
-      const sel = document.getElementById('assignUserSelect');
-      sel.innerHTML = '<option value="">— Sin coordinador —</option>' +
-        data.users.map(u => `<option value="${u.id}">${esc(u.full_name)}${u.station_id && u.station_id !== stationId ? ' — ya asignado a otro peaje' : ''}</option>`).join('');
-      if (currentCoordId) sel.value = currentCoordId;
-
-      document.getElementById('btnRemoveAssignment').onclick = async () => {
-        try {
-          if (currentAssignId) await api('/assignments/' + currentAssignId, { method: 'DELETE' });
-          closeModal('modalAssign');
-          openProjectDetail(projectId);
-        } catch (e) { alert(e.message); }
-      };
-    } catch (e) { alert(e.message); return; }
-    openModal('modalAssign');
+      _openAssignModal(
+        `Asignar Coordinador — ${stationName}`,
+        `Peaje: ${stationName}`,
+        data.users,
+        currentCoordId,
+        currentAssignId
+      );
+    } catch (e) { alert(e.message); }
   }
   window.openAssignCoord = openAssignCoord;
 
@@ -1067,45 +1180,39 @@
     assigningBoothId    = boothId;
     assigningStationId  = null;
     assigningProjectId  = projectId;
-    document.getElementById('modalAssignTitle').textContent = `Asignar Registrador — ${stationName} C-${boothCode}`;
-    document.getElementById('assignModalLabel').textContent = 'Seleccionar registrador';
-    document.getElementById('assignBoothInfo').textContent = `Caseta: ${boothCode} · ${stationName}`;
     try {
       const data = await api('/projects/' + projectId + '/available-users?role=registrador');
-      const sel = document.getElementById('assignUserSelect');
-      sel.innerHTML = '<option value="">— Sin asignación —</option>' +
-        data.users.map(u => `<option value="${u.id}">${esc(u.full_name)}${u.booth_id ? ' — ya asignado: ' + esc(u.station_name||'') + ' C' + esc(u.booth_code||'') : ''}</option>`).join('');
-
-      const assigned = data.users.find(u => u.booth_id === boothId);
-      if (assigned) sel.value = assigned.id;
-
-      document.getElementById('btnRemoveAssignment').onclick = async () => {
-        try {
-          const cur = data.users.find(u => u.booth_id === boothId);
-          if (cur && cur.assignment_id) await api('/assignments/' + cur.assignment_id, { method: 'DELETE' });
-          closeModal('modalAssign');
-          loadCoordProject(projectId);
-          if (currentProjectId) openProjectDetail(currentProjectId);
-        } catch (e) { alert(e.message); }
-      };
-    } catch (e) { alert(e.message); return; }
-    openModal('modalAssign');
+      // Encontrar asignación actual de esta caseta
+      const cur = data.users.find(u => u.booth_id === boothId);
+      _openAssignModal(
+        `Asignar Registrador — ${stationName} C-${boothCode}`,
+        `Caseta: ${boothCode} · ${stationName}`,
+        data.users,
+        cur ? cur.id : null,
+        cur ? cur.assignment_id : null
+      );
+    } catch (e) { alert(e.message); }
   }
   window.openAssign = openAssign;
 
   document.getElementById('btnConfirmAssign').onclick = async () => {
-    const userId = Number(document.getElementById('assignUserSelect').value);
-    if (!userId) { closeModal('modalAssign'); return; }
     try {
+      if (!_assignSelectedUserId) {
+        // Sin usuario → quitar asignación actual si existe
+        if (_assignCurrentAssignmentId) {
+          await api('/assignments/' + _assignCurrentAssignmentId, { method: 'DELETE' });
+        }
+      } else {
+        if (assigningStationId) {
+          await api('/assignments', { method: 'POST', body: { user_id: _assignSelectedUserId, project_id: assigningProjectId, station_id: assigningStationId } });
+        } else {
+          await api('/assignments', { method: 'POST', body: { user_id: _assignSelectedUserId, project_id: assigningProjectId, booth_id: assigningBoothId } });
+        }
+      }
+      closeModal('modalAssign');
       if (assigningStationId) {
-        // Asignar coordinador a peaje
-        await api('/assignments', { method: 'POST', body: { user_id: userId, project_id: assigningProjectId, station_id: assigningStationId } });
-        closeModal('modalAssign');
         openProjectDetail(assigningProjectId);
       } else {
-        // Asignar registrador a caseta
-        await api('/assignments', { method: 'POST', body: { user_id: userId, project_id: assigningProjectId, booth_id: assigningBoothId } });
-        closeModal('modalAssign');
         if (currentProjectId) openProjectDetail(currentProjectId);
         if (currentUser.role === 'coordinador') loadCoordProject(assigningProjectId);
       }
