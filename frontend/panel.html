@@ -346,7 +346,107 @@
 <div class="modal-overlay" id="modalStation">
   <div class="modal">
     <div class="modal-title" id="modalStationTitle">Agregar Peaje / Estación</div>
-    <div class="form-group"><label>Nombre del peaje *</label><input id="sName" placeholder="Ej: Peaje La Oroya"/></div>
+    <div class="form-group">
+      <label>Nombre del peaje *</label>
+      <select id="sName" onchange="document.getElementById('sNameCustomWrap').style.display=this.value==='__otro__'?'block':'none'">
+        <option value="">— Seleccionar peaje —</option>
+        <optgroup label="Norvial (Red Vial 5 — Ancón / Huacho / Pativilca)">
+          <option>Peaje Serpêntín de Pasamayo</option>
+          <option>Peaje Huacho</option>
+          <option>Peaje Pativilca</option>
+        </optgroup>
+        <optgroup label="Red Vial 4 (Pativilca — Trujillo)">
+          <option>Peaje Vesique</option>
+          <option>Peaje Virú</option>
+          <option>Peaje Chicama</option>
+          <option>Peaje Chao</option>
+          <option>Peaje Menocucho</option>
+        </optgroup>
+        <optgroup label="Autopista del Sol (Trujillo — Sullana)">
+          <option>Peaje Salaverry</option>
+          <option>Peaje Ascope</option>
+          <option>Peaje Chocope</option>
+          <option>Peaje Lambayeque</option>
+          <option>Peaje Piura (Autopista del Sol)</option>
+          <option>Peaje Sullana</option>
+        </optgroup>
+        <optgroup label="IIRSA Norte (Paita — Yurimaguas)">
+          <option>Peaje Piura (IIRSA Norte)</option>
+          <option>Peaje Olmos</option>
+          <option>Peaje Chamaya</option>
+          <option>Peaje Pedro Ruiz</option>
+          <option>Peaje Bagua Grande</option>
+          <option>Peaje Rioja</option>
+          <option>Peaje Moyobamba</option>
+          <option>Peaje Tarapoto</option>
+          <option>Peaje Picota</option>
+          <option>Peaje Tocache</option>
+        </optgroup>
+        <optgroup label="IIRSA Centro T1 (Lima — La Oroya — Huancayo)">
+          <option>Peaje Casapalca</option>
+          <option>Peaje La Oroya</option>
+          <option>Peaje Tarma</option>
+          <option>Peaje Huancayo</option>
+        </optgroup>
+        <optgroup label="IIRSA Centro T2 (La Oroya — Pucallpa)">
+          <option>Peaje San Ramón</option>
+          <option>Peaje La Merced</option>
+          <option>Peaje Pucallpa</option>
+        </optgroup>
+        <optgroup label="IIRSA Sur T1 (Marcona — Urcos)">
+          <option>Peaje Dv. Quilca</option>
+          <option>Peaje Camaná</option>
+          <option>Peaje La Yesera</option>
+          <option>Peaje Ilo (Pampa Cuellar)</option>
+        </optgroup>
+        <optgroup label="IIRSA Sur T2 (Urcos — Inambari)">
+          <option>Peaje Urcos</option>
+          <option>Peaje Marcapata</option>
+          <option>Peaje Quincemil</option>
+        </optgroup>
+        <optgroup label="IIRSA Sur T3 (Inambari — Iñapari)">
+          <option>Peaje Puerto Maldonado</option>
+          <option>Peaje Iberia</option>
+        </optgroup>
+        <optgroup label="IIRSA Sur T4 (Inambari — Azángaro)">
+          <option>Peaje Macusani</option>
+          <option>Peaje Azángaro</option>
+        </optgroup>
+        <optgroup label="IIRSA Sur T5 (Matarani — Ilo — Dv. Quilca)">
+          <option>Peaje Matarani</option>
+          <option>Peaje Moquegua</option>
+          <option>Peaje Tomasiri</option>
+        </optgroup>
+        <optgroup label="Red Vial 6 / Survial (Ica — Dv. Quilca)">
+          <option>Peaje Chincha Alta</option>
+          <option>Peaje Ica</option>
+          <option>Peaje Dv. Los Libertadores</option>
+          <option>Peaje Nasca</option>
+        </optgroup>
+        <optgroup label="Covinca (Lima — Canta — La Viuda)">
+          <option>Peaje Canta</option>
+          <option>Peaje La Viuda</option>
+        </optgroup>
+        <optgroup label="Autopista Arequipa — La Joya">
+          <option>Peaje La Joya</option>
+          <option>Peaje Uchumayo</option>
+        </optgroup>
+        <optgroup label="Rutas de Lima / Línea Amarilla">
+          <option>Peaje Gambetta</option>
+          <option>Peaje Canta Callao</option>
+          <option>Peaje Ramiro Priale</option>
+          <option>Peaje Javier Prado</option>
+        </optgroup>
+        <optgroup label="Empalme 1B (Buenos Aires — Canchaque)">
+          <option>Peaje Buenos Aires</option>
+          <option>Peaje Canchaque</option>
+        </optgroup>
+        <option value="__otro__">✏️ Otro (escribir manualmente)</option>
+      </select>
+      <div id="sNameCustomWrap" style="display:none;margin-top:8px;">
+        <input id="sNameCustom" placeholder="Escribir nombre del peaje"/>
+      </div>
+    </div>
     <div class="form-group"><label>Ubicación / Referencia</label><input id="sLocation" placeholder="Ej: Km 167, Carretera Central"/></div>
     <div class="form-row">
       <div class="form-group"><label>⏰ Hora inicio registro</label><input id="sTimeStart" type="time" placeholder="06:00"/></div>
@@ -364,7 +464,15 @@
   <div class="modal">
     <div class="modal-title">Agregar Caseta</div>
     <div class="form-group"><label>Código / Número de caseta *</label><input id="bCode" placeholder="Ej: C-01"/></div>
-    <div class="form-group"><label>Sentidos de circulación</label><input id="bDir" placeholder="Ej: Norte, Sur"/></div>
+    <div class="form-group"><label>Sentido de circulación</label>
+      <select id="bDir">
+        <option value="">— Sin especificar —</option>
+        <option value="Norte a Sur">Norte a Sur</option>
+        <option value="Sur a Norte">Sur a Norte</option>
+        <option value="Este a Oeste">Este a Oeste</option>
+        <option value="Oeste a Este">Oeste a Este</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-soft" onclick="closeModal('modalBooth')">Cancelar</button>
       <button class="btn btn-primary" id="btnSaveBooth">Guardar</button>
@@ -1015,6 +1123,8 @@
     editingStationId = null;
     document.getElementById('modalStationTitle').textContent = 'Agregar Peaje / Estación';
     document.getElementById('sName').value = '';
+    document.getElementById('sNameCustom').value = '';
+    document.getElementById('sNameCustomWrap').style.display = 'none';
     document.getElementById('sLocation').value = '';
     document.getElementById('sTimeStart').value = '';
     document.getElementById('sTimeEnd').value = '';
@@ -1024,7 +1134,17 @@
   window.editStation = function(id, name, location, ts, te) {
     editingStationId = id;
     document.getElementById('modalStationTitle').textContent = 'Editar Peaje';
-    document.getElementById('sName').value = name;
+    // Buscar si el nombre está en el select
+    const sel = document.getElementById('sName');
+    const match = Array.from(sel.options).find(o => o.value === name || o.text === name);
+    if (match) {
+      sel.value = match.value || match.text;
+      document.getElementById('sNameCustomWrap').style.display = 'none';
+    } else {
+      sel.value = '__otro__';
+      document.getElementById('sNameCustom').value = name;
+      document.getElementById('sNameCustomWrap').style.display = 'block';
+    }
     document.getElementById('sLocation').value = location || '';
     document.getElementById('sTimeStart').value = ts || '';
     document.getElementById('sTimeEnd').value = te || '';
@@ -1032,7 +1152,10 @@
   };
 
   document.getElementById('btnSaveStation').onclick = async () => {
-    const name = document.getElementById('sName').value.trim();
+    const sel = document.getElementById('sName');
+    const name = sel.value === '__otro__'
+      ? document.getElementById('sNameCustom').value.trim()
+      : sel.value.trim();
     if (!name) return alert('El nombre es obligatorio.');
     const body = {
       name,
