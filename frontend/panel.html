@@ -907,7 +907,7 @@
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn btn-soft btn-sm" onclick="openAssignStation(${s.id},${currentProjectId},false)">👥 Asignar</button>
-            <button class="btn btn-soft btn-sm" onclick="editStation(${s.id},'${esc(s.name)}','${esc(s.location||'')}','${s.daily_start_time||\'\'}','${s.daily_end_time||'\'\'}')">Editar</button>
+            <button class="btn btn-soft btn-sm" onclick="editStation(${s.id},'${esc(s.name)}','${esc(s.location||'')}','${s.daily_start_time||''}','${s.daily_end_time||''}')">Editar</button>
             <button class="btn btn-soft btn-sm" onclick="openAddBooth(${s.id})">+ Caseta</button>
             <button class="btn btn-soft btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteStation(${s.id},'${esc(s.name)}')">Eliminar</button>
           </div>
@@ -985,6 +985,180 @@
     } catch (e) { document.getElementById('alertsContent').innerHTML = `<div class="alert alert-danger"><span>❌</span><div>${esc(e.message)}</div></div>`; }
   }
   window.loadAlerts = loadAlerts;
+
+  // ── MODAL PROYECTO ────────────────────────────────────────────────────────
+
+  document.getElementById('btnNewProject').onclick = () => {
+    editingProjectId = null;
+    document.getElementById('modalProjectTitle').textContent = 'Nuevo Proyecto';
+    document.getElementById('pName').value = '';
+    document.getElementById('pDesc').value = '';
+    document.getElementById('pStart').value = new Date().toISOString().slice(0,10);
+    document.getElementById('pEnd').value = '';
+    document.getElementById('pStatus').value = 'activo';
+    openModal('modalProject');
+  };
+
+  window.editProject = function(id, name, desc, start, end, status) {
+    editingProjectId = id;
+    document.getElementById('modalProjectTitle').textContent = 'Editar Proyecto';
+    document.getElementById('pName').value = name;
+    document.getElementById('pDesc').value = desc;
+    document.getElementById('pStart').value = start;
+    document.getElementById('pEnd').value = end;
+    document.getElementById('pStatus').value = status;
+    openModal('modalProject');
+  };
+
+  document.getElementById('btnSaveProject').onclick = async () => {
+    const body = {
+      name: document.getElementById('pName').value.trim(),
+      description: document.getElementById('pDesc').value.trim(),
+      start_date: document.getElementById('pStart').value,
+      end_date: document.getElementById('pEnd').value || null,
+      status: document.getElementById('pStatus').value
+    };
+    if (!body.name || !body.start_date) return alert('Nombre y fecha inicio son obligatorios.');
+    try {
+      if (editingProjectId) {
+        await api('/projects/' + editingProjectId, { method: 'PUT', body });
+      } else {
+        await api('/projects', { method: 'POST', body });
+      }
+      closeModal('modalProject');
+      loadProjectsList();
+      loadDashboard();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── MODAL ESTACIÓN ────────────────────────────────────────────────────────
+
+  var editingStationId = null;
+
+  document.getElementById('btnNewStation').onclick = () => {
+    editingStationId = null;
+    document.getElementById('modalStationTitle').textContent = 'Agregar Peaje / Estación';
+    document.getElementById('sName').value = '';
+    document.getElementById('sNameCustom').value = '';
+    document.getElementById('sNameCustomWrap').style.display = 'none';
+    document.getElementById('sLocation').value = '';
+    document.getElementById('sTimeStart').value = '';
+    document.getElementById('sTimeEnd').value = '';
+    openModal('modalStation');
+  };
+
+  window.editStation = function(id, name, location, ts, te) {
+    editingStationId = id;
+    document.getElementById('modalStationTitle').textContent = 'Editar Peaje';
+    const sel = document.getElementById('sName');
+    const match = Array.from(sel.options).find(o => o.value === name || o.text === name);
+    if (match) {
+      sel.value = match.value || match.text;
+      document.getElementById('sNameCustomWrap').style.display = 'none';
+    } else {
+      sel.value = '__otro__';
+      document.getElementById('sNameCustom').value = name;
+      document.getElementById('sNameCustomWrap').style.display = 'block';
+    }
+    document.getElementById('sLocation').value = location || '';
+    document.getElementById('sTimeStart').value = ts || '';
+    document.getElementById('sTimeEnd').value = te || '';
+    openModal('modalStation');
+  };
+
+  document.getElementById('btnSaveStation').onclick = async () => {
+    const sel = document.getElementById('sName');
+    const name = sel.value === '__otro__'
+      ? document.getElementById('sNameCustom').value.trim()
+      : sel.value.trim();
+    if (!name) return alert('El nombre es obligatorio.');
+    const body = {
+      name,
+      location: document.getElementById('sLocation').value.trim(),
+      daily_start_time: document.getElementById('sTimeStart').value || null,
+      daily_end_time: document.getElementById('sTimeEnd').value || null
+    };
+    try {
+      if (editingStationId) {
+        await api('/stations/' + editingStationId, { method: 'PUT', body });
+      } else {
+        await api('/projects/' + currentProjectId + '/stations', { method: 'POST', body });
+      }
+      closeModal('modalStation');
+      openProjectDetail(currentProjectId);
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── MODAL CASETA ──────────────────────────────────────────────────────────
+
+  var addingBoothStationId = null;
+  window.openAddBooth = function(stationId) {
+    addingBoothStationId = stationId;
+    document.getElementById('bCode').value = '';
+    document.getElementById('bDir').value = '';
+    openModal('modalBooth');
+  };
+
+  document.getElementById('btnSaveBooth').onclick = async () => {
+    const code = document.getElementById('bCode').value.trim();
+    if (!code) return alert('El código es obligatorio.');
+    try {
+      await api('/stations/' + addingBoothStationId + '/booths', { method: 'POST', body: { code, directions: document.getElementById('bDir').value.trim() } });
+      closeModal('modalBooth');
+      openProjectDetail(currentProjectId);
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteStation = async function(id, name) {
+    if (!confirm(`¿Eliminar el peaje "${name}" y todas sus casetas? Esta acción no se puede deshacer.`)) return;
+    try {
+      await api('/stations/' + id, { method: 'DELETE' });
+      openProjectDetail(currentProjectId);
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteBooth = async function(id, code) {
+    if (!confirm(`¿Eliminar la caseta ${code}? Esta acción no se puede deshacer.`)) return;
+    try {
+      await api('/booths/' + id, { method: 'DELETE' });
+      openProjectDetail(currentProjectId);
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── MODAL USUARIO ─────────────────────────────────────────────────────────
+
+  document.getElementById('btnNewUser').onclick = () => {
+    editingUserId = null;
+    document.getElementById('modalUserTitle').textContent = 'Nuevo Usuario';
+    ['uName','uUsername','uPassword'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('uRole').value = 'registrador';
+    const sel = document.getElementById('uRole');
+    sel.innerHTML = '';
+    if (currentUser.role === 'admin') sel.innerHTML += '<option value="director">Director</option>';
+    sel.innerHTML += '<option value="coordinador">Coordinador</option><option value="registrador">Registrador</option>';
+    openModal('modalUser');
+  };
+
+  document.getElementById('btnSaveUser').onclick = async () => {
+    const body = {
+      full_name: document.getElementById('uName').value.trim(),
+      username: document.getElementById('uUsername').value.trim().toLowerCase(),
+      password: document.getElementById('uPassword').value,
+      role: document.getElementById('uRole').value
+    };
+    if (!body.full_name || !body.username || !body.password) return alert('Todos los campos son obligatorios.');
+    try {
+      await api('/users', { method: 'POST', body });
+      closeModal('modalUser');
+      loadUsers();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── SWITCH TO REGISTER ────────────────────────────────────────────────────
+
+  document.getElementById('btnSwitchToRegister').onclick = () => {
+    window.location.href = '/?mode=register';
+  };
 
   // ── USUARIOS ──────────────────────────────────────────────────────────────
 
@@ -1299,4 +1473,98 @@
       if (currentUser.role === 'coordinador') loadCoordProject(_assignProjectId);
     } catch (e) { alert(e.message); }
   };
+
+  // ── CERRAR TURNO ─────────────────────────────────────────────────────────
+
+  document.getElementById('btnCloseShift').onclick = async () => {
+    const listEl = document.getElementById('closeShiftList');
+    listEl.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);">Cargando turnos...</div>';
+    openModal('modalCloseShift');
+    try {
+      const data = await api('/sessions/open');
+      const sessions = data.sessions || [];
+      if (!sessions.length) {
+        listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">✅ No hay turnos abiertos.</div>';
+        document.getElementById('btnConfirmCloseShift').style.display = 'none';
+        return;
+      }
+      document.getElementById('btnConfirmCloseShift').style.display = '';
+      listEl.innerHTML = sessions.map(s => `
+        <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer;">
+          <input type="checkbox" value="${s.id}" checked style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent);" />
+          <div>
+            <div style="font-weight:600;font-size:.88rem;">${esc(s.operator_name)} — C${esc(s.booth_number)}</div>
+            <div style="font-size:.78rem;color:var(--muted);">📍 ${esc(s.toll_name)} · 📅 ${s.operation_date}</div>
+          </div>
+        </label>`).join('');
+    } catch (e) {
+      listEl.innerHTML = `<div style="color:var(--danger);padding:12px;">${esc(e.message)}</div>`;
+    }
+  };
+
+  document.getElementById('btnConfirmCloseShift').onclick = async () => {
+    const checkboxes = document.querySelectorAll('#closeShiftList input[type=checkbox]:checked');
+    const ids = Array.from(checkboxes).map(cb => cb.value);
+    if (!ids.length) { alert('No hay turnos seleccionados.'); return; }
+    if (!confirm(`¿Cerrar ${ids.length} turno(s) seleccionado(s)?`)) return;
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try { await api('/sessions/' + id + '/close', { method: 'POST' }); ok++; }
+      catch (e) { fail++; }
+    }
+    closeModal('modalCloseShift');
+    alert(`Turnos cerrados: ✅ ${ok}${fail ? `  ❌ ${fail} fallidos` : ''}`);
+  };
+
+  // ── SIDEBAR MOBILE ────────────────────────────────────────────────────────
+
+  document.getElementById('btnMenu').onclick = () => {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebarOverlay').classList.add('open');
+  };
+  document.getElementById('sidebarOverlay').onclick = closeSidebar;
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('open');
+  }
+  window.closeSidebar = closeSidebar;
+
+  // ── LOGOUT ────────────────────────────────────────────────────────────────
+
+  function doLogout() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    window.location.href = '/';
+  }
+
+  document.getElementById('btnLogout').onclick       = doLogout;
+  document.getElementById('btnLogoutTop').onclick    = doLogout;
+  document.getElementById('btnLogoutGlobal').onclick = doLogout;
+
+  function doOpenCloseShift() { document.getElementById('btnCloseShift').onclick(); }
+  document.getElementById('btnCloseShiftTop').onclick    = doOpenCloseShift;
+  document.getElementById('btnCloseShiftGlobal').onclick = doOpenCloseShift;
+
+  // ── UTILS ─────────────────────────────────────────────────────────────────
+
+  function esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function openModal(id)  { document.getElementById(id).classList.add('open'); }
+  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+  window.closeModal = closeModal;
+
+  document.querySelectorAll('.modal-overlay').forEach(m => {
+    m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+  });
+
+  function showError(e) { console.error(e); }
+
+  // ── INIT ──────────────────────────────────────────────────────────────────
+  init();
+
+})();
+</script>
+</body>
 </html>
