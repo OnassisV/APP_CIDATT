@@ -223,6 +223,8 @@
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
+        <button class="theme-toggle hidden" id="btnBackToPanel" onclick="window.location.href='/panel.html'" title="Volver al panel">← Panel</button>
+        <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión">🔓 Salir</button>
         <button class="theme-toggle" id="btnHelp" title="Ayuda">❓</button>
         <button class="theme-toggle" id="btnTheme">🌙</button>
       </div>
@@ -729,11 +731,28 @@
         var operador2 = document.getElementById('setupOperador2');
         if (operador1 && !operador1.value) operador1.value = authUser.fullName;
         if (operador2 && !operador2.value) operador2.value = authUser.fullName;
+        showPanelButtons();
       }
 
       function isPanelRole(role) {
         return ['admin', 'director', 'coordinador'].includes(role);
       }
+
+      function showPanelButtons() {
+        var params = new URLSearchParams(window.location.search);
+        if (isPanelRole(authUser && authUser.role) && params.get('mode') === 'register') {
+          document.getElementById('btnBackToPanel').classList.remove('hidden');
+          document.getElementById('btnLogoutRegister').classList.remove('hidden');
+        }
+      }
+
+      document.getElementById('btnLogoutRegister').addEventListener('click', function() {
+        authToken = '';
+        authUser = null;
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        window.location.href = '/';
+      });
 
       function redirectToPanelIfNeeded(role) {
         if (!isPanelRole(role)) return false;

@@ -332,10 +332,6 @@
       <div class="form-group"><label>Fecha inicio *</label><input id="pStart" type="date"/></div>
       <div class="form-group"><label>Fecha fin</label><input id="pEnd" type="date"/></div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label>⏰ Hora inicio registro</label><input id="pTimeStart" type="time" placeholder="06:00"/></div>
-      <div class="form-group"><label>⏰ Hora fin registro</label><input id="pTimeEnd" type="time" placeholder="22:00"/></div>
-    </div>
     <div class="form-group"><label>Estado</label>
       <select id="pStatus"><option value="activo">Activo</option><option value="pausado">Pausado</option><option value="cerrado">Cerrado</option></select>
     </div>
@@ -349,9 +345,13 @@
 <!-- Modal: Nuevo Peaje/Estación -->
 <div class="modal-overlay" id="modalStation">
   <div class="modal">
-    <div class="modal-title">Agregar Peaje / Estación</div>
+    <div class="modal-title" id="modalStationTitle">Agregar Peaje / Estación</div>
     <div class="form-group"><label>Nombre del peaje *</label><input id="sName" placeholder="Ej: Peaje La Oroya"/></div>
     <div class="form-group"><label>Ubicación / Referencia</label><input id="sLocation" placeholder="Ej: Km 167, Carretera Central"/></div>
+    <div class="form-row">
+      <div class="form-group"><label>⏰ Hora inicio registro</label><input id="sTimeStart" type="time" placeholder="06:00"/></div>
+      <div class="form-group"><label>⏰ Hora fin registro</label><input id="sTimeEnd" type="time" placeholder="22:00"/></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-soft" onclick="closeModal('modalStation')">Cancelar</button>
       <button class="btn btn-primary" id="btnSaveStation">Guardar</button>
@@ -554,6 +554,8 @@
 
   // ── DASHBOARD ─────────────────────────────────────────────────────────────
 
+  let _dashboardInterval = null;
+
   async function loadDashboard() {
     try {
       const data = await api('/dashboard/director');
@@ -563,6 +565,14 @@
       renderDashboardProjects(data.projectStats);
     } catch (e) {
       if (currentUser.role === 'coordinador') loadCoordDashboard();
+    }
+    // Auto-refresco cada 5 minutos si el dashboard está visible
+    if (!_dashboardInterval) {
+      _dashboardInterval = setInterval(() => {
+        if (document.getElementById('viewDashboard')?.classList.contains('active')) {
+          loadDashboard();
+        }
+      }, 5 * 60 * 1000);
     }
   }
 
@@ -598,8 +608,8 @@
       return `<div class="spark-bar" style="height:${pct}%" title="${t.operation_date}: ${t.records}"></div>`;
     }).join('');
     document.getElementById('sparkline').innerHTML = bars;
-    const first = trend[0]?.operation_date?.slice(5) || '';
-    const last  = trend[trend.length-1]?.operation_date?.slice(5) || '';
+    const first = (trend[0]?.operation_date || '').slice(5, 10);
+    const last  = (trend[trend.length-1]?.operation_date || '').slice(5, 10);
     document.getElementById('sparkLabel').innerHTML = `<span>${first}</span><span>${last}</span>`;
   }
 
@@ -629,10 +639,9 @@
     document.getElementById('projectsTable').innerHTML = `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Proyecto</th><th>Estado</th><th>Casetas</th><th>Hoy</th><th>Total</th><th>Horario</th><th></th></tr></thead>
+          <thead><tr><th>Proyecto</th><th>Estado</th><th>Casetas</th><th>Hoy</th><th>Total</th><th></th></tr></thead>
           <tbody>${projects.map(p => {
             const staffPct = p.total_booths ? Math.round((p.staffed_booths / p.total_booths) * 100) : 0;
-            const hours = p.daily_start_time && p.daily_end_time ? `${p.daily_start_time.slice(0,5)}–${p.daily_end_time.slice(0,5)}` : '—';
             return `<tr>
               <td><strong>${esc(p.name)}</strong></td>
               <td><span class="badge badge-${p.status}">${p.status}</span></td>
@@ -642,7 +651,6 @@
               </td>
               <td>${p.records_today||0}</td>
               <td>${(p.total_records||0).toLocaleString()}</td>
-              <td style="font-size:.78rem;">${hours}</td>
               <td><button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Ver →</button></td>
             </tr>`;
           }).join('')}</tbody>
@@ -666,19 +674,17 @@
     }
     document.getElementById('projectsListTable').innerHTML = `
       <table>
-        <thead><tr><th>Nombre</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Horario</th><th>Casetas</th><th></th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Casetas</th><th></th></tr></thead>
         <tbody>${projects.map(p => {
-          const hours = p.daily_start_time && p.daily_end_time ? `${p.daily_start_time.slice(0,5)}–${p.daily_end_time.slice(0,5)}` : '—';
           return `<tr>
             <td><strong>${esc(p.name)}</strong><br><small style="color:var(--muted)">${esc(p.description||'')}</small></td>
             <td><span class="badge badge-${p.status}">${p.status}</span></td>
             <td>${p.start_date||'—'}</td>
             <td>${p.end_date||'—'}</td>
-            <td>${hours}</td>
             <td>${p.staffed_booths||0}/${p.total_booths||0}</td>
             <td style="display:flex;gap:6px;flex-wrap:wrap;">
               <button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Detalle</button>
-              <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}','${p.daily_start_time||''}','${p.daily_end_time||''}')">Editar</button>
+              <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}')">Editar</button>
             </td>
           </tr>`;
         }).join('')}</tbody>
@@ -703,11 +709,21 @@
       document.getElementById('projectDetailContent').innerHTML = '<div class="empty-state"><div class="icon">🏗️</div>No hay peajes configurados. Agrega el primero.</div>';
       return;
     }
-    document.getElementById('projectDetailContent').innerHTML = stations.map(s => `
+    document.getElementById('projectDetailContent').innerHTML = stations.map(s => {
+      const hours = s.daily_start_time && s.daily_end_time
+        ? `<span style="font-size:.75rem;color:var(--muted);">⏰ ${s.daily_start_time.slice(0,5)}–${s.daily_end_time.slice(0,5)}</span>`
+        : '';
+      return `
       <div class="card" style="margin-bottom:16px;">
         <div class="section-header">
-          <h2>⛽ ${esc(s.name)} <small style="color:var(--muted);font-weight:normal;font-size:.78rem;">${esc(s.location||'')}</small></h2>
-          <button class="btn btn-soft btn-sm" onclick="openAddBooth(${s.id})">+ Caseta</button>
+          <div>
+            <h2 style="margin-bottom:2px;">⛽ ${esc(s.name)} <small style="color:var(--muted);font-weight:normal;font-size:.78rem;">${esc(s.location||'')}</small></h2>
+            ${hours}
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-soft btn-sm" onclick="editStation(${s.id},'${esc(s.name)}','${esc(s.location||'')}','${s.daily_start_time||''}','${s.daily_end_time||''}')">Editar</button>
+            <button class="btn btn-soft btn-sm" onclick="openAddBooth(${s.id})">+ Caseta</button>
+          </div>
         </div>
         <div class="booth-map">${s.booths.map(b => `
           <div class="booth-card ${b.assigned_user_id ? 'staffed' : 'unstaffed'}" onclick="openAssign(${b.id}, ${currentProjectId}, '${esc(b.code)}', '${esc(s.name)}')">
@@ -716,7 +732,7 @@
             <div class="booth-staff">${b.assigned_user_name ? '👤 ' + esc(b.assigned_user_name) : '⬜ Sin personal'}</div>
           </div>`).join('')}
         </div>
-      </div>`).join('');
+      </div>`;}).join('');
   }
 
   // ── ALERTAS ───────────────────────────────────────────────────────────────
@@ -791,12 +807,13 @@
       }
       document.getElementById('usersTable').innerHTML = `
         <table>
-          <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Proyecto</th><th>Estado</th><th></th></tr></thead>
           <tbody>${users.map(u => `
             <tr>
               <td>${esc(u.full_name)}</td>
               <td><code>@${esc(u.username)}</code></td>
               <td><span class="badge badge-${u.role}">${roleLabel(u.role)}</span></td>
+              <td style="font-size:.82rem;">${u.project_name ? esc(u.project_name) : '<span style="color:var(--muted)">Sin asignar</span>'}</td>
               <td><span class="badge ${u.is_active ? 'badge-activo' : 'badge-cerrado'}">${u.is_active ? 'Activo' : 'Inactivo'}</span></td>
               <td>
                 <button class="btn btn-soft btn-sm" onclick="toggleUser(${u.id},${u.is_active?0:1})">${u.is_active ? 'Desactivar' : 'Activar'}</button>
@@ -862,18 +879,20 @@
         </div>`;
 
       if (p) {
-        const pct = p.daily_start_time && p.daily_end_time ? calcDayProgress(p.daily_start_time, p.daily_end_time) : null;
-        if (pct !== null) {
-          html += `<div class="card card-sm" style="margin-bottom:16px;">
-            <div class="progress-label"><span>⏰ Horario: ${p.daily_start_time.slice(0,5)} – ${p.daily_end_time.slice(0,5)}</span><span>${pct}%</span></div>
-            <div class="progress-bar"><div class="progress-fill ${pct>90?'danger':pct>70?'warn':''}" style="width:${pct}%;"></div></div>
-          </div>`;
-        }
+        // (el horario ahora es por peaje, no por proyecto)
       }
 
-      html += data.stations.map(s => `
+      html += data.stations.map(s => {
+        const pct = s.daily_start_time && s.daily_end_time ? calcDayProgress(s.daily_start_time, s.daily_end_time) : null;
+        const hoursBar = pct !== null ? `
+          <div style="margin-bottom:10px;">
+            <div class="progress-label"><span>⏰ Horario: ${s.daily_start_time.slice(0,5)} – ${s.daily_end_time.slice(0,5)}</span><span>${pct}%</span></div>
+            <div class="progress-bar"><div class="progress-fill ${pct>90?'danger':pct>70?'warn':''}" style="width:${pct}%;"></div></div>
+          </div>` : '';
+        return `
         <div class="card" style="margin-bottom:16px;">
           <div class="section-header"><h2>⛽ ${esc(s.name)}</h2></div>
+          ${hoursBar}
           <div class="booth-map">${s.booths.map(b => `
             <div class="booth-card ${b.user_id ? 'staffed' : 'unstaffed'}" onclick="openAssign(${b.id},${projectId},'${esc(b.code)}','${esc(s.name)}')">
               <div class="booth-num">C-${esc(b.code)}</div>
@@ -882,7 +901,8 @@
               <div class="booth-records">${b.records_today > 0 ? b.records_today + ' hoy' : ''}</div>
             </div>`).join('')}
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
 
       document.getElementById('coordContent').innerHTML = html;
     } catch (e) { showError(e); }
@@ -951,21 +971,17 @@
     document.getElementById('pDesc').value = '';
     document.getElementById('pStart').value = new Date().toISOString().slice(0,10);
     document.getElementById('pEnd').value = '';
-    document.getElementById('pTimeStart').value = '';
-    document.getElementById('pTimeEnd').value = '';
     document.getElementById('pStatus').value = 'activo';
     openModal('modalProject');
   };
 
-  window.editProject = function(id, name, desc, start, end, status, ts, te) {
+  window.editProject = function(id, name, desc, start, end, status) {
     editingProjectId = id;
     document.getElementById('modalProjectTitle').textContent = 'Editar Proyecto';
     document.getElementById('pName').value = name;
     document.getElementById('pDesc').value = desc;
     document.getElementById('pStart').value = start;
     document.getElementById('pEnd').value = end;
-    document.getElementById('pTimeStart').value = ts;
-    document.getElementById('pTimeEnd').value = te;
     document.getElementById('pStatus').value = status;
     openModal('modalProject');
   };
@@ -976,8 +992,6 @@
       description: document.getElementById('pDesc').value.trim(),
       start_date: document.getElementById('pStart').value,
       end_date: document.getElementById('pEnd').value || null,
-      daily_start_time: document.getElementById('pTimeStart').value || null,
-      daily_end_time: document.getElementById('pTimeEnd').value || null,
       status: document.getElementById('pStatus').value
     };
     if (!body.name || !body.start_date) return alert('Nombre y fecha inicio son obligatorios.');
@@ -995,13 +1009,43 @@
 
   // ── MODAL ESTACIÓN ────────────────────────────────────────────────────────
 
-  document.getElementById('btnNewStation').onclick = () => openModal('modalStation');
+  var editingStationId = null;
+
+  document.getElementById('btnNewStation').onclick = () => {
+    editingStationId = null;
+    document.getElementById('modalStationTitle').textContent = 'Agregar Peaje / Estación';
+    document.getElementById('sName').value = '';
+    document.getElementById('sLocation').value = '';
+    document.getElementById('sTimeStart').value = '';
+    document.getElementById('sTimeEnd').value = '';
+    openModal('modalStation');
+  };
+
+  window.editStation = function(id, name, location, ts, te) {
+    editingStationId = id;
+    document.getElementById('modalStationTitle').textContent = 'Editar Peaje';
+    document.getElementById('sName').value = name;
+    document.getElementById('sLocation').value = location || '';
+    document.getElementById('sTimeStart').value = ts || '';
+    document.getElementById('sTimeEnd').value = te || '';
+    openModal('modalStation');
+  };
 
   document.getElementById('btnSaveStation').onclick = async () => {
     const name = document.getElementById('sName').value.trim();
     if (!name) return alert('El nombre es obligatorio.');
+    const body = {
+      name,
+      location: document.getElementById('sLocation').value.trim(),
+      daily_start_time: document.getElementById('sTimeStart').value || null,
+      daily_end_time: document.getElementById('sTimeEnd').value || null
+    };
     try {
-      await api('/projects/' + currentProjectId + '/stations', { method: 'POST', body: { name, location: document.getElementById('sLocation').value.trim() } });
+      if (editingStationId) {
+        await api('/stations/' + editingStationId, { method: 'PUT', body });
+      } else {
+        await api('/projects/' + currentProjectId + '/stations', { method: 'POST', body });
+      }
       closeModal('modalStation');
       openProjectDetail(currentProjectId);
     } catch (e) { alert(e.message); }

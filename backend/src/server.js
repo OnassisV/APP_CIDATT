@@ -204,7 +204,12 @@ app.get('/api/users', authenticateRequest, requireMinRole('director'), async (re
     const myLevel = ROLE_LEVEL[req.authUser.role] || 0;
     // Solo puede ver usuarios de rol inferior al suyo
     const rows = await query(
-      `SELECT id, username, full_name, role, is_active, created_at FROM ${TABLES.users} ORDER BY role, full_name`
+      `SELECT u.id, u.username, u.full_name, u.role, u.is_active, u.created_at,
+              p.name AS project_name
+       FROM ${TABLES.users} u
+       LEFT JOIN ${TABLES.assignments} a ON a.user_id = u.id AND a.is_active = 1
+       LEFT JOIN ${TABLES.projects} p ON p.id = a.project_id
+       ORDER BY p.name IS NULL ASC, p.name ASC, u.role ASC, u.full_name ASC`
     );
     const filtered = req.authUser.role === 'admin'
       ? rows
@@ -305,13 +310,12 @@ app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), asy
 
 app.post('/api/projects', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
-    const { name, description, start_date, end_date, daily_start_time, daily_end_time } = req.body;
-    if (!name || !start_date) throw badRequest('Nombre y fecha de inicio son obligatorios.');
+    const { name, description, start_date, end_date } = req.body;
+    if (!name || !start_date) throw badRequest('Nombre y fecha inicio son obligatorios.');
     const result = await query(
-      `INSERT INTO ${TABLES.projects} (name, description, start_date, end_date, daily_start_time, daily_end_time, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [String(name).trim(), description || null, start_date, end_date || null,
-       daily_start_time || null, daily_end_time || null, req.authUser.user_id]
+      `INSERT INTO ${TABLES.projects} (name, description, start_date, end_date, created_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [String(name).trim(), description||null, start_date, end_date||null, req.authUser.user_id]
     );
     res.json({ ok: true, projectId: result.insertId });
   } catch (error) { next(error); }
@@ -358,13 +362,25 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
 
 app.post('/api/projects/:projectId/stations', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
-    const { name, location } = req.body;
+    const { name, location, daily_start_time, daily_end_time } = req.body;
     if (!name) throw badRequest('Nombre de estación requerido.');
     const result = await query(
-      `INSERT INTO ${TABLES.stations} (project_id, name, location) VALUES (?, ?, ?)`,
-      [req.params.projectId, String(name).trim(), location || null]
+      `INSERT INTO ${TABLES.stations} (project_id, name, location, daily_start_time, daily_end_time) VALUES (?, ?, ?, ?, ?)`,
+      [req.params.projectId, String(name).trim(), location || null, daily_start_time || null, daily_end_time || null]
     );
     res.json({ ok: true, stationId: result.insertId });
+  } catch (error) { next(error); }
+});
+
+app.put('/api/stations/:stationId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const { name, location, daily_start_time, daily_end_time } = req.body;
+    if (!name) throw badRequest('Nombre de estación requerido.');
+    await query(
+      `UPDATE ${TABLES.stations} SET name=?, location=?, daily_start_time=?, daily_end_time=? WHERE id=?`,
+      [String(name).trim(), location || null, daily_start_time || null, daily_end_time || null, req.params.stationId]
+    );
+    res.json({ ok: true });
   } catch (error) { next(error); }
 });
 
@@ -531,7 +547,7 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
 app.get('/api/dashboard/coordinator/:projectId', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
     const stations = await query(
-      `SELECT ts.id, ts.name, ts.location FROM ${TABLES.stations} ts WHERE ts.project_id = ? ORDER BY ts.name`,
+      `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time FROM ${TABLES.stations} ts WHERE ts.project_id = ? ORDER BY ts.name`,
       [req.params.projectId]
     );
     for (const s of stations) {
@@ -699,6 +715,15 @@ async function runMigrations() {
   try {
     await query(`ALTER TABLE ${TABLES.users} ADD COLUMN role ENUM('admin','director','coordinador','registrador') NOT NULL DEFAULT 'registrador' AFTER password_hash`);
   } catch (_) {}
+  // Agregar columnas de horario a estaciones si ya existe la tabla sin ellas
+  try {
+    await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN daily_start_time TIME NULL AFTER location`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN daily_end_time TIME NULL AFTER daily_start_time`);
+  } catch (_) {}
+  try {
+  } catch (_) {}
   // Asegurar que admin tenga rol admin
   await query(`UPDATE ${TABLES.users} SET role = 'admin' WHERE username = 'admin'`);
 
@@ -739,6 +764,8 @@ async function runMigrations() {
       project_id INT UNSIGNED NOT NULL,
       name VARCHAR(120) NOT NULL,
       location VARCHAR(200) NULL,
+      daily_start_time TIME NULL COMMENT 'Hora inicio registro en este peaje',
+      daily_end_time TIME NULL COMMENT 'Hora fin registro en este peaje',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       CONSTRAINT fk_cidatt_stations_project FOREIGN KEY (project_id) REFERENCES ${TABLES.projects} (id) ON DELETE CASCADE
