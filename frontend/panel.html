@@ -1424,7 +1424,7 @@
     _assignProjectId = projectId;
     const s = _stationsCache[stationId];
     document.getElementById('modalAssignTitle').textContent = 'Asignar Personal — ' + (s ? esc(s.name) : '');
-    document.getElementById('assignTabBar').style.display = isCoord ? 'none' : '';
+    document.getElementById('assignTabBar').style.display = 'none';
     try {
       const regData = await api('/projects/' + projectId + '/available-users?role=registrador');
       _regAvailUsers = regData.users;
