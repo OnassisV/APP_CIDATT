@@ -396,6 +396,20 @@ app.post('/api/stations/:stationId/booths', authenticateRequest, requireMinRole(
   } catch (error) { next(error); }
 });
 
+app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    await query(`DELETE FROM ${TABLES.stations} WHERE id = ?`, [req.params.stationId]);
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.delete('/api/booths/:boothId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    await query(`DELETE FROM ${TABLES.booths} WHERE id = ?`, [req.params.boothId]);
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
 // ─── ASIGNACIONES ─────────────────────────────────────────────────────────────
 
 app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
@@ -861,7 +875,10 @@ async function runMigrations() {
     { username: 'admin',            full_name: 'Administrador CIDATT',  role: 'admin',        password: 'CIDATT2026!' },
     { username: 'director.test',    full_name: 'Director de Prueba',    role: 'director',     password: 'Director2026!' },
     { username: 'coord.test',       full_name: 'Coordinador de Prueba', role: 'coordinador',  password: 'Coord2026!' },
-    { username: 'registrador.test', full_name: 'Registrador de Prueba', role: 'registrador',  password: 'Reg2026!' }
+    { username: 'registrador.test', full_name: 'Registrador de Prueba', role: 'registrador',  password: 'Reg2026!' },
+    { username: 'reg2.test',        full_name: 'Registrador 2 Prueba',  role: 'registrador',  password: 'Reg2026!' },
+    { username: 'reg3.test',        full_name: 'Registrador 3 Prueba',  role: 'registrador',  password: 'Reg2026!' },
+    { username: 'reg4.test',        full_name: 'Registrador 4 Prueba',  role: 'registrador',  password: 'Reg2026!' }
   ];
 
   for (const u of seedUsers) {
