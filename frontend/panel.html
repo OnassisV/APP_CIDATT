@@ -39,7 +39,20 @@
     .btn-close-shift { margin-top: 6px; width: 100%; padding: 7px; background: rgba(220,38,38,.35); border: 1px solid rgba(220,38,38,.5); color: #fff; border-radius: 8px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
     .btn-close-shift:hover { background: rgba(220,38,38,.55); }
 
-    .main-content { margin-left: 240px; flex: 1; padding: 24px; min-width: 0; }
+    .main-content { margin-left: 240px; flex: 1; padding: 24px; padding-top: 72px; min-width: 0; }
+    .global-topbar {
+      position: fixed; top: 0; left: 240px; right: 0; height: 52px; z-index: 90;
+      background: var(--card); border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 0 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    }
+    .global-topbar .user-chip {
+      font-size: .82rem; color: var(--muted); margin-right: auto;
+    }
+    @media (max-width: 768px) {
+      .global-topbar { display: none; }
+      .main-content { padding-top: 24px; }
+    }
 
     /* ── TOPBAR ── */
     .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
@@ -201,12 +214,23 @@
   </nav>
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
+  <!-- TOPBAR GLOBAL (desktop) -->
+  <div class="global-topbar" id="globalTopbar">
+    <span class="user-chip" id="globalUserChip"></span>
+    <button class="btn btn-soft btn-sm" id="btnCloseShiftGlobal">⏹ Cerrar Turno</button>
+    <button class="btn btn-danger btn-sm" id="btnLogoutGlobal">🔓 Cerrar sesión</button>
+  </div>
+
   <!-- MAIN -->
   <main class="main-content" id="mainContent">
 
     <div class="mobile-topbar">
       <button class="btn-menu" id="btnMenu">☰</button>
       <strong>CIDATT Gestión</strong>
+      <div style="margin-left:auto;display:flex;gap:6px;">
+        <button class="btn btn-soft btn-sm" id="btnCloseShiftTop" title="Cerrar Turno">⏹</button>
+        <button class="btn btn-danger btn-sm" id="btnLogoutTop" title="Cerrar sesión">🔓 Salir</button>
+      </div>
     </div>
 
     <!-- ══ VISTA: DASHBOARD ══════════════════════════════════════════════════ -->
@@ -463,6 +487,7 @@
     document.getElementById('sidebarUserRole').textContent = roleLabel(currentUser.role);
     document.getElementById('dashTitle').textContent = 'Dashboard — ' + roleLabel(currentUser.role);
     document.getElementById('dashDate').textContent = new Date().toLocaleDateString('es-PE', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+    document.getElementById('globalUserChip').textContent = '👤 ' + currentUser.fullName + ' · ' + roleLabel(currentUser.role);
 
     const nav = document.getElementById('sidebarNav');
     const isAdmin = currentUser.role === 'admin';
@@ -1095,11 +1120,19 @@
 
   // ── LOGOUT ────────────────────────────────────────────────────────────────
 
-  document.getElementById('btnLogout').onclick = () => {
+  function doLogout() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     window.location.href = '/';
-  };
+  }
+
+  document.getElementById('btnLogout').onclick       = doLogout;
+  document.getElementById('btnLogoutTop').onclick    = doLogout;
+  document.getElementById('btnLogoutGlobal').onclick = doLogout;
+
+  function doOpenCloseShift() { document.getElementById('btnCloseShift').onclick(); }
+  document.getElementById('btnCloseShiftTop').onclick    = doOpenCloseShift;
+  document.getElementById('btnCloseShiftGlobal').onclick = doOpenCloseShift;
 
   // ── UTILS ─────────────────────────────────────────────────────────────────
 
