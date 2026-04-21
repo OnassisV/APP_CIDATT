@@ -36,6 +36,8 @@
     .sidebar-footer .user-role { opacity: .7; font-size: 0.72rem; }
     .btn-logout { margin-top: 8px; width: 100%; padding: 7px; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: #fff; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
     .btn-logout:hover { background: rgba(255,255,255,.25); }
+    .btn-close-shift { margin-top: 6px; width: 100%; padding: 7px; background: rgba(220,38,38,.35); border: 1px solid rgba(220,38,38,.5); color: #fff; border-radius: 8px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+    .btn-close-shift:hover { background: rgba(220,38,38,.55); }
 
     .main-content { margin-left: 240px; flex: 1; padding: 24px; min-width: 0; }
 
@@ -193,6 +195,7 @@
     <div class="sidebar-footer">
       <div class="user-name" id="sidebarUserName">—</div>
       <div class="user-role" id="sidebarUserRole">—</div>
+      <button class="btn-close-shift" id="btnCloseShift">⏹ Cerrar Turno</button>
       <button class="btn-logout" id="btnLogout">Cerrar sesión</button>
     </div>
   </nav>
@@ -362,6 +365,19 @@
     <div class="modal-actions">
       <button class="btn btn-soft" onclick="closeModal('modalUser')">Cancelar</button>
       <button class="btn btn-primary" id="btnSaveUser">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Cerrar Turno -->
+<div class="modal-overlay" id="modalCloseShift">
+  <div class="modal">
+    <div class="modal-title">⏹ Cerrar Turno</div>
+    <p style="font-size:.85rem;color:var(--muted);margin-bottom:14px;">Selecciona los turnos abiertos que deseas cerrar.</p>
+    <div id="closeShiftList" style="max-height:320px;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalCloseShift')">Cancelar</button>
+      <button class="btn btn-danger" id="btnConfirmCloseShift">⏹ Cerrar seleccionados</button>
     </div>
   </div>
 </div>
@@ -1020,6 +1036,48 @@
 
   document.getElementById('btnSwitchToRegister').onclick = () => {
     window.location.href = '/?mode=register';
+  };
+
+  // ── CERRAR TURNO ─────────────────────────────────────────────────────────
+
+  document.getElementById('btnCloseShift').onclick = async () => {
+    const listEl = document.getElementById('closeShiftList');
+    listEl.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);">Cargando turnos...</div>';
+    openModal('modalCloseShift');
+    try {
+      const data = await api('/sessions/open');
+      const sessions = data.sessions || [];
+      if (!sessions.length) {
+        listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">✅ No hay turnos abiertos.</div>';
+        document.getElementById('btnConfirmCloseShift').style.display = 'none';
+        return;
+      }
+      document.getElementById('btnConfirmCloseShift').style.display = '';
+      listEl.innerHTML = sessions.map(s => `
+        <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer;">
+          <input type="checkbox" value="${s.id}" checked style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent);" />
+          <div>
+            <div style="font-weight:600;font-size:.88rem;">${esc(s.operator_name)} — C${esc(s.booth_number)}</div>
+            <div style="font-size:.78rem;color:var(--muted);">📍 ${esc(s.toll_name)} · 📅 ${s.operation_date}</div>
+          </div>
+        </label>`).join('');
+    } catch (e) {
+      listEl.innerHTML = `<div style="color:var(--danger);padding:12px;">${esc(e.message)}</div>`;
+    }
+  };
+
+  document.getElementById('btnConfirmCloseShift').onclick = async () => {
+    const checkboxes = document.querySelectorAll('#closeShiftList input[type=checkbox]:checked');
+    const ids = Array.from(checkboxes).map(cb => cb.value);
+    if (!ids.length) { alert('No hay turnos seleccionados.'); return; }
+    if (!confirm(`¿Cerrar ${ids.length} turno(s) seleccionado(s)?`)) return;
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try { await api('/sessions/' + id + '/close', { method: 'POST' }); ok++; }
+      catch (e) { fail++; }
+    }
+    closeModal('modalCloseShift');
+    alert(`Turnos cerrados: ✅ ${ok}${fail ? `  ❌ ${fail} fallidos` : ''}`);
   };
 
   // ── SIDEBAR MOBILE ────────────────────────────────────────────────────────

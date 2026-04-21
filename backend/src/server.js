@@ -567,6 +567,21 @@ app.post('/api/sessions/:id/close', authenticateRequest, requireMinRole('coordin
 
 // ─── SESIONES ─────────────────────────────────────────────────────────────────
 
+// Listar sesiones abiertas (para cerrar turno desde el panel)
+app.get('/api/sessions/open', authenticateRequest, requireMinRole('coordinador'), async (_req, res, next) => {
+  try {
+    const sessions = await query(
+      `SELECT s.id, s.operation_date, s.status,
+              p.operator_name, p.toll_name, p.booth_number, p.direction
+       FROM ${TABLES.sessions} s
+       INNER JOIN ${TABLES.profiles} p ON p.session_id = s.id AND p.profile_index = 0
+       WHERE s.status = 'open'
+       ORDER BY s.operation_date DESC, p.toll_name ASC`
+    );
+    res.json({ ok: true, sessions });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/sessions/upsert', authenticateRequest, async (req, res, next) => {
   try {
     const session = mapSessionPayload(req.body);
