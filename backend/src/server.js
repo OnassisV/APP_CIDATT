@@ -351,8 +351,14 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
     );
     for (const s of stations) {
       s.booths = await query(
-        `SELECT tb.*, u.id AS assigned_user_id, u.full_name AS assigned_user_name, u.username AS assigned_username
+        `SELECT tb.id, tb.code, tb.directions,
+                a.id AS assignment_id, u.id AS assigned_user_id, u.full_name AS assigned_user_name, u.username AS assigned_username,
+                (SELECT IF(COUNT(*) > 0, 1, 0) FROM ${TABLES.sessions} ss
+                 JOIN ${TABLES.profiles} sp ON sp.session_id = ss.id
+                 WHERE ss.status = 'open' AND ss.operation_date = CURDATE()
+                 AND sp.toll_name = ts2.name AND sp.booth_number = tb.code) AS has_open_shift
          FROM ${TABLES.booths} tb
+         JOIN ${TABLES.stations} ts2 ON ts2.id = tb.station_id
          LEFT JOIN ${TABLES.assignments} a ON a.booth_id = tb.id AND a.is_active = 1
          LEFT JOIN ${TABLES.users} u ON u.id = a.user_id
          WHERE tb.station_id = ? ORDER BY tb.code`,
@@ -587,7 +593,11 @@ app.get('/api/dashboard/coordinator/:projectId', authenticateRequest, requireMin
                 u.id AS user_id, u.full_name, u.username, u.role,
                 a.id AS assignment_id,
                 (SELECT COUNT(*) FROM ${TABLES.records} r
-                 WHERE r.booth_number = tb.code AND r.toll_name = ts.name AND r.operation_date = CURDATE()) AS records_today
+                 WHERE r.booth_number = tb.code AND r.toll_name = ts2.name AND r.operation_date = CURDATE()) AS records_today,
+                (SELECT IF(COUNT(*) > 0, 1, 0) FROM ${TABLES.sessions} ss
+                 JOIN ${TABLES.profiles} sp ON sp.session_id = ss.id
+                 WHERE ss.status = 'open' AND ss.operation_date = CURDATE()
+                 AND sp.toll_name = ts2.name AND sp.booth_number = tb.code) AS has_open_shift
          FROM ${TABLES.booths} tb
          INNER JOIN ${TABLES.stations} ts2 ON ts2.id = tb.station_id
          LEFT JOIN ${TABLES.assignments} a ON a.booth_id = tb.id AND a.is_active = 1
