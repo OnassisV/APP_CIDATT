@@ -341,9 +341,12 @@ app.put('/api/projects/:id', authenticateRequest, requireMinRole('director'), as
 app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
     const stations = await query(
-      `SELECT ts.*, COUNT(tb.id) AS booth_count FROM ${TABLES.stations} ts
-       LEFT JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
-       WHERE ts.project_id = ? GROUP BY ts.id ORDER BY ts.name`,
+      `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time,
+              u.id AS coord_user_id, u.full_name AS coord_name, a.id AS coord_assignment_id
+       FROM ${TABLES.stations} ts
+       LEFT JOIN ${TABLES.assignments} a ON a.station_id = ts.id AND a.booth_id IS NULL AND a.is_active = 1
+       LEFT JOIN ${TABLES.users} u ON u.id = a.user_id AND u.role = 'coordinador'
+       WHERE ts.project_id = ? ORDER BY ts.name`,
       [req.params.projectId]
     );
     for (const s of stations) {
@@ -414,19 +417,22 @@ app.delete('/api/booths/:boothId', authenticateRequest, requireMinRole('director
 
 app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
-    const { user_id, project_id, booth_id } = req.body;
+    const { user_id, project_id, booth_id, station_id } = req.body;
     if (!user_id || !project_id) throw badRequest('Faltan campos obligatorios.');
 
-    // Desactivar asignaciones previas del usuario en este proyecto
-    await query(
-      `UPDATE ${TABLES.assignments} SET is_active = 0 WHERE user_id = ? AND project_id = ?`,
-      [user_id, project_id]
-    );
-    // Si booth_id es null = solo asignar a proyecto sin caseta específica
+    if (station_id && !booth_id) {
+      // Director asigna coordinador a peaje
+      if ((ROLE_LEVEL[req.authUser.role] || 0) < ROLE_LEVEL['director']) throw forbidden('Solo directores pueden asignar coordinadores a peajes.');
+      // Desactivar coordinador previo en esta estación
+      await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ? AND booth_id IS NULL AND is_active = 1`, [station_id]);
+    } else {
+      // Coordinador asigna registrador a caseta
+      await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE user_id = ? AND project_id = ? AND booth_id IS NOT NULL`, [user_id, project_id]);
+    }
+
     const result = await query(
-      `INSERT INTO ${TABLES.assignments} (user_id, project_id, booth_id, assigned_by, is_active)
-       VALUES (?, ?, ?, ?, 1)`,
-      [user_id, project_id, booth_id || null, req.authUser.user_id]
+      `INSERT INTO ${TABLES.assignments} (user_id, project_id, station_id, booth_id, assigned_by, is_active) VALUES (?, ?, ?, ?, ?, 1)`,
+      [user_id, project_id, station_id || null, booth_id || null, req.authUser.user_id]
     );
     res.json({ ok: true, assignmentId: result.insertId });
   } catch (error) { next(error); }
@@ -439,19 +445,20 @@ app.delete('/api/assignments/:id', authenticateRequest, requireMinRole('coordina
   } catch (error) { next(error); }
 });
 
-// Usuarios disponibles para asignar (registradores y coordinadores del proyecto o sin asignar)
+// Usuarios disponibles para asignar (filtrado por ?role=)
 app.get('/api/projects/:projectId/available-users', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
+    const roleFilter = req.query.role === 'coordinador' ? "u.role = 'coordinador'" : "u.role = 'registrador'";
     const rows = await query(
       `SELECT u.id, u.full_name, u.username, u.role,
-              a.id AS assignment_id, a.booth_id,
+              a.id AS assignment_id, a.booth_id, a.station_id,
               tb.code AS booth_code, ts.name AS station_name
        FROM ${TABLES.users} u
        LEFT JOIN ${TABLES.assignments} a ON a.user_id = u.id AND a.project_id = ? AND a.is_active = 1
        LEFT JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
-       LEFT JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
-       WHERE u.role IN ('registrador','coordinador') AND u.is_active = 1
-       ORDER BY u.role DESC, u.full_name`,
+       LEFT JOIN ${TABLES.stations} ts ON ts.id = COALESCE(tb.station_id, a.station_id)
+       WHERE ${roleFilter} AND u.is_active = 1
+       ORDER BY u.full_name`,
       [req.params.projectId]
     );
     res.json({ ok: true, users: rows });
@@ -560,10 +567,20 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
 
 app.get('/api/dashboard/coordinator/:projectId', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
-    const stations = await query(
-      `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time FROM ${TABLES.stations} ts WHERE ts.project_id = ? ORDER BY ts.name`,
-      [req.params.projectId]
-    );
+    // Coordinador solo ve sus peajes asignados; director/admin ven todos
+    const isCoord = req.authUser.role === 'coordinador';
+    const stations = isCoord
+      ? await query(
+          `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time
+           FROM ${TABLES.stations} ts
+           INNER JOIN ${TABLES.assignments} a ON a.station_id = ts.id AND a.user_id = ? AND a.booth_id IS NULL AND a.is_active = 1
+           WHERE ts.project_id = ? ORDER BY ts.name`,
+          [req.authUser.user_id, req.params.projectId]
+        )
+      : await query(
+          `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time FROM ${TABLES.stations} ts WHERE ts.project_id = ? ORDER BY ts.name`,
+          [req.params.projectId]
+        );
     for (const s of stations) {
       s.booths = await query(
         `SELECT tb.id, tb.code, tb.directions,
@@ -736,6 +753,10 @@ async function runMigrations() {
   try {
     await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN daily_end_time TIME NULL AFTER daily_start_time`);
   } catch (_) {}
+  // Agregar station_id a asignaciones si ya existe la tabla sin ella
+  try {
+    await query(`ALTER TABLE ${TABLES.assignments} ADD COLUMN station_id INT UNSIGNED NULL AFTER project_id`);
+  } catch (_) {}
   try {
   } catch (_) {}
   // Asegurar que admin tenga rol admin
@@ -803,6 +824,7 @@ async function runMigrations() {
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       user_id BIGINT UNSIGNED NOT NULL,
       project_id INT UNSIGNED NOT NULL,
+      station_id INT UNSIGNED NULL,
       booth_id INT UNSIGNED NULL,
       assigned_by BIGINT UNSIGNED NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
