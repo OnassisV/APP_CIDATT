@@ -364,6 +364,14 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
          WHERE tb.station_id = ? ORDER BY tb.code`,
         [s.id]
       );
+      s.station_regs = await query(
+        `SELECT u.id, u.full_name, a.id AS assignment_id
+         FROM ${TABLES.assignments} a
+         JOIN ${TABLES.users} u ON u.id = a.user_id
+         WHERE a.station_id = ? AND a.booth_id IS NULL AND a.is_active = 1 AND u.role = 'registrador'
+         ORDER BY u.full_name`,
+        [s.id]
+      );
     }
     res.json({ ok: true, stations });
   } catch (error) { next(error); }
@@ -427,13 +435,18 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
     if (!user_id || !project_id) throw badRequest('Faltan campos obligatorios.');
 
     if (station_id && !booth_id) {
-      // Director asigna coordinador a peaje
-      if ((ROLE_LEVEL[req.authUser.role] || 0) < ROLE_LEVEL['director']) throw forbidden('Solo directores pueden asignar coordinadores a peajes.');
-      // Desactivar coordinador previo en esta estación
-      await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ? AND booth_id IS NULL AND is_active = 1`, [station_id]);
+      if ((ROLE_LEVEL[req.authUser.role] || 0) < ROLE_LEVEL['director']) throw forbidden('Solo directores pueden asignar personal a peajes.');
+      const [targetUser] = await query(`SELECT role FROM ${TABLES.users} WHERE id = ? LIMIT 1`, [user_id]);
+      if (targetUser?.role === 'registrador') {
+        // Pool de peaje: solo desactivar asignación previa de este usuario en esta estación
+        await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE user_id = ? AND station_id = ? AND booth_id IS NULL AND is_active = 1`, [user_id, station_id]);
+      } else {
+        // Coordinador: desactivar coordinador anterior de esta estación
+        await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ? AND booth_id IS NULL AND is_active = 1`, [station_id]);
+      }
     } else {
-      // Coordinador asigna registrador a caseta
-      await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE user_id = ? AND project_id = ? AND booth_id IS NOT NULL`, [user_id, project_id]);
+      // Asignar a caseta: desactivar todas las asignaciones previas del usuario en este proyecto
+      await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE user_id = ? AND project_id = ? AND is_active = 1`, [user_id, project_id]);
     }
 
     const result = await query(
@@ -603,6 +616,14 @@ app.get('/api/dashboard/coordinator/:projectId', authenticateRequest, requireMin
          LEFT JOIN ${TABLES.assignments} a ON a.booth_id = tb.id AND a.is_active = 1
          LEFT JOIN ${TABLES.users} u ON u.id = a.user_id
          WHERE tb.station_id = ? ORDER BY tb.code`,
+        [s.id]
+      );
+      s.station_regs = await query(
+        `SELECT u.id, u.full_name, a.id AS assignment_id
+         FROM ${TABLES.assignments} a
+         JOIN ${TABLES.users} u ON u.id = a.user_id
+         WHERE a.station_id = ? AND a.booth_id IS NULL AND a.is_active = 1 AND u.role = 'registrador'
+         ORDER BY u.full_name`,
         [s.id]
       );
     }

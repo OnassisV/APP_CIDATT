@@ -581,7 +581,7 @@
     <div id="assignTabRegs" style="display:none;">
       <div class="assign-panels" style="align-items:flex-start;">
         <div class="assign-available" style="max-height:52vh;overflow-y:auto;">
-          <div class="assign-panel-label">Registradores disponibles</div>
+          <div class="assign-panel-label" id="assignRegsAvailLabel">Registradores disponibles</div>
           <div class="assign-available-list" id="assignRegsAvailableList"
             ondragover="event.preventDefault();this.classList.add('drag-over')"
             ondragleave="this.classList.remove('drag-over')"
@@ -590,7 +590,7 @@
         </div>
         <div class="assign-arrow" style="padding-top:28px;">→</div>
         <div style="flex:1.4;min-width:0;max-height:52vh;overflow-y:auto;">
-          <div class="assign-panel-label">Casetas del peaje</div>
+          <div class="assign-panel-label" id="assignBoothSlotsLabel">Casetas del peaje</div>
           <div id="assignBoothSlots"></div>
         </div>
       </div>
@@ -1298,6 +1298,7 @@
   var _assignStationId   = null;
   var _assignProjectId   = null;
   var _assignTab         = 'coord';
+  var _isDirectorAssign  = false;
   var _coordUsers            = [];
   var _assignSelectedUserId  = null;
   var _assignCurrentAssignId = null;
@@ -1307,6 +1308,10 @@
   var _boothOriginal    = {};
   var _dragRegUserId    = null;
   var _dragRegFromBooth = null;
+  var _allAvailRegs  = [];
+  var _poolMembers   = {};
+  var _poolOriginal  = {};
+  var _poolDragUserId = null;
 
   function switchAssignTab(tab) {
     _assignTab = tab;
@@ -1314,7 +1319,7 @@
     document.getElementById('assignTabRegs').style.display  = tab === 'regs'  ? '' : 'none';
     document.getElementById('tabBtnCoord').classList.toggle('active', tab === 'coord');
     document.getElementById('tabBtnRegs').classList.toggle('active',  tab === 'regs');
-    if (tab === 'regs')  { _renderRegsAvailable(); _renderBoothSlots(); }
+    if (tab === 'regs')  { _renderRegsAvailable(); _isDirectorAssign ? _renderDirectorPool() : _renderBoothSlots(); }
     if (tab === 'coord') { _renderCoordAvailable(); _renderCoordSlot(); }
   }
   window.switchAssignTab = switchAssignTab;
@@ -1359,16 +1364,25 @@
   window._coordClear = function() { _assignSelectedUserId = null; _renderCoordAvailable(); _renderCoordSlot(); };
 
   function _renderRegsAvailable() {
-    const inSlot = new Set(Object.values(_boothAssignments).filter(v => v.userId).map(v => v.userId));
-    const available = _regAvailUsers.filter(u => !inSlot.has(u.id));
-    let html = available.map(u => {
-      const warn = u.booth_id ? `<span class="tag-warn">ya asignado</span>` : '';
-      return `<div class="assign-drag-item" draggable="true"
-        ondragstart="window._regDragStart(event,${u.id},null)">
-        👤 ${esc(u.full_name)}${warn}
-      </div>`;
-    }).join('');
-    if (!html) html = '<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:14px 0;">Sin registradores disponibles</div>';
+    let html;
+    if (_isDirectorAssign) {
+      const available = _allAvailRegs.filter(u => !_poolMembers[u.id]);
+      html = available.map(u => {
+        const warn = u.station_id ? `<span class="tag-warn">ya en otro peaje</span>` : '';
+        return `<div class="assign-drag-item" draggable="true"
+          ondragstart="window._poolDragStart(event,${u.id})"
+          onclick="window._poolAdd(${u.id},'${esc(u.full_name).replace(/'/g,'&#39;')}')">\u{1F464} ${esc(u.full_name)}${warn}</div>`;
+      }).join('');
+      if (!html) html = '<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:18px 0;">Sin registradores disponibles</div>';
+    } else {
+      const inSlot = new Set(Object.values(_boothAssignments).filter(v => v.userId).map(v => v.userId));
+      const available = _regAvailUsers.filter(u => !inSlot.has(u.id));
+      html = available.map(u => {
+        return `<div class="assign-drag-item" draggable="true"
+          ondragstart="window._regDragStart(event,${u.id},null)">\u{1F464} ${esc(u.full_name)}</div>`;
+      }).join('');
+      if (!html) html = '<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:14px 0;">Sin registradores en el pool.<br><small style="color:var(--muted);">El director debe asignarlos al peaje primero.</small></div>';
+    }
     document.getElementById('assignRegsAvailableList').innerHTML = html;
   }
   function _renderBoothSlots() {
@@ -1386,14 +1400,47 @@
           ondragleave="this.classList.remove('drag-over')"
           ondrop="window._regDropToBooth(event,${b.id})">
           ${hasUser ? `<div style="width:100%;text-align:center;">
-            <div style="font-size:.76rem;font-weight:600;color:var(--accent);">👤 ${esc(a.name)}</div>
+            <div style="font-size:.76rem;font-weight:600;color:var(--accent);">\u{1F464} ${esc(a.name)}</div>
             <button class="btn btn-soft btn-sm" style="font-size:.65rem;margin-top:3px;"
-              onclick="event.stopPropagation();window._regClearBooth(${b.id})">✕ Quitar</button>
-          </div>` : `<span style="color:var(--muted);font-size:.72rem;">Arrastra aquí</span>`}
+              onclick="event.stopPropagation();window._regClearBooth(${b.id})">\u2715 Quitar</button>
+          </div>` : `<span style="color:var(--muted);font-size:.72rem;">Arrastra aqu\u00ed</span>`}
         </div>
       </div>`;
     }).join('');
   }
+  function _renderDirectorPool() {
+    document.getElementById('assignBoothSlotsLabel').textContent = 'Personal del peaje';
+    const members = Object.entries(_poolMembers);
+    const dropZone = `<div class="booth-assign-slot" style="width:100%;margin-top:${members.length?'8px':'0'};"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')"
+      ondrop="window._poolDrop(event)">
+      <span style="color:var(--muted);font-size:.72rem;">Arrastra aqu\u00ed para agregar</span>
+    </div>`;
+    document.getElementById('assignBoothSlots').innerHTML =
+      members.map(([uid, m]) =>
+        `<div class="booth-assign-row" style="align-items:center;">
+          <div class="booth-assign-info"><span style="font-size:.84rem;">\u{1F464} ${esc(m.name)}</span></div>
+          <button class="btn btn-soft btn-sm" style="font-size:.7rem;" onclick="window._poolRemove(${uid})">\u2715 Quitar</button>
+        </div>`).join('') + dropZone;
+  }
+  window._poolDragStart = function(e, uid) { _poolDragUserId = uid; e.dataTransfer.effectAllowed = 'move'; };
+  window._poolDrop = function(e) {
+    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+    if (_poolDragUserId === null) return;
+    const u = _allAvailRegs.find(u => u.id === _poolDragUserId);
+    if (u && !_poolMembers[u.id]) _poolMembers[u.id] = { name: u.full_name, assignmentId: null };
+    _poolDragUserId = null;
+    _renderRegsAvailable(); _renderDirectorPool();
+  };
+  window._poolAdd = function(uid, name) {
+    if (!_poolMembers[uid]) _poolMembers[uid] = { name, assignmentId: null };
+    _renderRegsAvailable(); _renderDirectorPool();
+  };
+  window._poolRemove = function(uid) {
+    delete _poolMembers[uid];
+    _renderRegsAvailable(); _renderDirectorPool();
+  };
   window._regDragStart = function(e, uid, fromBooth) { _dragRegUserId = uid; _dragRegFromBooth = fromBooth; e.dataTransfer.effectAllowed = 'move'; };
   window._regDropToBooth = function(e, boothId) {
     e.preventDefault(); e.currentTarget.classList.remove('drag-over');
@@ -1422,23 +1469,38 @@
   async function openAssignStation(stationId, projectId, isCoord) {
     _assignStationId = stationId;
     _assignProjectId = projectId;
+    _isDirectorAssign = !isCoord;
     const s = _stationsCache[stationId];
-    document.getElementById('modalAssignTitle').textContent = 'Asignar Personal — ' + (s ? esc(s.name) : '');
+    document.getElementById('modalAssignTitle').textContent = 'Asignar Personal \u2014 ' + (s ? esc(s.name) : '');
     document.getElementById('assignTabBar').style.display = 'none';
     try {
-      const regData = await api('/projects/' + projectId + '/available-users?role=registrador');
-      _regAvailUsers = regData.users;
-      const booths = (s || {}).booths || [];
-      _boothAssignments = {}; _boothOriginal = {};
-      booths.forEach(b => {
-        const entry = { userId: b.assigned_user_id || null, name: b.assigned_user_name || null, assignmentId: b.assignment_id || null };
-        _boothAssignments[b.id] = { ...entry }; _boothOriginal[b.id] = { ...entry };
-      });
-      if (!isCoord) {
+      if (isCoord) {
+        // Coordinador: disponibles = pool del peaje; casetas = asignaciones actuales
+        _regAvailUsers = (s || {}).station_regs || [];
+        const booths = (s || {}).booths || [];
+        _boothAssignments = {}; _boothOriginal = {};
+        booths.forEach(b => {
+          const entry = { userId: b.assigned_user_id || null, name: b.assigned_user_name || null, assignmentId: b.assignment_id || null };
+          _boothAssignments[b.id] = { ...entry }; _boothOriginal[b.id] = { ...entry };
+        });
+        document.getElementById('assignRegsAvailLabel').textContent = 'Pool del peaje';
+        document.getElementById('assignBoothSlotsLabel').textContent = 'Casetas del peaje';
+      } else {
+        // Director: gestiona pool + asigna coordinador
+        const poolData = (s || {}).station_regs || [];
+        _poolMembers = {}; _poolOriginal = {};
+        poolData.forEach(u => {
+          _poolMembers[u.id] = { name: u.full_name, assignmentId: u.assignment_id };
+          _poolOriginal[u.id] = { name: u.full_name, assignmentId: u.assignment_id };
+        });
+        const allRegsData = await api('/projects/' + projectId + '/available-users?role=registrador');
+        _allAvailRegs = allRegsData.users;
         const coordData = await api('/projects/' + projectId + '/available-users?role=coordinador');
         _coordUsers = coordData.users;
         _assignSelectedUserId  = s ? (s.coord_user_id || null) : null;
         _assignCurrentAssignId = s ? (s.coord_assignment_id || null) : null;
+        document.getElementById('assignRegsAvailLabel').textContent = 'Registradores disponibles';
+        document.getElementById('assignBoothSlotsLabel').textContent = 'Personal del peaje';
       }
       switchAssignTab(isCoord ? 'regs' : 'coord');
     } catch (e) { alert(e.message); return; }
@@ -1460,7 +1522,21 @@
         } else {
           await api('/assignments', { method: 'POST', body: { user_id: _assignSelectedUserId, project_id: _assignProjectId, station_id: _assignStationId } });
         }
+      } else if (_isDirectorAssign) {
+        // Director: guarda cambios en el pool del peaje
+        for (const uid of Object.keys(_poolOriginal)) {
+          if (!_poolMembers[uid] && !_poolMembers[Number(uid)]) {
+            const orig = _poolOriginal[uid];
+            if (orig.assignmentId) await api('/assignments/' + orig.assignmentId, { method: 'DELETE' });
+          }
+        }
+        for (const uid of Object.keys(_poolMembers)) {
+          if (!_poolOriginal[uid] && !_poolOriginal[Number(uid)]) {
+            await api('/assignments', { method: 'POST', body: { user_id: Number(uid), project_id: _assignProjectId, station_id: _assignStationId } });
+          }
+        }
       } else {
+        // Coordinador: asigna registradores del pool a casetas
         for (const bid of Object.keys(_boothAssignments)) {
           const cur = _boothAssignments[bid]; const orig = _boothOriginal[bid];
           if (cur.userId === (orig ? orig.userId : null)) continue;
