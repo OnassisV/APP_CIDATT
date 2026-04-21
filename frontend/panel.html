@@ -1472,7 +1472,8 @@
     _isDirectorAssign = !isCoord;
     const s = _stationsCache[stationId];
     document.getElementById('modalAssignTitle').textContent = 'Asignar Personal \u2014 ' + (s ? esc(s.name) : '');
-    document.getElementById('assignTabBar').style.display = 'none';
+    // Director necesita ambas pestañas (coordinador + pool de regs); otros roles solo una
+    document.getElementById('assignTabBar').style.display = _isDirectorAssign ? '' : 'none';
     try {
       if (isCoord) {
         // Coordinador: disponibles = pool del peaje; casetas = asignaciones actuales
