@@ -345,7 +345,8 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
               u.id AS coord_user_id, u.full_name AS coord_name, a.id AS coord_assignment_id
        FROM ${TABLES.stations} ts
        LEFT JOIN ${TABLES.assignments} a ON a.station_id = ts.id AND a.booth_id IS NULL AND a.is_active = 1
-       LEFT JOIN ${TABLES.users} u ON u.id = a.user_id AND u.role = 'coordinador'
+         AND a.user_id IN (SELECT id FROM ${TABLES.users} su WHERE su.role = 'coordinador')
+       LEFT JOIN ${TABLES.users} u ON u.id = a.user_id
        WHERE ts.project_id = ? ORDER BY ts.name`,
       [req.params.projectId]
     );
