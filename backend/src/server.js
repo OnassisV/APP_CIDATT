@@ -159,7 +159,7 @@ app.post('/api/auth/login', async (req, res, next) => {
     // Obtener asignacion activa del usuario (para registradores/coordinadores)
     const assignments = await query(
       `SELECT a.id, a.project_id, a.booth_id, p.name AS project_name,
-              ts.name AS station_name, tb.code AS booth_code, tb.direction
+              ts.name AS station_name, tb.code AS booth_code, tb.directions
        FROM ${TABLES.assignments} a
        LEFT JOIN ${TABLES.projects}  p  ON p.id = a.project_id
        LEFT JOIN ${TABLES.booths}    tb ON tb.id = a.booth_id
@@ -182,7 +182,7 @@ app.post('/api/auth/login', async (req, res, next) => {
 app.get('/api/auth/me', authenticateRequest, async (req, res) => {
   const assignments = await query(
     `SELECT a.id, a.project_id, a.booth_id, p.name AS project_name,
-            ts.name AS station_name, tb.code AS booth_code, tb.direction
+            ts.name AS station_name, tb.code AS booth_code, tb.directions
      FROM ${TABLES.assignments} a
      LEFT JOIN ${TABLES.projects}  p  ON p.id = a.project_id
      LEFT JOIN ${TABLES.booths}    tb ON tb.id = a.booth_id
