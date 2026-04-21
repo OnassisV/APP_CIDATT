@@ -731,6 +731,18 @@
         if (operador2 && !operador2.value) operador2.value = authUser.fullName;
       }
 
+      function isPanelRole(role) {
+        return ['admin', 'director', 'coordinador'].includes(role);
+      }
+
+      function redirectToPanelIfNeeded(role) {
+        if (!isPanelRole(role)) return false;
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('mode') === 'register') return false;
+        window.location.href = '/panel.html';
+        return true;
+      }
+
       async function restoreAuthenticatedSession() {
         if (!authToken) return false;
         try {
@@ -739,6 +751,8 @@
           if (authUser) localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser));
           await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
           hasValidLicense = true;
+          // Redirigir a panel si no es registrador (a menos que venga con ?mode=register)
+          if (authUser && redirectToPanelIfNeeded(authUser.role)) return true;
           applyAuthenticatedUserDefaults();
           return true;
         } catch (err) {
@@ -1389,10 +1403,15 @@
           localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser || {}));
           await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
           hasValidLicense = true;
+          inputPassword.value = '';
+          // Redirigir a panel si el rol lo requiere
+          if (authUser && isPanelRole(authUser.role)) {
+            window.location.href = '/panel.html';
+            return;
+          }
           applyAuthenticatedUserDefaults();
           setStatus('Acceso concedido', 'ok');
           applySetupVisibility();
-          inputPassword.value = '';
         } catch (err) {
           alert(err.message || 'No se pudo iniciar sesion.');
           inputPassword.value = '';

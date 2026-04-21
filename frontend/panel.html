@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>CIDATT — Panel de Gestión</title>
+  <style>
+    :root {
+      --accent: #1a6b5a; --accent2: #2563eb; --danger: #dc2626; --warn: #d97706;
+      --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b;
+      --line: #e2e8f0; --success: #16a34a; --success-bg: #f0fdf4;
+      --radius: 14px; --shadow: 0 2px 12px rgba(0,0,0,.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    /* ── LAYOUT ── */
+    .app-shell { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 240px; background: var(--accent); color: #fff; display: flex; flex-direction: column;
+      padding: 0; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; transition: transform .3s;
+    }
+    .sidebar-logo { padding: 20px 16px 16px; border-bottom: 1px solid rgba(255,255,255,.15); }
+    .sidebar-logo h2 { font-size: 1rem; font-weight: 700; color: #fff; }
+    .sidebar-logo p  { font-size: 0.75rem; opacity: .7; margin-top: 2px; }
+    .sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+    .nav-section { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; opacity: .5; padding: 10px 16px 4px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer;
+      font-size: 0.88rem; border-left: 3px solid transparent; transition: all .2s;
+    }
+    .nav-item:hover { background: rgba(255,255,255,.1); }
+    .nav-item.active { background: rgba(255,255,255,.15); border-left-color: #fff; font-weight: 600; }
+    .nav-item .icon { font-size: 1.1rem; width: 22px; text-align: center; }
+    .sidebar-footer { padding: 12px 16px; border-top: 1px solid rgba(255,255,255,.15); font-size: 0.8rem; }
+    .sidebar-footer .user-name { font-weight: 600; }
+    .sidebar-footer .user-role { opacity: .7; font-size: 0.72rem; }
+    .btn-logout { margin-top: 8px; width: 100%; padding: 7px; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: #fff; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
+    .btn-logout:hover { background: rgba(255,255,255,.25); }
+
+    .main-content { margin-left: 240px; flex: 1; padding: 24px; min-width: 0; }
+
+    /* ── TOPBAR ── */
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .topbar h1 { font-size: 1.3rem; font-weight: 700; }
+    .topbar-actions { display: flex; gap: 8px; }
+
+    /* ── CARDS ── */
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+    .card-sm { padding: 14px 16px; }
+    .card + .card { margin-top: 16px; }
+
+    /* ── STATS GRID ── */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+    .stat-card .stat-label { font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
+    .stat-card .stat-value { font-size: 1.8rem; font-weight: 700; line-height: 1; }
+    .stat-card .stat-sub   { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+    .stat-card.green .stat-value { color: var(--success); }
+    .stat-card.blue  .stat-value { color: var(--accent2); }
+    .stat-card.orange .stat-value { color: var(--warn); }
+    .stat-card.red   .stat-value { color: var(--danger); }
+
+    /* ── PROGRESS BAR ── */
+    .progress-wrap { margin-top: 6px; }
+    .progress-label { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--muted); margin-bottom: 3px; }
+    .progress-bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width .5s; }
+    .progress-fill.warn  { background: var(--warn); }
+    .progress-fill.danger { background: var(--danger); }
+
+    /* ── GRID 2 COL ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+
+    /* ── TABLE ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { background: var(--bg); padding: 8px 12px; text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg); }
+
+    /* ── BADGES ── */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; }
+    .badge-admin        { background: #fef3c7; color: #92400e; }
+    .badge-director     { background: #ede9fe; color: #5b21b6; }
+    .badge-coordinador  { background: #dbeafe; color: #1e40af; }
+    .badge-registrador  { background: #dcfce7; color: #166534; }
+    .badge-activo       { background: #dcfce7; color: #166534; }
+    .badge-pausado      { background: #fef3c7; color: #92400e; }
+    .badge-cerrado      { background: #fee2e2; color: #991b1b; }
+    .badge-alerta       { background: #fee2e2; color: #991b1b; }
+
+    /* ── BUTTONS ── */
+    .btn { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity .2s; }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-blue    { background: var(--accent2); color: #fff; }
+    .btn-danger  { background: var(--danger); color: #fff; }
+    .btn-soft    { background: var(--bg); color: var(--text); border: 1px solid var(--line); }
+    .btn-sm      { padding: 4px 10px; font-size: 0.78rem; }
+    .btn-icon    { padding: 6px 8px; }
+
+    /* ── FORM ── */
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; color: var(--muted); }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px;
+      font-size: 0.88rem; background: var(--bg); color: var(--text);
+    }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* ── MODAL ── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--card); border-radius: var(--radius); padding: 24px; width: min(480px, 95vw); max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,.2); }
+    .modal-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 16px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+    /* ── BOOTH MAP ── */
+    .booth-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+    .booth-card {
+      border: 2px solid var(--line); border-radius: 10px; padding: 12px; text-align: center;
+      cursor: pointer; transition: all .2s; position: relative;
+    }
+    .booth-card.staffed   { border-color: var(--success); background: var(--success-bg); }
+    .booth-card.unstaffed { border-color: var(--warn);    background: #fffbeb; }
+    .booth-card .booth-num { font-size: 1.4rem; font-weight: 700; }
+    .booth-card .booth-name { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+    .booth-card .booth-staff { font-size: 0.75rem; font-weight: 600; margin-top: 6px; color: var(--success); }
+    .booth-card .booth-records { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+    /* ── ALERT ── */
+    .alert { padding: 12px 14px; border-radius: 10px; margin-bottom: 10px; font-size: 0.85rem; display: flex; gap: 10px; align-items: flex-start; }
+    .alert-danger { background: #fee2e2; border-left: 4px solid var(--danger); }
+    .alert-warn   { background: #fffbeb; border-left: 4px solid var(--warn); }
+    .alert-info   { background: #eff6ff; border-left: 4px solid var(--accent2); }
+
+    /* ── CHART (CSS sparkline) ── */
+    .sparkline { display: flex; align-items: flex-end; gap: 3px; height: 60px; }
+    .spark-bar { flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 4px; transition: height .4s; }
+    .spark-label { display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--muted); margin-top: 4px; }
+
+    /* ── VIEW SWITCHER ── */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* ── SECTION HEADER ── */
+    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .section-header h2 { font-size: 1rem; font-weight: 700; }
+
+    /* ── TOGGLE SWITCH ── */
+    .toggle-wrap { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+    .toggle-input { width: 36px; height: 20px; appearance: none; background: var(--line); border-radius: 10px; position: relative; cursor: pointer; transition: background .2s; }
+    .toggle-input:checked { background: var(--accent); }
+    .toggle-input::after { content:''; position:absolute; width:16px;height:16px;background:#fff;border-radius:50%;top:2px;left:2px;transition:left .2s; }
+    .toggle-input:checked::after { left: 18px; }
+
+    /* ── EMPTY STATE ── */
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 0.9rem; }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 10px; }
+
+    /* ── MOBILE ── */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; padding: 16px; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .form-row { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .mobile-topbar { display: flex !important; }
+    }
+    .mobile-topbar { display: none; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .btn-menu { background: none; border: none; font-size: 1.5rem; cursor: pointer; }
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 99; }
+    .sidebar-overlay.open { display: block; }
+  </style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <h2>CIDATT</h2>
+      <p>Panel de Gestión</p>
+    </div>
+    <div class="sidebar-nav" id="sidebarNav">
+      <!-- se llena por JS según rol -->
+    </div>
+    <div class="sidebar-footer">
+      <div class="user-name" id="sidebarUserName">—</div>
+      <div class="user-role" id="sidebarUserRole">—</div>
+      <button class="btn-logout" id="btnLogout">Cerrar sesión</button>
+    </div>
+  </nav>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- MAIN -->
+  <main class="main-content" id="mainContent">
+
+    <div class="mobile-topbar">
+      <button class="btn-menu" id="btnMenu">☰</button>
+      <strong>CIDATT Gestión</strong>
+    </div>
+
+    <!-- ══ VISTA: DASHBOARD ══════════════════════════════════════════════════ -->
+    <div class="view active" id="viewDashboard">
+      <div class="topbar">
+        <h1 id="dashTitle">Dashboard</h1>
+        <span id="dashDate" style="font-size:.85rem;color:var(--muted);"></span>
+      </div>
+      <div class="stats-grid" id="dashStats"></div>
+      <div class="grid-2" id="dashCharts">
+        <div class="card">
+          <div class="section-header"><h2>📈 Tendencia 7 días</h2></div>
+          <div class="sparkline" id="sparkline"></div>
+          <div class="spark-label" id="sparkLabel"></div>
+        </div>
+        <div class="card">
+          <div class="section-header"><h2>🚗 Tipos de vehículo (30 días)</h2></div>
+          <div id="vehicleTypeChart"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px;" id="dashProjects">
+        <div class="section-header"><h2>📋 Proyectos</h2></div>
+        <div id="projectsTable"></div>
+      </div>
+    </div>
+
+    <!-- ══ VISTA: ALERTAS ════════════════════════════════════════════════════ -->
+    <div class="view" id="viewAlerts">
+      <div class="topbar">
+        <h1>⚠️ Alertas de Personal</h1>
+        <button class="btn btn-soft btn-sm" onclick="loadAlerts()">↺ Actualizar</button>
+      </div>
+      <div id="alertsContent"></div>
+    </div>
+
+    <!-- ══ VISTA: PROYECTOS ══════════════════════════════════════════════════ -->
+    <div class="view" id="viewProjects">
+      <div class="topbar">
+        <h1>📋 Proyectos</h1>
+        <button class="btn btn-primary" id="btnNewProject">+ Nuevo Proyecto</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap" id="projectsListTable"></div>
+      </div>
+    </div>
+
+    <!-- ══ VISTA: DETALLE PROYECTO ══════════════════════════════════════════ -->
+    <div class="view" id="viewProjectDetail">
+      <div class="topbar">
+        <div>
+          <button class="btn btn-soft btn-sm" onclick="showView('viewProjects')">← Volver</button>
+          <h1 id="projectDetailTitle" style="margin-top:8px;">Proyecto</h1>
+        </div>
+        <button class="btn btn-primary" id="btnNewStation">+ Agregar Peaje</button>
+      </div>
+      <div id="projectDetailContent"></div>
+    </div>
+
+    <!-- ══ VISTA: USUARIOS ══════════════════════════════════════════════════ -->
+    <div class="view" id="viewUsers">
+      <div class="topbar">
+        <h1>👥 Usuarios</h1>
+        <button class="btn btn-primary" id="btnNewUser">+ Nuevo Usuario</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap" id="usersTable"></div>
+      </div>
+    </div>
+
+    <!-- ══ VISTA: COORDINADOR - MI PROYECTO ════════════════════════════════ -->
+    <div class="view" id="viewCoordProject">
+      <div class="topbar">
+        <h1>🗺️ Mi Proyecto</h1>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-soft btn-sm" onclick="loadCoordView()">↺ Actualizar</button>
+          <button class="btn btn-blue btn-sm" id="btnSwitchToRegister" style="display:none">📝 Modo Registro</button>
+        </div>
+      </div>
+      <div id="coordProjectSelector" style="margin-bottom:16px;display:none;">
+        <select id="coordProjectSelect" style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:.88rem;">
+          <option value="">— Seleccionar proyecto —</option>
+        </select>
+      </div>
+      <div id="coordContent"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ══ MODALES ══════════════════════════════════════════════════════════════ -->
+
+<!-- Modal: Nuevo/Editar Proyecto -->
+<div class="modal-overlay" id="modalProject">
+  <div class="modal">
+    <div class="modal-title" id="modalProjectTitle">Nuevo Proyecto</div>
+    <div class="form-group"><label>Nombre del proyecto *</label><input id="pName" placeholder="Ej: Relevamiento Norte 2026"/></div>
+    <div class="form-group"><label>Descripción</label><textarea id="pDesc" rows="2" placeholder="Descripción opcional"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Fecha inicio *</label><input id="pStart" type="date"/></div>
+      <div class="form-group"><label>Fecha fin</label><input id="pEnd" type="date"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>⏰ Hora inicio registro</label><input id="pTimeStart" type="time" placeholder="06:00"/></div>
+      <div class="form-group"><label>⏰ Hora fin registro</label><input id="pTimeEnd" type="time" placeholder="22:00"/></div>
+    </div>
+    <div class="form-group"><label>Estado</label>
+      <select id="pStatus"><option value="activo">Activo</option><option value="pausado">Pausado</option><option value="cerrado">Cerrado</option></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalProject')">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveProject">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nuevo Peaje/Estación -->
+<div class="modal-overlay" id="modalStation">
+  <div class="modal">
+    <div class="modal-title">Agregar Peaje / Estación</div>
+    <div class="form-group"><label>Nombre del peaje *</label><input id="sName" placeholder="Ej: Peaje La Oroya"/></div>
+    <div class="form-group"><label>Ubicación / Referencia</label><input id="sLocation" placeholder="Ej: Km 167, Carretera Central"/></div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalStation')">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveStation">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nueva Caseta -->
+<div class="modal-overlay" id="modalBooth">
+  <div class="modal">
+    <div class="modal-title">Agregar Caseta</div>
+    <div class="form-group"><label>Código / Número de caseta *</label><input id="bCode" placeholder="Ej: C-01"/></div>
+    <div class="form-group"><label>Sentidos de circulación</label><input id="bDir" placeholder="Ej: Norte, Sur"/></div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalBooth')">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveBooth">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nuevo Usuario -->
+<div class="modal-overlay" id="modalUser">
+  <div class="modal">
+    <div class="modal-title" id="modalUserTitle">Nuevo Usuario</div>
+    <div class="form-group"><label>Nombre completo *</label><input id="uName" placeholder="Nombres y apellidos"/></div>
+    <div class="form-group"><label>Usuario (login) *</label><input id="uUsername" placeholder="sin espacios, ej: j.perez"/></div>
+    <div class="form-group"><label>Contraseña *</label><input id="uPassword" type="password" placeholder="Mínimo 6 caracteres"/></div>
+    <div class="form-group"><label>Rol *</label>
+      <select id="uRole">
+        <option value="registrador">Registrador</option>
+        <option value="coordinador">Coordinador</option>
+        <option value="director">Director</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalUser')">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveUser">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Asignar usuario a caseta -->
+<div class="modal-overlay" id="modalAssign">
+  <div class="modal">
+    <div class="modal-title" id="modalAssignTitle">Asignar Personal</div>
+    <div class="form-group">
+      <label>Seleccionar registrador / coordinador</label>
+      <select id="assignUserSelect" style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:.88rem;"></select>
+    </div>
+    <div id="assignBoothInfo" style="font-size:.85rem;color:var(--muted);margin-bottom:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalAssign')">Cancelar</button>
+      <button class="btn btn-danger btn-sm" id="btnRemoveAssignment" style="margin-right:auto;">Quitar asignación</button>
+      <button class="btn btn-primary" id="btnConfirmAssign">Asignar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var API = '/api';
+  var TOKEN_KEY = 'rlv_cidatt_auth_token';
+  var USER_KEY  = 'rlv_cidatt_auth_user';
+  var token = localStorage.getItem(TOKEN_KEY);
+  var currentUser = null;
+  var currentProjectId = null;
+  var editingProjectId = null;
+  var editingUserId = null;
+  var assigningBoothId = null;
+  var assigningProjectId = null;
+
+  // ── AUTH ──────────────────────────────────────────────────────────────────
+
+  async function api(path, opts = {}) {
+    const res = await fetch(API + path, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+        ...(opts.headers || {})
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error del servidor');
+    return data;
+  }
+
+  async function init() {
+    if (!token) return redirectToLogin();
+    try {
+      const me = await api('/auth/me');
+      currentUser = me.user;
+      if (!['admin','director','coordinador'].includes(currentUser.role)) {
+        // Registrador: redirigir al index
+        return window.location.href = '/';
+      }
+      setupUI();
+    } catch (e) {
+      redirectToLogin();
+    }
+  }
+
+  function redirectToLogin() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    window.location.href = '/';
+  }
+
+  // ── SETUP UI ──────────────────────────────────────────────────────────────
+
+  function roleLabel(role) {
+    return { admin: 'Administrador', director: 'Director', coordinador: 'Coordinador', registrador: 'Registrador' }[role] || role;
+  }
+
+  function setupUI() {
+    document.getElementById('sidebarUserName').textContent = currentUser.fullName;
+    document.getElementById('sidebarUserRole').textContent = roleLabel(currentUser.role);
+    document.getElementById('dashTitle').textContent = 'Dashboard — ' + roleLabel(currentUser.role);
+    document.getElementById('dashDate').textContent = new Date().toLocaleDateString('es-PE', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+
+    const nav = document.getElementById('sidebarNav');
+    const isAdmin = currentUser.role === 'admin';
+    const isDirector = ['admin','director'].includes(currentUser.role);
+    const isCoord = currentUser.role === 'coordinador';
+
+    nav.innerHTML = `
+      <div class="nav-section">Principal</div>
+      <div class="nav-item active" onclick="showView('viewDashboard')" id="nav-dashboard">
+        <span class="icon">📊</span> Dashboard
+      </div>
+      ${isDirector ? `
+      <div class="nav-item" onclick="showView('viewAlerts')" id="nav-alerts">
+        <span class="icon">⚠️</span> Alertas de Personal
+      </div>
+      <div class="nav-section">Gestión</div>
+      <div class="nav-item" onclick="showView('viewProjects')" id="nav-projects">
+        <span class="icon">📋</span> Proyectos
+      </div>
+      <div class="nav-item" onclick="showView('viewUsers')" id="nav-users">
+        <span class="icon">👥</span> Usuarios
+      </div>
+      ` : ''}
+      ${isCoord ? `
+      <div class="nav-section">Operación</div>
+      <div class="nav-item" onclick="showView('viewCoordProject')" id="nav-coord">
+        <span class="icon">🗺️</span> Mi Proyecto
+      </div>
+      ` : ''}
+    `;
+
+    if (isCoord) {
+      document.getElementById('btnSwitchToRegister').style.display = 'inline-block';
+      // Coordinadores no gestionan estaciones/casetas desde el panel
+      document.getElementById('btnNewProject').style.display = 'none';
+      document.getElementById('btnNewStation').style.display = 'none';
+    }
+
+    loadDashboard();
+  }
+
+  // ── NAVIGATION ────────────────────────────────────────────────────────────
+
+  function showView(id) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    const navMap = {
+      viewDashboard: 'nav-dashboard', viewAlerts: 'nav-alerts',
+      viewProjects: 'nav-projects', viewProjectDetail: 'nav-projects',
+      viewUsers: 'nav-users', viewCoordProject: 'nav-coord'
+    };
+    const navId = navMap[id];
+    if (navId && document.getElementById(navId)) document.getElementById(navId).classList.add('active');
+
+    if (id === 'viewProjects')     loadProjectsList();
+    if (id === 'viewUsers')        loadUsers();
+    if (id === 'viewAlerts')       loadAlerts();
+    if (id === 'viewCoordProject') loadCoordView();
+
+    closeSidebar();
+  }
+  window.showView = showView;
+
+  // ── DASHBOARD ─────────────────────────────────────────────────────────────
+
+  async function loadDashboard() {
+    try {
+      const data = await api('/dashboard/director');
+      renderDashboardStats(data);
+      renderSparkline(data.weeklyTrend);
+      renderVehicleTypes(data.vehicleTypes);
+      renderDashboardProjects(data.projectStats);
+    } catch (e) {
+      if (currentUser.role === 'coordinador') loadCoordDashboard();
+    }
+  }
+
+  async function loadCoordDashboard() {
+    try {
+      const projects = await api('/projects');
+      const el = document.getElementById('dashStats');
+      el.innerHTML = `<div class="stat-card blue"><div class="stat-label">Proyectos asignados</div><div class="stat-value">${projects.projects.length}</div></div>`;
+      renderDashboardProjects(projects.projects);
+    } catch(e) {}
+  }
+
+  function renderDashboardStats(data) {
+    const stats = data.projectStats || [];
+    const totalRecords = stats.reduce((s, p) => s + (p.total_records || 0), 0);
+    const todayRecords = stats.reduce((s, p) => s + (p.records_today || 0), 0);
+    const activeStaff  = stats.reduce((s, p) => s + (p.active_staff || 0), 0);
+    const activeProjects = stats.filter(p => p.status === 'activo').length;
+
+    document.getElementById('dashStats').innerHTML = `
+      <div class="stat-card green"><div class="stat-label">Registros hoy</div><div class="stat-value">${todayRecords}</div><div class="stat-sub">vehículos capturados</div></div>
+      <div class="stat-card blue"><div class="stat-label">Total registros</div><div class="stat-value">${totalRecords.toLocaleString()}</div></div>
+      <div class="stat-card orange"><div class="stat-label">Personal activo</div><div class="stat-value">${activeStaff}</div><div class="stat-sub">asignados actualmente</div></div>
+      <div class="stat-card"><div class="stat-label">Proyectos activos</div><div class="stat-value">${activeProjects}</div></div>
+    `;
+  }
+
+  function renderSparkline(trend) {
+    if (!trend || !trend.length) return;
+    const max = Math.max(...trend.map(t => t.records), 1);
+    const bars = trend.map(t => {
+      const pct = Math.max(4, Math.round((t.records / max) * 100));
+      return `<div class="spark-bar" style="height:${pct}%" title="${t.operation_date}: ${t.records}"></div>`;
+    }).join('');
+    document.getElementById('sparkline').innerHTML = bars;
+    const first = trend[0]?.operation_date?.slice(5) || '';
+    const last  = trend[trend.length-1]?.operation_date?.slice(5) || '';
+    document.getElementById('sparkLabel').innerHTML = `<span>${first}</span><span>${last}</span>`;
+  }
+
+  function renderVehicleTypes(types) {
+    if (!types || !types.length) return;
+    const total = types.reduce((s, t) => s + t.count, 0);
+    const labels = { L:'Ligeros', C:'Camiones', M2:'Van/Mini', O:'Ómnibus', PNP:'Policía', A:'Ambulancia' };
+    const colors = { L:'#1a6b5a', C:'#2563eb', M2:'#7c3aed', O:'#d97706', PNP:'#dc2626', A:'#0891b2' };
+    document.getElementById('vehicleTypeChart').innerHTML = types.map(t => {
+      const pct = Math.round((t.count / total) * 100);
+      return `
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:2px;">
+            <span>${labels[t.vehicle_type] || t.vehicle_type}</span>
+            <span style="color:var(--muted);">${t.count} (${pct}%)</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${colors[t.vehicle_type]||'var(--accent)'};"></div></div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderDashboardProjects(projects) {
+    if (!projects || !projects.length) {
+      document.getElementById('projectsTable').innerHTML = '<div class="empty-state"><div class="icon">📋</div>No hay proyectos aún.</div>';
+      return;
+    }
+    document.getElementById('projectsTable').innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Proyecto</th><th>Estado</th><th>Casetas</th><th>Hoy</th><th>Total</th><th>Horario</th><th></th></tr></thead>
+          <tbody>${projects.map(p => {
+            const staffPct = p.total_booths ? Math.round((p.staffed_booths / p.total_booths) * 100) : 0;
+            const hours = p.daily_start_time && p.daily_end_time ? `${p.daily_start_time.slice(0,5)}–${p.daily_end_time.slice(0,5)}` : '—';
+            return `<tr>
+              <td><strong>${esc(p.name)}</strong></td>
+              <td><span class="badge badge-${p.status}">${p.status}</span></td>
+              <td>
+                <div>${p.staffed_booths||0}/${p.total_booths||0} personal</div>
+                <div class="progress-bar" style="margin-top:3px;"><div class="progress-fill ${staffPct<50?'warn':''}" style="width:${staffPct}%;"></div></div>
+              </td>
+              <td>${p.records_today||0}</td>
+              <td>${(p.total_records||0).toLocaleString()}</td>
+              <td style="font-size:.78rem;">${hours}</td>
+              <td><button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Ver →</button></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>`;
+  }
+
+  // ── PROYECTOS ─────────────────────────────────────────────────────────────
+
+  async function loadProjectsList() {
+    try {
+      const data = await api('/projects');
+      renderProjectsList(data.projects);
+    } catch (e) { showError(e); }
+  }
+
+  function renderProjectsList(projects) {
+    if (!projects.length) {
+      document.getElementById('projectsListTable').innerHTML = '<div class="empty-state"><div class="icon">📋</div>No hay proyectos. Crea el primero.</div>';
+      return;
+    }
+    document.getElementById('projectsListTable').innerHTML = `
+      <table>
+        <thead><tr><th>Nombre</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Horario</th><th>Casetas</th><th></th></tr></thead>
+        <tbody>${projects.map(p => {
+          const hours = p.daily_start_time && p.daily_end_time ? `${p.daily_start_time.slice(0,5)}–${p.daily_end_time.slice(0,5)}` : '—';
+          return `<tr>
+            <td><strong>${esc(p.name)}</strong><br><small style="color:var(--muted)">${esc(p.description||'')}</small></td>
+            <td><span class="badge badge-${p.status}">${p.status}</span></td>
+            <td>${p.start_date||'—'}</td>
+            <td>${p.end_date||'—'}</td>
+            <td>${hours}</td>
+            <td>${p.staffed_booths||0}/${p.total_booths||0}</td>
+            <td style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Detalle</button>
+              <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}','${p.daily_start_time||''}','${p.daily_end_time||''}')">Editar</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+  }
+
+  async function openProjectDetail(projectId) {
+    currentProjectId = projectId;
+    showView('viewProjectDetail');
+    try {
+      const data = await api('/projects/' + projectId + '/stations');
+      const proj = await api('/projects');
+      const p = proj.projects.find(x => x.id === projectId);
+      if (p) document.getElementById('projectDetailTitle').textContent = p.name;
+      renderProjectDetail(data.stations);
+    } catch (e) { showError(e); }
+  }
+  window.openProjectDetail = openProjectDetail;
+
+  function renderProjectDetail(stations) {
+    if (!stations.length) {
+      document.getElementById('projectDetailContent').innerHTML = '<div class="empty-state"><div class="icon">🏗️</div>No hay peajes configurados. Agrega el primero.</div>';
+      return;
+    }
+    document.getElementById('projectDetailContent').innerHTML = stations.map(s => `
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-header">
+          <h2>⛽ ${esc(s.name)} <small style="color:var(--muted);font-weight:normal;font-size:.78rem;">${esc(s.location||'')}</small></h2>
+          <button class="btn btn-soft btn-sm" onclick="openAddBooth(${s.id})">+ Caseta</button>
+        </div>
+        <div class="booth-map">${s.booths.map(b => `
+          <div class="booth-card ${b.assigned_user_id ? 'staffed' : 'unstaffed'}" onclick="openAssign(${b.id}, ${currentProjectId}, '${esc(b.code)}', '${esc(s.name)}')">
+            <div class="booth-num">C-${esc(b.code)}</div>
+            <div class="booth-name">${esc(b.directions||'')}</div>
+            <div class="booth-staff">${b.assigned_user_name ? '👤 ' + esc(b.assigned_user_name) : '⬜ Sin personal'}</div>
+          </div>`).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  // ── ALERTAS ───────────────────────────────────────────────────────────────
+
+  async function loadAlerts() {
+    try {
+      const data = await api('/alerts/workers');
+      const a = data.alerts;
+      let html = '';
+
+      if (a.doubleAssigned && a.doubleAssigned.length) {
+        html += '<div class="card card-sm" style="margin-bottom:12px;"><h3 style="margin-bottom:10px;font-size:.9rem;">🔴 Asignados a 2+ casetas simultáneas</h3>';
+        html += a.doubleAssigned.map(u => `
+          <div class="alert alert-danger">
+            <span>⚠️</span>
+            <div><strong>${esc(u.full_name)}</strong> (@${esc(u.username)})<br>
+            <small>${esc(u.booths_detail)}</small></div>
+          </div>`).join('');
+        html += '</div>';
+      }
+
+      if (a.staleSessions && a.staleSessions.length) {
+        html += '<div class="card card-sm" style="margin-bottom:12px;"><h3 style="margin-bottom:10px;font-size:.9rem;">🟡 Turnos sin cerrar</h3>';
+        html += a.staleSessions.map(s => `
+          <div class="alert alert-warn">
+            <span>⏰</span>
+            <div><strong>${esc(s.operator_name)}</strong> — ${esc(s.toll_name)} C${esc(s.booth_number)}<br>
+            <small>Fecha: ${s.operation_date} · Hace ${s.days_open} día(s)</small></div>
+          </div>`).join('');
+        html += '</div>';
+      }
+
+      if (a.consecutiveShifts && a.consecutiveShifts.length) {
+        html += '<div class="card card-sm" style="margin-bottom:12px;"><h3 style="margin-bottom:10px;font-size:.9rem;">🟠 Turnos consecutivos (mismo día, múltiples sesiones)</h3>';
+        html += a.consecutiveShifts.map(s => `
+          <div class="alert alert-warn">
+            <span>🔄</span>
+            <div><strong>${esc(s.operator_name)}</strong> — ${s.operation_date}<br>
+            <small>${s.sessions_count} sesiones · ${s.first_record} → ${s.last_record}</small></div>
+          </div>`).join('');
+        html += '</div>';
+      }
+
+      if (a.todayActivity && a.todayActivity.length) {
+        html += '<div class="card card-sm"><h3 style="margin-bottom:10px;font-size:.9rem;">📊 Actividad hoy</h3><div class="table-wrap"><table><thead><tr><th>Operador</th><th>Registros</th><th>Primer reg.</th><th>Último reg.</th><th>Peajes</th></tr></thead><tbody>';
+        html += a.todayActivity.map(a => `
+          <tr>
+            <td>${esc(a.operator_name)}</td>
+            <td><strong>${a.records_today}</strong></td>
+            <td>${a.first_time}</td>
+            <td>${a.last_time}</td>
+            <td style="font-size:.78rem;">${esc(a.toll_names)}</td>
+          </tr>`).join('');
+        html += '</tbody></table></div></div>';
+      }
+
+      if (!html) html = '<div class="empty-state"><div class="icon">✅</div>Sin alertas activas.</div>';
+      document.getElementById('alertsContent').innerHTML = html;
+    } catch (e) { document.getElementById('alertsContent').innerHTML = `<div class="alert alert-danger"><span>❌</span><div>${esc(e.message)}</div></div>`; }
+  }
+  window.loadAlerts = loadAlerts;
+
+  // ── USUARIOS ──────────────────────────────────────────────────────────────
+
+  async function loadUsers() {
+    try {
+      const data = await api('/users');
+      const users = data.users;
+      if (!users.length) {
+        document.getElementById('usersTable').innerHTML = '<div class="empty-state"><div class="icon">👥</div>No hay usuarios.</div>';
+        return;
+      }
+      document.getElementById('usersTable').innerHTML = `
+        <table>
+          <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Estado</th><th></th></tr></thead>
+          <tbody>${users.map(u => `
+            <tr>
+              <td>${esc(u.full_name)}</td>
+              <td><code>@${esc(u.username)}</code></td>
+              <td><span class="badge badge-${u.role}">${roleLabel(u.role)}</span></td>
+              <td><span class="badge ${u.is_active ? 'badge-activo' : 'badge-cerrado'}">${u.is_active ? 'Activo' : 'Inactivo'}</span></td>
+              <td>
+                <button class="btn btn-soft btn-sm" onclick="toggleUser(${u.id},${u.is_active?0:1})">${u.is_active ? 'Desactivar' : 'Activar'}</button>
+              </td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+    } catch (e) { showError(e); }
+  }
+
+  async function toggleUser(id, newActive) {
+    try {
+      await api('/users/' + id, { method: 'PUT', body: { is_active: newActive } });
+      loadUsers();
+    } catch (e) { alert(e.message); }
+  }
+  window.toggleUser = toggleUser;
+
+  // ── COORDINADOR ───────────────────────────────────────────────────────────
+
+  async function loadCoordView() {
+    try {
+      const projData = await api('/projects');
+      const projects = projData.projects;
+      if (!projects.length) {
+        document.getElementById('coordContent').innerHTML = '<div class="empty-state"><div class="icon">📋</div>No tienes proyectos asignados.</div>';
+        return;
+      }
+      if (projects.length > 1) {
+        const sel = document.getElementById('coordProjectSelect');
+        sel.innerHTML = '<option value="">— Seleccionar proyecto —</option>' +
+          projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+        document.getElementById('coordProjectSelector').style.display = 'block';
+        sel.onchange = () => { if (sel.value) loadCoordProject(Number(sel.value)); };
+        loadCoordProject(projects[0].id);
+        sel.value = projects[0].id;
+      } else {
+        loadCoordProject(projects[0].id);
+      }
+    } catch (e) { showError(e); }
+  }
+  window.loadCoordView = loadCoordView;
+
+  async function loadCoordProject(projectId) {
+    try {
+      const data = await api('/dashboard/coordinator/' + projectId);
+      assigningProjectId = projectId;
+      const p = data.project;
+
+      // Stats rápidas
+      let totalBooths = 0, staffed = 0, todayRecords = 0;
+      data.stations.forEach(s => {
+        s.booths.forEach(b => {
+          totalBooths++;
+          if (b.user_id) staffed++;
+          todayRecords += b.records_today || 0;
+        });
+      });
+
+      let html = `
+        <div class="stats-grid" style="margin-bottom:16px;">
+          <div class="stat-card green"><div class="stat-label">Registros hoy</div><div class="stat-value">${todayRecords}</div></div>
+          <div class="stat-card blue"><div class="stat-label">Casetas con personal</div><div class="stat-value">${staffed}/${totalBooths}</div></div>
+        </div>`;
+
+      if (p) {
+        const pct = p.daily_start_time && p.daily_end_time ? calcDayProgress(p.daily_start_time, p.daily_end_time) : null;
+        if (pct !== null) {
+          html += `<div class="card card-sm" style="margin-bottom:16px;">
+            <div class="progress-label"><span>⏰ Horario: ${p.daily_start_time.slice(0,5)} – ${p.daily_end_time.slice(0,5)}</span><span>${pct}%</span></div>
+            <div class="progress-bar"><div class="progress-fill ${pct>90?'danger':pct>70?'warn':''}" style="width:${pct}%;"></div></div>
+          </div>`;
+        }
+      }
+
+      html += data.stations.map(s => `
+        <div class="card" style="margin-bottom:16px;">
+          <div class="section-header"><h2>⛽ ${esc(s.name)}</h2></div>
+          <div class="booth-map">${s.booths.map(b => `
+            <div class="booth-card ${b.user_id ? 'staffed' : 'unstaffed'}" onclick="openAssign(${b.id},${projectId},'${esc(b.code)}','${esc(s.name)}')">
+              <div class="booth-num">C-${esc(b.code)}</div>
+              <div class="booth-name">${esc(b.directions||'')}</div>
+              <div class="booth-staff">${b.full_name ? '👤 ' + esc(b.full_name) : '⬜ Sin personal'}</div>
+              <div class="booth-records">${b.records_today > 0 ? b.records_today + ' hoy' : ''}</div>
+            </div>`).join('')}
+          </div>
+        </div>`).join('');
+
+      document.getElementById('coordContent').innerHTML = html;
+    } catch (e) { showError(e); }
+  }
+
+  function calcDayProgress(start, end) {
+    const now = new Date();
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    const startMin = sh * 60 + sm;
+    const endMin   = eh * 60 + em;
+    const nowMin   = now.getHours() * 60 + now.getMinutes();
+    if (nowMin <= startMin) return 0;
+    if (nowMin >= endMin) return 100;
+    return Math.round(((nowMin - startMin) / (endMin - startMin)) * 100);
+  }
+
+  // ── ASIGNACIONES ─────────────────────────────────────────────────────────
+
+  async function openAssign(boothId, projectId, boothCode, stationName) {
+    assigningBoothId  = boothId;
+    assigningProjectId = projectId;
+    document.getElementById('modalAssignTitle').textContent = `Asignar — ${stationName} Caseta ${boothCode}`;
+    document.getElementById('assignBoothInfo').textContent = `Caseta: ${boothCode} · ${stationName}`;
+    try {
+      const data = await api('/projects/' + projectId + '/available-users');
+      const sel = document.getElementById('assignUserSelect');
+      sel.innerHTML = '<option value="">— Sin asignación —</option>' +
+        data.users.map(u => `<option value="${u.id}">${esc(u.full_name)} (${roleLabel(u.role)})${u.booth_id ? ' — ya asignado: ' + esc(u.station_name||'') + ' C' + esc(u.booth_code||'') : ''}</option>`).join('');
+
+      // Preseleccionar si ya hay uno asignado a esta caseta
+      const assigned = data.users.find(u => u.booth_id === boothId);
+      if (assigned) sel.value = assigned.id;
+
+      document.getElementById('btnRemoveAssignment').onclick = async () => {
+        try {
+          const cur = data.users.find(u => u.booth_id === boothId);
+          if (cur && cur.assignment_id) await api('/assignments/' + cur.assignment_id, { method: 'DELETE' });
+          closeModal('modalAssign');
+          loadCoordProject(projectId);
+          if (currentProjectId) openProjectDetail(currentProjectId);
+        } catch (e) { alert(e.message); }
+      };
+    } catch (e) { alert(e.message); return; }
+    openModal('modalAssign');
+  }
+  window.openAssign = openAssign;
+
+  document.getElementById('btnConfirmAssign').onclick = async () => {
+    const userId = Number(document.getElementById('assignUserSelect').value);
+    if (!userId) { closeModal('modalAssign'); return; }
+    try {
+      await api('/assignments', { method: 'POST', body: { user_id: userId, project_id: assigningProjectId, booth_id: assigningBoothId } });
+      closeModal('modalAssign');
+      if (currentProjectId) openProjectDetail(currentProjectId);
+      if (currentUser.role === 'coordinador') loadCoordProject(assigningProjectId);
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── MODAL PROYECTO ────────────────────────────────────────────────────────
+
+  document.getElementById('btnNewProject').onclick = () => {
+    editingProjectId = null;
+    document.getElementById('modalProjectTitle').textContent = 'Nuevo Proyecto';
+    document.getElementById('pName').value = '';
+    document.getElementById('pDesc').value = '';
+    document.getElementById('pStart').value = new Date().toISOString().slice(0,10);
+    document.getElementById('pEnd').value = '';
+    document.getElementById('pTimeStart').value = '';
+    document.getElementById('pTimeEnd').value = '';
+    document.getElementById('pStatus').value = 'activo';
+    openModal('modalProject');
+  };
+
+  window.editProject = function(id, name, desc, start, end, status, ts, te) {
+    editingProjectId = id;
+    document.getElementById('modalProjectTitle').textContent = 'Editar Proyecto';
+    document.getElementById('pName').value = name;
+    document.getElementById('pDesc').value = desc;
+    document.getElementById('pStart').value = start;
+    document.getElementById('pEnd').value = end;
+    document.getElementById('pTimeStart').value = ts;
+    document.getElementById('pTimeEnd').value = te;
+    document.getElementById('pStatus').value = status;
+    openModal('modalProject');
+  };
+
+  document.getElementById('btnSaveProject').onclick = async () => {
+    const body = {
+      name: document.getElementById('pName').value.trim(),
+      description: document.getElementById('pDesc').value.trim(),
+      start_date: document.getElementById('pStart').value,
+      end_date: document.getElementById('pEnd').value || null,
+      daily_start_time: document.getElementById('pTimeStart').value || null,
+      daily_end_time: document.getElementById('pTimeEnd').value || null,
+      status: document.getElementById('pStatus').value
+    };
+    if (!body.name || !body.start_date) return alert('Nombre y fecha inicio son obligatorios.');
+    try {
+      if (editingProjectId) {
+        await api('/projects/' + editingProjectId, { method: 'PUT', body });
+      } else {
+        await api('/projects', { method: 'POST', body });
+      }
+      closeModal('modalProject');
+      loadProjectsList();
+      loadDashboard();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── MODAL ESTACIÓN ────────────────────────────────────────────────────────
+
+  document.getElementById('btnNewStation').onclick = () => openModal('modalStation');
+
+  document.getElementById('btnSaveStation').onclick = async () => {
+    const name = document.getElementById('sName').value.trim();
+    if (!name) return alert('El nombre es obligatorio.');
+    try {
+      await api('/projects/' + currentProjectId + '/stations', { method: 'POST', body: { name, location: document.getElementById('sLocation').value.trim() } });
+      closeModal('modalStation');
+      openProjectDetail(currentProjectId);
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── MODAL CASETA ──────────────────────────────────────────────────────────
+
+  var addingBoothStationId = null;
+  window.openAddBooth = function(stationId) {
+    addingBoothStationId = stationId;
+    document.getElementById('bCode').value = '';
+    document.getElementById('bDir').value = '';
+    openModal('modalBooth');
+  };
+
+  document.getElementById('btnSaveBooth').onclick = async () => {
+    const code = document.getElementById('bCode').value.trim();
+    if (!code) return alert('El código es obligatorio.');
+    try {
+      await api('/stations/' + addingBoothStationId + '/booths', { method: 'POST', body: { code, directions: document.getElementById('bDir').value.trim() } });
+      closeModal('modalBooth');
+      openProjectDetail(currentProjectId);
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── MODAL USUARIO ─────────────────────────────────────────────────────────
+
+  document.getElementById('btnNewUser').onclick = () => {
+    editingUserId = null;
+    document.getElementById('modalUserTitle').textContent = 'Nuevo Usuario';
+    ['uName','uUsername','uPassword'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('uRole').value = 'registrador';
+    // Filtrar roles disponibles según el nivel del usuario actual
+    const sel = document.getElementById('uRole');
+    sel.innerHTML = '';
+    if (currentUser.role === 'admin') sel.innerHTML += '<option value="director">Director</option>';
+    sel.innerHTML += '<option value="coordinador">Coordinador</option><option value="registrador">Registrador</option>';
+    openModal('modalUser');
+  };
+
+  document.getElementById('btnSaveUser').onclick = async () => {
+    const body = {
+      full_name: document.getElementById('uName').value.trim(),
+      username: document.getElementById('uUsername').value.trim().toLowerCase(),
+      password: document.getElementById('uPassword').value,
+      role: document.getElementById('uRole').value
+    };
+    if (!body.full_name || !body.username || !body.password) return alert('Todos los campos son obligatorios.');
+    try {
+      await api('/users', { method: 'POST', body });
+      closeModal('modalUser');
+      loadUsers();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── SWITCH TO REGISTER ────────────────────────────────────────────────────
+
+  document.getElementById('btnSwitchToRegister').onclick = () => {
+    window.location.href = '/?mode=register';
+  };
+
+  // ── SIDEBAR MOBILE ────────────────────────────────────────────────────────
+
+  document.getElementById('btnMenu').onclick = () => {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('sidebarOverlay').classList.add('open');
+  };
+  document.getElementById('sidebarOverlay').onclick = closeSidebar;
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('open');
+  }
+  window.closeSidebar = closeSidebar;
+
+  // ── LOGOUT ────────────────────────────────────────────────────────────────
+
+  document.getElementById('btnLogout').onclick = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    window.location.href = '/';
+  };
+
+  // ── UTILS ─────────────────────────────────────────────────────────────────
+
+  function esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function openModal(id)  { document.getElementById(id).classList.add('open'); }
+  function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+  window.closeModal = closeModal;
+
+  document.querySelectorAll('.modal-overlay').forEach(m => {
+    m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+  });
+
+  function showError(e) { console.error(e); }
+
+  // ── INIT ──────────────────────────────────────────────────────────────────
+  init();
+
+})();
+</script>
+</body>
+</html>
