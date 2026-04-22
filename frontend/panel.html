@@ -1260,6 +1260,7 @@
             <button class="btn btn-soft btn-sm" onclick="openAssignStation(${s.id},${projectId},true)">👥 Asignar personal</button>
           </div>
           ${hoursBar}
+          ${s.station_regs && s.station_regs.length ? `<div style="margin-bottom:10px;padding:6px 8px;background:#f0fdf4;border-radius:8px;font-size:.8rem;color:var(--accent);">👥 Pool del peaje: ${s.station_regs.map(r => esc(r.full_name)).join(', ')}</div>` : '<div style="margin-bottom:8px;font-size:.78rem;color:var(--muted);">⬜ Sin registradores en el pool</div>'}
           <div class="booth-map">${s.booths.map(b => {
             const stClass = b.has_open_shift ? 'active-shift' : (b.user_id ? 'inactive-shift' : 'unstaffed');
             return `
@@ -1365,6 +1366,12 @@
     let html;
     if (_isDirectorAssign) {
       const available = _allAvailRegs.filter(u => !_poolMembers[u.id]);
+      const totalAvail = available.length;
+      const totalPool  = Object.keys(_poolMembers).length;
+      document.getElementById('assignRegsAvailLabel').textContent =
+        `Registradores disponibles (${totalAvail})`;
+      document.getElementById('assignBoothSlotsLabel').textContent =
+        `Personal del peaje (${totalPool})`;
       html = available.map(u => {
         const warn = u.station_id ? `<span class="tag-warn">ya en otro peaje</span>` : '';
         return `<div class="assign-drag-item" draggable="true"
@@ -1375,6 +1382,11 @@
     } else {
       const inSlot = new Set(Object.values(_boothAssignments).filter(v => v.userId).map(v => v.userId));
       const available = _regAvailUsers.filter(u => !inSlot.has(u.id));
+      const inSlotCount = Object.values(_boothAssignments).filter(v => v.userId).length;
+      document.getElementById('assignRegsAvailLabel').textContent =
+        `Pool del peaje (${available.length} disponibles)`;
+      document.getElementById('assignBoothSlotsLabel').textContent =
+        `Casetas del peaje (${inSlotCount}/${Object.keys(_boothAssignments).length} asignadas)`;
       html = available.map(u => {
         return `<div class="assign-drag-item" draggable="true"
           ondragstart="window._regDragStart(event,${u.id},null)">\u{1F464} ${esc(u.full_name)}</div>`;
@@ -1407,7 +1419,7 @@
     }).join('');
   }
   function _renderDirectorPool() {
-    document.getElementById('assignBoothSlotsLabel').textContent = 'Personal del peaje';
+    // El label ya fue seteado con contador en _renderRegsAvailable (siempre se llama primero)
     const members = Object.entries(_poolMembers);
     const dropZone = `<div class="booth-assign-slot" style="width:100%;margin-top:${members.length?'8px':'0'};"
       ondragover="event.preventDefault();this.classList.add('drag-over')"
@@ -1482,8 +1494,6 @@
           const entry = { userId: b.assigned_user_id || null, name: b.assigned_user_name || null, assignmentId: b.assignment_id || null };
           _boothAssignments[b.id] = { ...entry }; _boothOriginal[b.id] = { ...entry };
         });
-        document.getElementById('assignRegsAvailLabel').textContent = 'Pool del peaje';
-        document.getElementById('assignBoothSlotsLabel').textContent = 'Casetas del peaje';
       } else {
         // Director: gestiona pool + asigna coordinador
         const poolData = (s || {}).station_regs || [];
@@ -1493,15 +1503,15 @@
           _poolOriginal[u.id] = { name: u.full_name, assignmentId: u.assignment_id };
         });
         const allRegsData = await api('/projects/' + projectId + '/available-users?role=registrador');
+        // _allAvailRegs incluye TODOS (incluyendo los ya en pool) — el filtro ocurre en _renderRegsAvailable
         _allAvailRegs = allRegsData.users;
         const coordData = await api('/projects/' + projectId + '/available-users?role=coordinador');
         _coordUsers = coordData.users;
         _assignSelectedUserId  = s ? (s.coord_user_id || null) : null;
         _assignCurrentAssignId = s ? (s.coord_assignment_id || null) : null;
-        document.getElementById('assignRegsAvailLabel').textContent = 'Registradores disponibles';
-        document.getElementById('assignBoothSlotsLabel').textContent = 'Personal del peaje';
       }
-      switchAssignTab(isCoord ? 'regs' : 'coord');
+      // Los labels se actualizan con contadores en _renderRegsAvailable al llamar switchAssignTab
+      switchAssignTab('regs');
     } catch (e) { alert(e.message); return; }
     openModal('modalAssign');
   }

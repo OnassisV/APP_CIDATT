@@ -481,17 +481,16 @@ app.delete('/api/assignments/:id', authenticateRequest, requireMinRole('coordina
 app.get('/api/projects/:projectId/available-users', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
     const roleFilter = req.query.role === 'coordinador' ? "u.role = 'coordinador'" : "u.role = 'registrador'";
+    // Usar subqueries para evitar filas duplicadas cuando el usuario tiene pool + caseta activos
     const rows = await query(
       `SELECT u.id, u.full_name, u.username, u.role,
-              a.id AS assignment_id, a.booth_id, a.station_id,
-              tb.code AS booth_code, ts.name AS station_name
+              (SELECT a.id FROM ${TABLES.assignments} a WHERE a.user_id = u.id AND a.project_id = ? AND a.is_active = 1 ORDER BY a.booth_id IS NULL ASC, a.created_at DESC LIMIT 1) AS assignment_id,
+              (SELECT a.booth_id FROM ${TABLES.assignments} a WHERE a.user_id = u.id AND a.project_id = ? AND a.is_active = 1 AND a.booth_id IS NOT NULL LIMIT 1) AS booth_id,
+              (SELECT a.station_id FROM ${TABLES.assignments} a WHERE a.user_id = u.id AND a.project_id = ? AND a.is_active = 1 AND a.booth_id IS NULL LIMIT 1) AS station_id
        FROM ${TABLES.users} u
-       LEFT JOIN ${TABLES.assignments} a ON a.user_id = u.id AND a.project_id = ? AND a.is_active = 1
-       LEFT JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
-       LEFT JOIN ${TABLES.stations} ts ON ts.id = COALESCE(tb.station_id, a.station_id)
        WHERE ${roleFilter} AND u.is_active = 1
        ORDER BY u.full_name`,
-      [req.params.projectId]
+      [req.params.projectId, req.params.projectId, req.params.projectId]
     );
     res.json({ ok: true, users: rows });
   } catch (error) { next(error); }
