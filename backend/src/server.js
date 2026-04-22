@@ -205,11 +205,12 @@ app.get('/api/users', authenticateRequest, requireMinRole('director'), async (re
     // Solo puede ver usuarios de rol inferior al suyo
     const rows = await query(
       `SELECT u.id, u.username, u.full_name, u.role, u.is_active, u.created_at,
-              p.name AS project_name
+              (SELECT p.name FROM ${TABLES.assignments} a
+               JOIN ${TABLES.projects} p ON p.id = a.project_id
+               WHERE a.user_id = u.id AND a.is_active = 1
+               ORDER BY a.created_at DESC LIMIT 1) AS project_name
        FROM ${TABLES.users} u
-       LEFT JOIN ${TABLES.assignments} a ON a.user_id = u.id AND a.is_active = 1
-       LEFT JOIN ${TABLES.projects} p ON p.id = a.project_id
-       ORDER BY p.name IS NULL ASC, p.name ASC, u.role ASC, u.full_name ASC`
+       ORDER BY project_name IS NULL ASC, project_name ASC, u.role ASC, u.full_name ASC`
     );
     const filtered = req.authUser.role === 'admin'
       ? rows
@@ -350,9 +351,11 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
        WHERE ts.project_id = ? ORDER BY ts.name`,
       [req.params.projectId]
     );
-    for (const s of stations) {
-      s.booths = await query(
-        `SELECT tb.id, tb.code, tb.directions,
+    if (stations.length) {
+      const sIds = stations.map(s => s.id);
+      const ph = sIds.map(() => '?').join(',');
+      const allBooths = await query(
+        `SELECT tb.id, tb.station_id, tb.code, tb.directions,
                 a.id AS assignment_id, u.id AS assigned_user_id, u.full_name AS assigned_user_name, u.username AS assigned_username,
                 (SELECT IF(COUNT(*) > 0, 1, 0) FROM ${TABLES.sessions} ss
                  JOIN ${TABLES.profiles} sp ON sp.session_id = ss.id
@@ -362,19 +365,26 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
          JOIN ${TABLES.stations} ts2 ON ts2.id = tb.station_id
          LEFT JOIN ${TABLES.assignments} a ON a.booth_id = tb.id AND a.is_active = 1
          LEFT JOIN ${TABLES.users} u ON u.id = a.user_id
-         WHERE tb.station_id = ? ORDER BY tb.code`,
-        [s.id]
+         WHERE tb.station_id IN (${ph}) ORDER BY tb.station_id, tb.code`,
+        sIds
       );
-      s.station_regs = await query(
-        `SELECT u.id, u.full_name, a.id AS assignment_id
+      const allRegs = await query(
+        `SELECT u.id, u.full_name, a.id AS assignment_id, a.station_id
          FROM ${TABLES.assignments} a
          JOIN ${TABLES.users} u ON u.id = a.user_id
-         WHERE a.station_id = ? AND a.booth_id IS NULL AND a.is_active = 1 AND u.role = 'registrador'
-         ORDER BY u.full_name`,
-        [s.id]
+         WHERE a.station_id IN (${ph}) AND a.booth_id IS NULL AND a.is_active = 1 AND u.role = 'registrador'
+         ORDER BY a.station_id, u.full_name`,
+        sIds
       );
+      stations.forEach(s => {
+        s.booths      = allBooths.filter(b => b.station_id === s.id);
+        s.station_regs = allRegs.filter(r => r.station_id === s.id);
+      });
+    } else {
+      stations.forEach(s => { s.booths = []; s.station_regs = []; });
     }
-    res.json({ ok: true, stations });
+    const [projectRow] = await query(`SELECT name FROM ${TABLES.projects} WHERE id = ? LIMIT 1`, [req.params.projectId]);
+    res.json({ ok: true, stations, projectName: projectRow?.name || '' });
   } catch (error) { next(error); }
 });
 
@@ -416,6 +426,7 @@ app.post('/api/stations/:stationId/booths', authenticateRequest, requireMinRole(
 
 app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
+    await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ?`, [req.params.stationId]);
     await query(`DELETE FROM ${TABLES.stations} WHERE id = ?`, [req.params.stationId]);
     res.json({ ok: true });
   } catch (error) { next(error); }
@@ -423,6 +434,7 @@ app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('dire
 
 app.delete('/api/booths/:boothId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
+    await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE booth_id = ?`, [req.params.boothId]);
     await query(`DELETE FROM ${TABLES.booths} WHERE id = ?`, [req.params.boothId]);
     res.json({ ok: true });
   } catch (error) { next(error); }
@@ -446,8 +458,8 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
         await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ? AND booth_id IS NULL AND is_active = 1`, [station_id]);
       }
     } else {
-      // Asignar a caseta: desactivar todas las asignaciones previas del usuario en este proyecto
-      await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE user_id = ? AND project_id = ? AND is_active = 1`, [user_id, project_id]);
+      // Asignar a caseta: solo desactivar asignaciones previas de caseta (conservar asignación de pool)
+      await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE user_id = ? AND project_id = ? AND booth_id IS NOT NULL AND is_active = 1`, [user_id, project_id]);
     }
 
     const result = await query(
@@ -601,9 +613,11 @@ app.get('/api/dashboard/coordinator/:projectId', authenticateRequest, requireMin
           `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time FROM ${TABLES.stations} ts WHERE ts.project_id = ? ORDER BY ts.name`,
           [req.params.projectId]
         );
-    for (const s of stations) {
-      s.booths = await query(
-        `SELECT tb.id, tb.code, tb.directions,
+    if (stations.length) {
+      const sIds = stations.map(s => s.id);
+      const ph = sIds.map(() => '?').join(',');
+      const allBooths = await query(
+        `SELECT tb.id, tb.station_id, tb.code, tb.directions,
                 u.id AS user_id, u.full_name, u.username, u.role,
                 a.id AS assignment_id,
                 (SELECT COUNT(*) FROM ${TABLES.records} r
@@ -616,17 +630,23 @@ app.get('/api/dashboard/coordinator/:projectId', authenticateRequest, requireMin
          INNER JOIN ${TABLES.stations} ts2 ON ts2.id = tb.station_id
          LEFT JOIN ${TABLES.assignments} a ON a.booth_id = tb.id AND a.is_active = 1
          LEFT JOIN ${TABLES.users} u ON u.id = a.user_id
-         WHERE tb.station_id = ? ORDER BY tb.code`,
-        [s.id]
+         WHERE tb.station_id IN (${ph}) ORDER BY tb.station_id, tb.code`,
+        sIds
       );
-      s.station_regs = await query(
-        `SELECT u.id, u.full_name, a.id AS assignment_id
+      const allRegs = await query(
+        `SELECT u.id, u.full_name, a.id AS assignment_id, a.station_id
          FROM ${TABLES.assignments} a
          JOIN ${TABLES.users} u ON u.id = a.user_id
-         WHERE a.station_id = ? AND a.booth_id IS NULL AND a.is_active = 1 AND u.role = 'registrador'
-         ORDER BY u.full_name`,
-        [s.id]
+         WHERE a.station_id IN (${ph}) AND a.booth_id IS NULL AND a.is_active = 1 AND u.role = 'registrador'
+         ORDER BY a.station_id, u.full_name`,
+        sIds
       );
+      stations.forEach(s => {
+        s.booths      = allBooths.filter(b => b.station_id === s.id);
+        s.station_regs = allRegs.filter(r => r.station_id === s.id);
+      });
+    } else {
+      stations.forEach(s => { s.booths = []; s.station_regs = []; });
     }
 
     const projectInfo = await query(`SELECT * FROM ${TABLES.projects} WHERE id = ? LIMIT 1`, [req.params.projectId]);
@@ -788,8 +808,6 @@ async function runMigrations() {
   // Agregar station_id a asignaciones si ya existe la tabla sin ella
   try {
     await query(`ALTER TABLE ${TABLES.assignments} ADD COLUMN station_id INT UNSIGNED NULL AFTER project_id`);
-  } catch (_) {}
-  try {
   } catch (_) {}
   // Asegurar que admin tenga rol admin
   await query(`UPDATE ${TABLES.users} SET role = 'admin' WHERE username = 'admin'`);

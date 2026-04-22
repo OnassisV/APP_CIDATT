@@ -877,9 +877,7 @@
     showView('viewProjectDetail');
     try {
       const data = await api('/projects/' + projectId + '/stations');
-      const proj = await api('/projects');
-      const p = proj.projects.find(x => x.id === projectId);
-      if (p) document.getElementById('projectDetailTitle').textContent = p.name;
+      if (data.projectName) document.getElementById('projectDetailTitle').textContent = data.projectName;
       renderProjectDetail(data.stations);
     } catch (e) { showError(e); }
   }
@@ -1546,8 +1544,11 @@
         }
       }
       closeModal('modalAssign');
-      if (currentProjectId) openProjectDetail(currentProjectId);
-      if (currentUser.role === 'coordinador') loadCoordProject(_assignProjectId);
+      if (currentUser.role === 'coordinador') {
+        loadCoordProject(_assignProjectId);
+      } else if (currentProjectId) {
+        openProjectDetail(currentProjectId);
+      }
     } catch (e) { alert(e.message); }
   };
 
