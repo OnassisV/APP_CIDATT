@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS cidatt_auth_tokens (
 );
 
 -- El usuario admin se crea desde el servidor al iniciar (con bcrypt)
+-- Nota: el modelo operacional ampliado de concesiones, proyectos, peajes,
+-- casetas, asignaciones multiples y presencia en tiempo real se mantiene
+-- en las migraciones de runtime dentro de backend/src/server.js.
 
 CREATE TABLE IF NOT EXISTS cidatt_shift_sessions (
   id CHAR(36) NOT NULL,
@@ -68,6 +71,7 @@ CREATE TABLE IF NOT EXISTS cidatt_vehicle_records (
   secondary_axles INT NOT NULL DEFAULT 0,
   total_axles INT NOT NULL,
   sync_status VARCHAR(20) NOT NULL DEFAULT 'synced',
+  is_fugitive TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),

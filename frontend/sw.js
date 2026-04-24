@@ -1,5 +1,5 @@
-const CACHE_NAME = 'rlv-cidatt-v1';
-const ASSETS = ['/', '/index.html', '/app.webmanifest'];
+const CACHE_NAME = 'rlv-cidatt-v2';
+const ASSETS = ['/', '/index.html', '/panel.html', '/app.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

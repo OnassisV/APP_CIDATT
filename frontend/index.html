@@ -222,6 +222,7 @@
     <div class="header-top">
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
+        <button class="theme-toggle" id="btnHistoryBack" title="Volver">Atras</button>
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
         <button class="theme-toggle hidden" id="btnBackToPanel" onclick="window.location.href='/panel.html'" title="Volver al panel">← Panel</button>
         <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión">🔓 Salir</button>
@@ -245,6 +246,7 @@
     <div class="site-info-bar hidden" id="siteInfoBar">
       <span class="site-info-text" id="siteInfoLabel">📍 Cargando...</span>
       <div class="site-actions">
+        <button type="button" class="btn-soft btn-sm hidden" id="btnLocalCloseShift">Cerrar local</button>
         <button type="button" class="btn-switch btn-sm hidden" id="btnSwitchCaseta">🔄 Cambiar</button>
         <button type="button" class="btn-soft btn-sm" id="btnCambiarDatos">⚙️ Ajustes</button>
       </div>
@@ -296,7 +298,11 @@
           </select>
         </div>
 
-        <button type="submit" class="btn-primary" style="width:100%;">Iniciar Operación</button>
+        <button type="submit" class="btn-primary" style="width:100%;">Guardar configuracion</button>
+        <div class="form-actions" style="margin-top:10px;">
+          <button type="button" class="btn-soft" id="btnResetSetupInputs">Borrar formulario</button>
+          <button type="button" class="btn-soft hidden" id="btnCancelSetupEdit">Cancelar</button>
+        </div>
       </form>
     </section>
 
@@ -387,6 +393,10 @@
             </div>
           </div>
           
+          <div style="display:flex; justify-content:flex-end; margin:8px 0 0;">
+            <button type="button" class="btn-soft btn-sm" id="btnRegistrarFuga">Registrar fuga</button>
+          </div>
+
           <div class="form-actions">
             <button type="button" class="btn-soft" id="btnDeshacerUltimo">↩️ Deshacer Último</button>
             <button type="button" class="btn-soft" id="btnLimpiar">🧹 Limpiar Formulario</button>
@@ -580,12 +590,15 @@
         if (deferredPrompt) { deferredPrompt.prompt(); await deferredPrompt.userChoice; document.getElementById('btnInstall').classList.add('hidden'); deferredPrompt = null; }
       });
 
-      const DB_NAME = 'CIDATTRlvDB'; const DB_VERSION = 1; let db;
+      const DB_NAME = 'CIDATTRlvDB'; const DB_VERSION = 2; let db;
 
       function initDB() {
         return new Promise((resolve, reject) => {
           let req = indexedDB.open(DB_NAME, DB_VERSION);
-          req.onupgradeneeded = e => { if (!e.target.result.objectStoreNames.contains('store')) e.target.result.createObjectStore('store'); };
+          req.onupgradeneeded = e => {
+            if (!e.target.result.objectStoreNames.contains('store')) e.target.result.createObjectStore('store');
+            if (!e.target.result.objectStoreNames.contains('outbox')) e.target.result.createObjectStore('outbox', { keyPath: 'id' });
+          };
           req.onsuccess = e => { db = e.target.result; resolve(); };
           req.onerror = e => reject(e);
         });
@@ -609,12 +622,44 @@
         });
       }
 
+      function putOutboxItem(item) {
+        return new Promise((resolve, reject) => {
+          if (!db) return resolve();
+          let tx = db.transaction('outbox', 'readwrite');
+          tx.objectStore('outbox').put(item);
+          tx.oncomplete = () => resolve();
+          tx.onerror = e => reject(e);
+        });
+      }
+
+      function getOutboxItems() {
+        return new Promise(resolve => {
+          if (!db) return resolve([]);
+          let tx = db.transaction('outbox', 'readonly');
+          let req = tx.objectStore('outbox').getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+      }
+
+      function deleteOutboxItem(id) {
+        return new Promise((resolve, reject) => {
+          if (!db) return resolve();
+          let tx = db.transaction('outbox', 'readwrite');
+          tx.objectStore('outbox').delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = e => reject(e);
+        });
+      }
+
       var STORAGE_KEY = 'rlv_cidatt_records_v1';
       var SITE_INFO_KEY = 'rlv_cidatt_site_info_v1';
       var DRAFT_KEY = 'rlv_cidatt_draft_v1';
       var LICENSE_KEY = 'rlv_cidatt_auth_v1';
+      var OPERATION_CONTEXT_KEY = 'rlv_cidatt_operation_context_v1';
       var AUTH_TOKEN_STORAGE_KEY = 'rlv_cidatt_auth_token';
       var AUTH_USER_STORAGE_KEY = 'rlv_cidatt_auth_user';
+      var DEVICE_ID_STORAGE_KEY = 'rlv_cidatt_device_id';
       
       var HISTORY_LIMIT = 5; var NEWLINE = String.fromCharCode(10); var CSV_BOM = String.fromCharCode(65279);
 
@@ -628,17 +673,30 @@
       
       var btnAhora = document.getElementById('btnAhora'); var btnLimpiar = document.getElementById('btnLimpiar'); var btnDeshacerUltimo = document.getElementById('btnDeshacerUltimo');
       var fabSave = document.getElementById('fabSave'); var searchHistory = document.getElementById('searchHistory'); var historialList = document.getElementById('historialList');
-      var btnSwitchCaseta = document.getElementById('btnSwitchCaseta');
+      var btnSwitchCaseta = document.getElementById('btnSwitchCaseta'); var btnHistoryBack = document.getElementById('btnHistoryBack');
+      var btnLocalCloseShift = document.getElementById('btnLocalCloseShift'); var btnCancelSetupEdit = document.getElementById('btnCancelSetupEdit');
+      var btnResetSetupInputs = document.getElementById('btnResetSetupInputs'); var btnRegistrarFuga = document.getElementById('btnRegistrarFuga');
 
       var registros = []; var siteInfo = null; var draftInfo = null; var editingId = null;
       var selectedTipo = ''; var selectedEjesPrincipal = 0; var selectedEjesSecundaria = 0;
   var lastCreatedId = null; var showAllHistory = false; var audioCtx = null; var isSaving = false; var searchTerm = ''; var hasValidLicense = false;
+  var isEditingSetup = false;
   var authToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
   var authUser = null;
+  var authAssignments = [];
+  var authOperationContext = { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+  var realtimeTimer = null;
 
       function pad(val) { return String(val).padStart(2, '0'); }
       function todayDate() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
       function currentTime() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+      function isFixedTwoAxlesType(type) { return ['L', 'M2', 'PNP', 'A'].includes(String(type || '').toUpperCase()); }
+      function isNumericLeadingPlate(value) { return /^[0-9]/.test(String(value || '')); }
+      function goBackFromRegister() {
+        if (window.history.length > 1) return window.history.back();
+        if (document.referrer && document.referrer !== window.location.href) return window.location.href = document.referrer;
+        window.location.href = '/panel.html';
+      }
 
       // --- HORA INTELIGENTE (Digitación) ---
       function formatSmartTime(val) {
@@ -659,8 +717,25 @@
 
       function formatPlate(value) {
         let clean = String(value || '').toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+        if (!clean) return '';
+        if (isNumericLeadingPlate(clean)) return clean.substring(0, 7);
+        clean = clean.substring(0, 6);
         if (clean.length > 3) return clean.substring(0, 3) + '-' + clean.substring(3, 6);
         return clean;
+      }
+
+      function syncPrimaryAxleOptions() {
+        var lockedToTwo = isFixedTwoAxlesType(selectedTipo);
+        document.querySelectorAll('[data-ejes-principal]').forEach(function(btn) {
+          var isTwoAxles = btn.getAttribute('data-ejes-principal') === '2';
+          btn.disabled = lockedToTwo && !isTwoAxles;
+          btn.style.opacity = lockedToTwo && !isTwoAxles ? '0.45' : '1';
+          btn.style.cursor = lockedToTwo && !isTwoAxles ? 'not-allowed' : 'pointer';
+        });
+        if (lockedToTwo && selectedEjesPrincipal !== 2) {
+          selectedEjesPrincipal = 2;
+          activateChip('[data-ejes-principal]', 'data-ejes-principal', selectedEjesPrincipal);
+        }
       }
 
       function csvEscape(val) { return '"' + String(val == null ? '' : val).replace(/"/g, '""') + '"'; }
@@ -670,29 +745,277 @@
         return 'cidatt-' + Date.now() + '-' + Math.random().toString(16).slice(2);
       }
 
+      function getDeviceId() {
+        var deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+        if (!deviceId) {
+          deviceId = generateId();
+          localStorage.setItem(DEVICE_ID_STORAGE_KEY, deviceId);
+        }
+        return deviceId;
+      }
+
+      function clearCachedAuth() {
+        authToken = '';
+        authUser = null;
+        authAssignments = [];
+        authOperationContext = { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        putDB(LICENSE_KEY, null).catch(()=>{});
+        putDB(OPERATION_CONTEXT_KEY, null).catch(()=>{});
+        hasValidLicense = false;
+        stopRealtimeServices();
+      }
+
+      function buildProfilesFromAssignments() {
+        var boothAssignments = authOperationContext && authOperationContext.boothAssignments ? authOperationContext.boothAssignments : [];
+        return boothAssignments.map(function(item) {
+          return {
+            nombrePeaje: item.stationName || '',
+            numeroCaseta: item.boothCode || '',
+            operador: authUser && authUser.fullName ? authUser.fullName : '',
+            sentidoCirculacion: item.directions || '',
+            projectId: item.projectId || null,
+            stationId: item.stationId || null,
+            boothId: item.boothId || null,
+            concessionName: item.concessionName || ''
+          };
+        });
+      }
+
+      function getAssignmentKey(profiles) {
+        return (profiles || []).map(function(profile) {
+          return [profile.projectId || '', profile.stationId || '', profile.boothId || ''].join(':');
+        }).join('|');
+      }
+
+      function fillSetupFormFromProfiles(meta) {
+        var profiles = meta && Array.isArray(meta.profiles) ? meta.profiles.slice(0, 2) : [];
+        var primary = profiles[0] || {};
+        var secondary = profiles[1] || {};
+        document.getElementById('setupFecha').value = meta && meta.fechaTurno ? meta.fechaTurno : todayDate();
+        document.getElementById('setupPeaje1').value = primary.nombrePeaje || '';
+        document.getElementById('setupCaseta1').value = primary.numeroCaseta || '';
+        document.getElementById('setupOperador1').value = primary.operador || '';
+        document.getElementById('setupSentido1').value = primary.sentidoCirculacion || '';
+        document.getElementById('setupMultiCaseta').checked = profiles.length > 1;
+        document.getElementById('setupCaseta2Box').classList.toggle('hidden', profiles.length <= 1);
+        document.getElementById('setupPeaje2').value = secondary.nombrePeaje || '';
+        document.getElementById('setupCaseta2').value = secondary.numeroCaseta || '';
+        document.getElementById('setupOperador2').value = secondary.operador || '';
+        document.getElementById('setupSentido2').value = secondary.sentidoCirculacion || '';
+        applyAuthenticatedUserDefaults();
+      }
+
+      function populateSetupFromAssignments() {
+        var profiles = buildProfilesFromAssignments();
+        if (!profiles.length) return false;
+        fillSetupFormFromProfiles({
+          fechaTurno: siteInfo && siteInfo.fechaTurno ? siteInfo.fechaTurno : todayDate(),
+          profiles: profiles
+        });
+        return true;
+      }
+
+      function populateSetupFromCurrentSiteInfo() {
+        if (!siteInfo || !Array.isArray(siteInfo.profiles) || !siteInfo.profiles.length) return false;
+        fillSetupFormFromProfiles(siteInfo);
+        return true;
+      }
+
+      function clearSetupInputs(preserveDate) {
+        document.getElementById('setupFecha').value = preserveDate && siteInfo && siteInfo.fechaTurno ? siteInfo.fechaTurno : todayDate();
+        document.getElementById('setupPeaje1').value = '';
+        document.getElementById('setupCaseta1').value = '';
+        document.getElementById('setupOperador1').value = '';
+        document.getElementById('setupSentido1').value = '';
+        document.getElementById('setupMultiCaseta').checked = false;
+        document.getElementById('setupCaseta2Box').classList.add('hidden');
+        document.getElementById('setupPeaje2').value = '';
+        document.getElementById('setupCaseta2').value = '';
+        document.getElementById('setupOperador2').value = '';
+        document.getElementById('setupSentido2').value = '';
+        applyAuthenticatedUserDefaults();
+      }
+
+      async function syncSiteInfoWithAssignments() {
+        var assignedProfiles = buildProfilesFromAssignments();
+        if (!assignedProfiles.length) return false;
+        var currentProfile = siteInfo && siteInfo.profiles ? siteInfo.profiles[siteInfo.activeIndex || 0] : null;
+        var nextActiveIndex = assignedProfiles.findIndex(function(profile) {
+          return currentProfile && profile.boothId && profile.boothId === currentProfile.boothId;
+        });
+        siteInfo = Object.assign({}, siteInfo || {}, {
+          fechaTurno: siteInfo && siteInfo.fechaTurno ? siteInfo.fechaTurno : todayDate(),
+          multi: assignedProfiles.length > 1,
+          activeIndex: nextActiveIndex >= 0 ? nextActiveIndex : 0,
+          profiles: assignedProfiles,
+          remoteSessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : generateId(),
+          assignmentKey: getAssignmentKey(assignedProfiles)
+        });
+        await putDB(SITE_INFO_KEY, siteInfo).catch(()=>{});
+        return true;
+      }
+
+      async function refreshWarningBanner(customText) {
+        var wb = document.getElementById('warningBanner');
+        if (!wb) return;
+        if (customText) {
+          wb.textContent = customText;
+          wb.style.display = 'block';
+          return;
+        }
+        var pendingItems = await getOutboxItems().catch(function() { return []; });
+        if (!navigator.onLine) {
+          wb.textContent = 'Modo offline activo. Los cambios se guardan localmente.';
+          wb.style.display = 'block';
+          return;
+        }
+        if (pendingItems.length) {
+          wb.textContent = 'Sincronizacion pendiente: ' + pendingItems.length + ' cambio(s).';
+          wb.style.display = 'block';
+          return;
+        }
+        wb.style.display = 'none';
+      }
+
+      async function queueSyncTask(type, payload, id) {
+        await putOutboxItem({
+          id: id || (type + ':' + generateId()),
+          type: type,
+          payload: payload,
+          createdAt: Date.now()
+        }).catch(()=>{});
+        await refreshWarningBanner();
+      }
+
+      async function markRecordSyncStatus(recordId, status) {
+        var updated = false;
+        registros = registros.map(function(item) {
+          if (item.id !== recordId) return item;
+          updated = true;
+          return Object.assign({}, item, { syncStatus: status });
+        });
+        if (updated) await putDB(STORAGE_KEY, registros).catch(()=>{});
+      }
+
+      async function flushOutbox() {
+        if (!db || !authToken || !navigator.onLine) {
+          await refreshWarningBanner();
+          return 0;
+        }
+        var items = await getOutboxItems();
+        items.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+        var processed = 0;
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
+          try {
+            if (item.type === 'session-upsert') await syncSessionToServer(item.payload);
+            if (item.type === 'record-upsert') await syncRecordToServer(item.payload);
+            if (item.type === 'record-delete') await deleteRecordFromServer(item.payload.recordId);
+            if (item.type === 'record-upsert' && item.payload && item.payload.id) await markRecordSyncStatus(item.payload.id, 'synced');
+            await deleteOutboxItem(item.id);
+            processed++;
+          } catch (err) {
+            if (err && err.status === 401) break;
+          }
+        }
+        await refreshWarningBanner();
+        return processed;
+      }
+
+      async function sendPresenceHeartbeat() {
+        if (!authToken || !navigator.onLine) return null;
+        var activeProfile = getCurrentSiteInfo();
+        var fallbackAssignment = (authOperationContext.boothAssignments && authOperationContext.boothAssignments[0]) ||
+          (authOperationContext.poolAssignments && authOperationContext.poolAssignments[0]) || null;
+        return apiRequest('/presence/heartbeat', {
+          method: 'POST',
+          body: {
+            deviceId: getDeviceId(),
+            projectId: activeProfile && activeProfile.projectId ? activeProfile.projectId : (fallbackAssignment ? fallbackAssignment.projectId : null),
+            stationId: activeProfile && activeProfile.stationId ? activeProfile.stationId : (fallbackAssignment ? fallbackAssignment.stationId : null),
+            sessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : null,
+            currentMode: activeProfile ? 'register' : (hasValidLicense ? 'ready' : 'login'),
+            networkStatus: navigator.onLine ? 'online' : 'offline',
+            context: {
+              activeBooth: activeProfile ? {
+                tollName: activeProfile.nombrePeaje,
+                boothNumber: activeProfile.numeroCaseta
+              } : null,
+              assignedBooths: buildProfilesFromAssignments().map(function(profile) {
+                return {
+                  tollName: profile.nombrePeaje,
+                  boothNumber: profile.numeroCaseta
+                };
+              })
+            }
+          }
+        });
+      }
+
+      function startRealtimeServices() {
+        if (realtimeTimer) return;
+        realtimeTimer = setInterval(function() {
+          flushOutbox().catch(()=>{});
+          sendPresenceHeartbeat().catch(()=>{});
+        }, 25000);
+        flushOutbox().catch(()=>{});
+        sendPresenceHeartbeat().catch(()=>{});
+        refreshWarningBanner().catch(()=>{});
+      }
+
+      function stopRealtimeServices() {
+        if (!realtimeTimer) return;
+        clearInterval(realtimeTimer);
+        realtimeTimer = null;
+      }
+
+      async function applyAuthPayload(payload) {
+        authUser = payload.user || authUser || null;
+        authAssignments = payload.assignments || [];
+        authOperationContext = payload.operationContext || { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+        if (authUser) localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser));
+        await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
+        await putDB(OPERATION_CONTEXT_KEY, {
+          assignments: authAssignments,
+          operationContext: authOperationContext
+        });
+        hasValidLicense = true;
+        populateSetupFromAssignments();
+        await syncSiteInfoWithAssignments();
+        applyAuthenticatedUserDefaults();
+        await refreshWarningBanner();
+        startRealtimeServices();
+      }
+
       async function apiRequest(path, options) {
         var requestOptions = options || {};
         var headers = Object.assign({ 'Content-Type': 'application/json' }, requestOptions.headers || {});
         if (authToken) headers.Authorization = 'Bearer ' + authToken;
-        var response = await fetch(APP_CONFIG.apiBaseUrl + path, {
-          method: requestOptions.method || 'GET',
-          headers: headers,
-          body: requestOptions.body ? JSON.stringify(requestOptions.body) : undefined
-        });
+        var response;
+        try {
+          response = await fetch(APP_CONFIG.apiBaseUrl + path, {
+            method: requestOptions.method || 'GET',
+            headers: headers,
+            body: requestOptions.body ? JSON.stringify(requestOptions.body) : undefined
+          });
+        } catch (networkError) {
+          var offlineError = new Error('No hay conexion con el servidor.');
+          offlineError.isNetworkError = true;
+          throw offlineError;
+        }
 
         if (!response.ok) {
           let payload;
           try { payload = await response.json(); } catch (err) { payload = null; }
           if (response.status === 401) {
-            authToken = '';
-            authUser = null;
-            localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-            localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-            putDB(LICENSE_KEY, null).catch(()=>{});
-            hasValidLicense = false;
+            clearCachedAuth();
             applySetupVisibility();
           }
-          throw new Error(payload && payload.error ? payload.error : 'No se pudo completar la sincronizacion.');
+          var requestError = new Error(payload && payload.error ? payload.error : 'No se pudo completar la sincronizacion.');
+          requestError.status = response.status;
+          throw requestError;
         }
 
         return response.json();
@@ -707,7 +1030,7 @@
             operationDate: sessionInfo.fechaTurno,
             multi: sessionInfo.multi,
             activeIndex: sessionInfo.activeIndex,
-            status: 'open',
+            status: sessionInfo.status || 'open',
             profiles: sessionInfo.profiles
           }
         });
@@ -747,10 +1070,7 @@
       }
 
       document.getElementById('btnLogoutRegister').addEventListener('click', function() {
-        authToken = '';
-        authUser = null;
-        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        clearCachedAuth();
         window.location.href = '/';
       });
 
@@ -766,21 +1086,30 @@
         if (!authToken) return false;
         try {
           var payload = await apiRequest('/auth/me');
-          authUser = payload.user || null;
-          if (authUser) localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser));
-          await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
-          hasValidLicense = true;
+          await applyAuthPayload(payload);
           // Redirigir a panel si no es registrador (a menos que venga con ?mode=register)
           if (authUser && redirectToPanelIfNeeded(authUser.role)) return true;
-          applyAuthenticatedUserDefaults();
           return true;
         } catch (err) {
-          authToken = '';
-          authUser = null;
-          localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-          localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-          await putDB(LICENSE_KEY, null).catch(()=>{});
-          hasValidLicense = false;
+          if (err && err.status === 401) {
+            clearCachedAuth();
+            return false;
+          }
+          var cachedLicense = await getDB(LICENSE_KEY).catch(()=>null);
+          var cachedContext = await getDB(OPERATION_CONTEXT_KEY).catch(()=>null);
+          if (cachedLicense && cachedLicense.usuario) {
+            authUser = cachedLicense.usuario;
+            authAssignments = cachedContext && cachedContext.assignments ? cachedContext.assignments : [];
+            authOperationContext = cachedContext && cachedContext.operationContext ? cachedContext.operationContext : { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+            hasValidLicense = true;
+            populateSetupFromAssignments();
+            await syncSiteInfoWithAssignments();
+            applyAuthenticatedUserDefaults();
+            await refreshWarningBanner('Modo offline: usando la ultima sesion conocida.');
+            startRealtimeServices();
+            if (authUser && redirectToPanelIfNeeded(authUser.role)) return true;
+            return true;
+          }
           return false;
         }
       }
@@ -790,6 +1119,16 @@
         sb.style.background = type === 'ok' ? 'var(--ok-bg)' : 'var(--danger-bg)'; sb.style.color = type === 'ok' ? 'var(--ok)' : 'var(--danger)';
         sb.style.display = 'block'; clearTimeout(sb.timer); sb.timer = setTimeout(() => { sb.style.display = 'none'; }, 2000);
       }
+
+      window.addEventListener('online', function() {
+        refreshWarningBanner().catch(()=>{});
+        flushOutbox().catch(()=>{});
+        sendPresenceHeartbeat().catch(()=>{});
+      });
+
+      window.addEventListener('offline', function() {
+        refreshWarningBanner().catch(()=>{});
+      });
 
       function playFeedback() {
         if (navigator.vibrate) navigator.vibrate(60);
@@ -811,6 +1150,11 @@
 
       function validatePlateInput(inputEl) {
         inputEl.value = formatPlate(inputEl.value); inputEl.classList.remove('valid-plate', 'warning-plate');
+        if (!inputEl.value) return;
+        if (isNumericLeadingPlate(inputEl.value)) {
+          if (/^[0-9][A-Z0-9]{6}$/.test(inputEl.value)) inputEl.classList.add('valid-plate'); else inputEl.classList.add('warning-plate');
+          return;
+        }
         if (inputEl.value.length === 7) {
           if (/^[A-Z0-9]{3}-\d{3}$/.test(inputEl.value)) inputEl.classList.add('valid-plate'); else inputEl.classList.add('warning-plate');
         }
@@ -830,10 +1174,18 @@
 
       function setTipo(val, isUserAction = true) { 
         selectedTipo = val || ''; activateChip('[data-tipo]', 'data-tipo', selectedTipo); 
-        if (isUserAction && ['L', 'M2', 'PNP', 'A'].includes(val)) setEjesPrincipal(2, true);
+        if (isFixedTwoAxlesType(selectedTipo)) setEjesPrincipal(2, false);
+        syncPrimaryAxleOptions();
         if (isUserAction) saveDraft(); 
       }
-      function setEjesPrincipal(val, isUserAction = true) { selectedEjesPrincipal = Number(val) || 0; activateChip('[data-ejes-principal]', 'data-ejes-principal', selectedEjesPrincipal); if (isUserAction) saveDraft(); }
+      function setEjesPrincipal(val, isUserAction = true) {
+        var nextValue = Number(val) || 0;
+        if (isFixedTwoAxlesType(selectedTipo) && nextValue && nextValue !== 2) nextValue = 2;
+        selectedEjesPrincipal = nextValue;
+        activateChip('[data-ejes-principal]', 'data-ejes-principal', selectedEjesPrincipal);
+        syncPrimaryAxleOptions();
+        if (isUserAction) saveDraft();
+      }
       function setEjesSecundaria(val, isUserAction = true) { selectedEjesSecundaria = Number(val) || 0; activateChip('[data-ejes-secundaria]', 'data-ejes-secundaria', selectedEjesSecundaria); if (isUserAction) saveDraft(); }
 
       function toggleSecundaria(show) {
@@ -850,14 +1202,19 @@
 
       function renderSiteInfo() {
         var active = getCurrentSiteInfo();
-        if (!active) return;
+        if (!active) {
+          siteInfoLabel.textContent = 'Sin turno activo';
+          return;
+        }
         let opName = active.operador ? active.operador.split(' ')[0] : 'Op'; 
-        siteInfoLabel.innerHTML = `📍 C:${active.numeroCaseta} | 👤 ${opName} | 📅 ${getActiveDate()}`;
+        var totalProfiles = siteInfo && siteInfo.profiles ? siteInfo.profiles.length : 1;
+        var profileLabel = totalProfiles > 1 ? ` | ${siteInfo.activeIndex + 1}/${totalProfiles}` : '';
+        siteInfoLabel.innerHTML = `📍 C:${active.numeroCaseta} | 👤 ${opName} | 📅 ${getActiveDate()}${profileLabel}`;
         
         if (siteInfo.multi) {
            btnSwitchCaseta.classList.remove('hidden');
            // Cambiar color para notar cual está activa
-           siteInfoLabel.style.color = siteInfo.activeIndex === 0 ? 'var(--accent)' : 'var(--warn)';
+           siteInfoLabel.style.color = totalProfiles > 1 && siteInfo.activeIndex % 2 === 0 ? 'var(--accent)' : 'var(--warn)';
         } else {
            btnSwitchCaseta.classList.add('hidden');
            siteInfoLabel.style.color = 'var(--text)';
@@ -871,8 +1228,13 @@
         }
         licenseCard.classList.add('hidden');
         var hasSite = Boolean(getCurrentSiteInfo());
-        setupCard.classList.toggle('hidden', hasSite); mainContent.classList.toggle('hidden', !hasSite);
-        siteInfoBar.classList.toggle('hidden', !hasSite); fabSave.classList.toggle('hidden', !hasSite);
+        var showSetup = !hasSite || isEditingSetup;
+        setupCard.classList.toggle('hidden', !showSetup);
+        mainContent.classList.toggle('hidden', !hasSite || showSetup);
+        siteInfoBar.classList.toggle('hidden', !hasSite);
+        fabSave.classList.toggle('hidden', !hasSite || showSetup);
+        if (btnCancelSetupEdit) btnCancelSetupEdit.classList.toggle('hidden', !isEditingSetup);
+        if (btnLocalCloseShift) btnLocalCloseShift.classList.toggle('hidden', !hasSite);
       }
 
       function resetForm(loadDraft = false) {
@@ -960,7 +1322,9 @@
         if (delBtn && id) {
           if (confirm('¿Eliminar este registro de forma permanente?')) {
             registros = registros.filter(x => x.id !== id); await putDB(STORAGE_KEY, registros).catch(e => alert("Error: " + e));
-            deleteRecordFromServer(id).catch(() => {});
+            deleteRecordFromServer(id).catch(async () => {
+              await queueSyncTask('record-delete', { recordId: id }, 'record-delete:' + id);
+            });
             if (editingId === id) resetForm(false); renderAll(); setStatus('Registro eliminado', 'danger');
           }
         }
@@ -989,8 +1353,104 @@
         fabSave.click();
       });
 
+      function buildRecordPayload(options) {
+        var settings = Object.assign({ isFugitive: false }, options || {});
+        var act = getCurrentSiteInfo();
+        if (!act) throw new Error('Faltan datos de la caseta.');
+        if (!settings.isFugitive) {
+          if (!placaPrincipal.value || !selectedTipo || !selectedEjesPrincipal) throw new Error('Complete placa, tipo y ejes principales.');
+          if (tieneSecundaria.checked && (!placaSecundaria.value || !selectedEjesSecundaria)) throw new Error('Complete datos de la placa secundaria.');
+        }
+
+        horaPaso.value = formatSmartTime(horaPaso.value);
+
+        var mainAxles = settings.isFugitive ? Number(selectedEjesPrincipal || 2) : Number(selectedEjesPrincipal);
+        var secondaryAxles = settings.isFugitive ? 0 : (tieneSecundaria.checked ? Number(selectedEjesSecundaria) : 0);
+        return {
+          id: editingId || generateId(),
+          fecha: getActiveDate(),
+          nombrePeaje: act.nombrePeaje,
+          numeroCaseta: act.numeroCaseta,
+          sentidoCirculacion: act.sentidoCirculacion,
+          operador: act.operador,
+          horaPaso: horaPaso.value,
+          placaPrincipal: settings.isFugitive ? (placaPrincipal.value || 'FUGA') : placaPrincipal.value,
+          tipoVehiculo: settings.isFugitive ? 'FUGA' : selectedTipo,
+          ejesPrincipal: mainAxles,
+          placaSecundaria: settings.isFugitive ? '' : (tieneSecundaria.checked ? placaSecundaria.value : ''),
+          ejesSecundaria: secondaryAxles,
+          totalEjes: Number(mainAxles) + Number(secondaryAxles),
+          isFugitive: settings.isFugitive,
+          sessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : '',
+          syncStatus: 'pending'
+        };
+      }
+
+      async function persistRecord(data, statusText, pendingText) {
+        var wasEditing = Boolean(editingId);
+        if (wasEditing) { registros = registros.map(r => r.id === editingId ? data : r); lastCreatedId = null; }
+        else { registros.push(data); lastCreatedId = data.id; }
+
+        try {
+          await putDB(STORAGE_KEY, registros);
+          await syncSessionToServer(siteInfo);
+          await syncRecordToServer(data);
+          data.syncStatus = 'synced';
+          await markRecordSyncStatus(data.id, 'synced');
+          await putDB(STORAGE_KEY, registros);
+          sendPresenceHeartbeat().catch(() => {});
+          playFeedback();
+          setStatus(statusText || (wasEditing ? 'Cambios guardados y sincronizados' : 'Vehiculo registrado y sincronizado'));
+          resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
+        } catch(err) {
+          if (siteInfo && siteInfo.remoteSessionId) await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+          await queueSyncTask('record-upsert', data, 'record-upsert:' + data.id);
+          await putDB(STORAGE_KEY, registros).catch(()=>{});
+          playFeedback();
+          setStatus(pendingText || 'Guardado local. Sincronizacion pendiente.', 'danger');
+          resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
+        }
+      }
+
+      async function registerFugitiveRecord() {
+        await persistRecord(
+          buildRecordPayload({ isFugitive: true }),
+          editingId ? 'Fuga actualizada y sincronizada' : 'Fuga registrada y sincronizada',
+          'Fuga guardada localmente. Sincronizacion pendiente.'
+        );
+      }
+
+      async function closeLocalShift() {
+        if (!siteInfo || !siteInfo.remoteSessionId) return;
+        var closingSession = Object.assign({}, siteInfo, { status: 'closed' });
+        var pendingSync = false;
+        try {
+          await syncSessionToServer(closingSession);
+        } catch (err) {
+          pendingSync = true;
+          await queueSyncTask('session-upsert', closingSession, 'session:' + closingSession.remoteSessionId);
+        }
+        siteInfo = null;
+        isEditingSetup = false;
+        editingId = null;
+        await putDB(SITE_INFO_KEY, null).catch(()=>{});
+        if (!populateSetupFromAssignments()) clearSetupInputs(false);
+        await refreshWarningBanner();
+        sendPresenceHeartbeat().catch(() => {});
+        renderSiteInfo();
+        applySetupVisibility();
+        renderAll();
+        setStatus(pendingSync ? 'Turno cerrado localmente. Pendiente de sincronizacion.' : 'Turno cerrado localmente.');
+      }
+
       form.addEventListener('submit', async function (e) {
         e.preventDefault();
+        try {
+          await persistRecord(buildRecordPayload({ isFugitive: false }));
+        } catch (err) {
+          alert(err.message || 'No se pudo guardar el registro.');
+        }
+        return;
         var act = getCurrentSiteInfo();
         if (!act) return alert('Faltan datos de la caseta.');
         if (!placaPrincipal.value || !selectedTipo || !selectedEjesPrincipal) return alert('Complete placa, tipo y ejes principales.');
@@ -1018,10 +1478,14 @@
           await syncSessionToServer(siteInfo);
           await syncRecordToServer(data);
           data.syncStatus = 'synced';
+          await markRecordSyncStatus(data.id, 'synced');
           await putDB(STORAGE_KEY, registros);
+          sendPresenceHeartbeat().catch(() => {});
           playFeedback(); setStatus(editingId ? 'Cambios guardados y sincronizados' : 'Vehículo registrado y sincronizado');
           resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
         } catch(err) {
+          await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+          await queueSyncTask('record-upsert', data, 'record-upsert:' + data.id);
           await putDB(STORAGE_KEY, registros).catch(()=>{});
           playFeedback(); setStatus('Guardado local. Sincronizacion pendiente.', 'danger');
           resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
@@ -1041,8 +1505,8 @@
       function getExportData() {
         let currentFecha = getActiveDate();
         let registrosTurno = registros.filter(r => r.fecha === currentFecha);
-        let rows = [['Fecha', 'Peaje', 'Caseta', 'Sentido', 'Operador', 'Hora', 'Placa 1', 'Tipo', 'Ejes 1', 'Placa 2', 'Ejes 2', 'Total Ejes']];
-        registrosTurno.forEach(r => rows.push([r.fecha, r.nombrePeaje, r.numeroCaseta, r.sentidoCirculacion, (r.operador || ''), r.horaPaso, r.placaPrincipal, r.tipoVehiculo, r.ejesPrincipal, r.placaSecundaria, r.ejesSecundaria, r.totalEjes]));
+        let rows = [['Fecha', 'Peaje', 'Caseta', 'Sentido', 'Operador', 'Hora', 'Placa 1', 'Tipo', 'Ejes 1', 'Placa 2', 'Ejes 2', 'Total Ejes', 'Fuga']];
+        registrosTurno.forEach(r => rows.push([r.fecha, r.nombrePeaje, r.numeroCaseta, r.sentidoCirculacion, (r.operador || ''), r.horaPaso, r.placaPrincipal, r.tipoVehiculo, r.ejesPrincipal, r.placaSecundaria, r.ejesSecundaria, r.totalEjes, r.isFugitive ? 'SI' : 'NO']));
         let act = getCurrentSiteInfo() || { nombrePeaje: 'Peaje', numeroCaseta: '00', operador: 'Op' };
         return { currentFecha, registrosTurno, rows, act };
       }
@@ -1068,23 +1532,29 @@
       async function exportToCloud() {
         let currentFecha = getActiveDate();
         let registrosTurno = registros.filter(r => r.fecha === currentFecha);
-        let siteInfo = getCurrentSiteInfo();
+        let activeProfile = getCurrentSiteInfo();
         let ok = 0, fail = 0;
 
         try {
           await syncSessionToServer(siteInfo);
-        } catch(e) { console.warn('Error sync sesion:', e); }
+        } catch(e) {
+          await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+          console.warn('Error sync sesion:', e);
+        }
 
         for (let r of registrosTurno) {
           try {
             await syncRecordToServer(r);
             r.syncStatus = 'synced';
+            await markRecordSyncStatus(r.id, 'synced');
             ok++;
           } catch(e) {
             r.syncStatus = 'pending';
+            await queueSyncTask('record-upsert', r, 'record-upsert:' + r.id);
             fail++;
           }
         }
+        if (activeProfile) sendPresenceHeartbeat().catch(() => {});
         await putDB(STORAGE_KEY, registros).catch(()=>{});
         return { ok, fail, total: registrosTurno.length };
       }
@@ -1417,20 +1887,19 @@
             }
           });
           authToken = result.token || '';
-          authUser = result.user || null;
           localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, authToken);
-          localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser || {}));
-          await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
-          hasValidLicense = true;
+          await applyAuthPayload(result);
           inputPassword.value = '';
           // Redirigir a panel si el rol lo requiere
           if (authUser && isPanelRole(authUser.role)) {
             window.location.href = '/panel.html';
             return;
           }
-          applyAuthenticatedUserDefaults();
           setStatus('Acceso concedido', 'ok');
           applySetupVisibility();
+          renderSiteInfo();
+          if (getCurrentSiteInfo()) resetForm(true);
+          renderAll();
         } catch (err) {
           alert(err.message || 'No se pudo iniciar sesion.');
           inputPassword.value = '';
@@ -1465,27 +1934,78 @@
         siteInfo = {
           fechaTurno: document.getElementById('setupFecha').value,
           multi: perfiles.length > 1,
-          activeIndex: 0,
+          activeIndex: siteInfo && typeof siteInfo.activeIndex === 'number' ? Math.min(siteInfo.activeIndex, perfiles.length - 1) : 0,
           profiles: perfiles,
-          remoteSessionId: generateId()
+          remoteSessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : generateId(),
+          assignmentKey: getAssignmentKey(perfiles),
+          status: 'open'
         };
+        isEditingSetup = false;
         await putDB(SITE_INFO_KEY, siteInfo).catch(()=>{});
         try {
           await syncSessionToServer(siteInfo);
-          setStatus('Turno iniciado y sincronizado', 'ok');
+          setStatus('Configuracion guardada y sincronizada', 'ok');
         } catch (err) {
-          setStatus('Turno guardado localmente. Sincronizacion pendiente.', 'danger');
+          await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+          setStatus('Configuracion guardada localmente. Sincronizacion pendiente.', 'danger');
         }
+        sendPresenceHeartbeat().catch(() => {});
         renderSiteInfo(); applySetupVisibility(); resetForm(true);
       });
       
-      document.getElementById('btnCambiarDatos').addEventListener('click', async () => { siteInfo = null; await putDB(SITE_INFO_KEY, null).catch(()=>{}); applySetupVisibility(); });
+      document.getElementById('btnCambiarDatos').addEventListener('click', async () => {
+        isEditingSetup = true;
+        if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
+        applySetupVisibility();
+      });
+
+      if (btnResetSetupInputs) {
+        btnResetSetupInputs.addEventListener('click', function() {
+          if (!confirm('Borrar los valores del formulario de configuracion?')) return;
+          clearSetupInputs(false);
+          isEditingSetup = true;
+          applySetupVisibility();
+        });
+      }
+
+      if (btnCancelSetupEdit) {
+        btnCancelSetupEdit.addEventListener('click', function() {
+          isEditingSetup = false;
+          if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
+          applySetupVisibility();
+        });
+      }
+
+      if (btnLocalCloseShift) {
+        btnLocalCloseShift.addEventListener('click', async function() {
+          if (!confirm('Cerrar el turno actual solo en este dispositivo?')) return;
+          await closeLocalShift();
+        });
+      }
+
+      if (btnRegistrarFuga) {
+        btnRegistrarFuga.addEventListener('click', async function() {
+          if (!confirm('Registrar una fuga con la hora actual del formulario?')) return;
+          try {
+            await registerFugitiveRecord();
+          } catch (err) {
+            alert(err.message || 'No se pudo registrar la fuga.');
+          }
+        });
+      }
+
+      if (btnHistoryBack) {
+        btnHistoryBack.addEventListener('click', goBackFromRegister);
+      }
       
       btnSwitchCaseta.addEventListener('click', async () => {
          if (siteInfo && siteInfo.multi) {
-            siteInfo.activeIndex = siteInfo.activeIndex === 0 ? 1 : 0;
+            siteInfo.activeIndex = (siteInfo.activeIndex + 1) % siteInfo.profiles.length;
             await putDB(SITE_INFO_KEY, siteInfo);
-          syncSessionToServer(siteInfo).catch(() => {});
+            syncSessionToServer(siteInfo).catch(async () => {
+              await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+            });
+            sendPresenceHeartbeat().catch(() => {});
             renderSiteInfo();
             setStatus(`Cambiado a Caseta ${getCurrentSiteInfo().numeroCaseta}`, 'ok');
          }
@@ -1497,8 +2017,11 @@
       btnDeshacerUltimo.addEventListener('click', async () => {
         if (!lastCreatedId) return;
         if (!confirm('¿Seguro que deseas ELIMINAR el último vehículo registrado?')) return;
-        registros = registros.filter(r => r.id !== lastCreatedId); await putDB(STORAGE_KEY, registros).catch(()=>{});
-        deleteRecordFromServer(lastCreatedId).catch(() => {});
+        var removedId = lastCreatedId;
+        registros = registros.filter(r => r.id !== removedId); await putDB(STORAGE_KEY, registros).catch(()=>{});
+        deleteRecordFromServer(removedId).catch(async () => {
+          await queueSyncTask('record-delete', { recordId: removedId }, 'record-delete:' + removedId);
+        });
         lastCreatedId = null; renderAll(); setStatus('Vehículo eliminado', 'danger');
       });
       
@@ -1512,11 +2035,18 @@
         registros = (await getDB(STORAGE_KEY)) || []; siteInfo = (await getDB(SITE_INFO_KEY)) || null; draftInfo = (await getDB(DRAFT_KEY)) || null;
         let lic = await getDB(LICENSE_KEY);
         if (lic && lic.usuario) authUser = lic.usuario;
+        let cachedContext = await getDB(OPERATION_CONTEXT_KEY);
+        if (cachedContext && cachedContext.assignments) authAssignments = cachedContext.assignments;
+        if (cachedContext && cachedContext.operationContext) authOperationContext = cachedContext.operationContext;
+        if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
+        await syncSiteInfoWithAssignments();
         await restoreAuthenticatedSession();
+        await refreshWarningBanner();
       } catch (err) {
         let wb = document.getElementById('warningBanner'); wb.textContent = `⚠️ Modo privado detectado. Los datos se perderán si cierra la pestaña.`; wb.style.display = 'block';
       }
 
+      syncPrimaryAxleOptions();
       applySetupVisibility(); 
       if (hasValidLicense) { applyAuthenticatedUserDefaults(); renderSiteInfo(); if (getCurrentSiteInfo()) resetForm(true); renderAll(); }
     })();
