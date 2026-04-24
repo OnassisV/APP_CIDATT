@@ -308,7 +308,7 @@
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
-        <button class="theme-toggle hidden" id="btnBackToPanel" onclick="window.location.href='/panel.html'" title="Volver al panel">← Panel</button>
+      <button class="theme-toggle hidden" id="btnBackToPanel" type="button" title="Volver">← Atrás</button>
         <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión / cambiar usuario">🔓 Cerrar sesión</button>
         <button class="theme-toggle" id="btnHelp" title="Ayuda">❓</button>
         <button class="theme-toggle" id="btnTheme">🌙</button>
@@ -796,7 +796,7 @@
       
       var btnAhora = document.getElementById('btnAhora'); var btnLimpiar = document.getElementById('btnLimpiar'); var btnDeshacerUltimo = document.getElementById('btnDeshacerUltimo');
       var fabSave = document.getElementById('fabSave'); var searchHistory = document.getElementById('searchHistory'); var historialList = document.getElementById('historialList');
-      var btnSwitchCaseta = document.getElementById('btnSwitchCaseta'); var btnHistoryBack = null;
+      var btnSwitchCaseta = document.getElementById('btnSwitchCaseta'); var btnHistoryBack = document.getElementById('btnBackToPanel');
       var btnLocalCloseShift = document.getElementById('btnLocalCloseShift'); var btnCancelSetupEdit = document.getElementById('btnCancelSetupEdit');
       var btnResetSetupInputs = document.getElementById('btnResetSetupInputs'); var btnRegistrarFuga = document.getElementById('btnRegistrarFuga');
 
@@ -1304,6 +1304,12 @@
         return getAssignedBooths().find(function(item) { return String(item.boothId) === String(boothId); }) || null;
       }
 
+      function getSecondarySelectedAssignment() {
+        var select = document.getElementById('setupAssigned2');
+        if (!select || !select.value || select.value === '__manual__') return null;
+        return findAssignmentByBoothId(select.value);
+      }
+
       function applyAssignmentToPrimary(boothId) {
         var item = findAssignmentByBoothId(boothId);
         if (!item) {
@@ -1350,7 +1356,14 @@
 
       function syncSecondaryFromPrimary() {
         var secondaryPeaje = document.getElementById('setupPeaje2');
-        if (secondaryPeaje) secondaryPeaje.value = getSelectedPeajeName();
+        var secondaryAssignment = getSecondarySelectedAssignment();
+        if (secondaryPeaje) {
+          if (secondaryAssignment && (secondaryAssignment.stationName || secondaryAssignment.concessionName)) {
+            secondaryPeaje.value = [secondaryAssignment.concessionName, secondaryAssignment.stationName].filter(Boolean).join(' / ');
+          } else {
+            secondaryPeaje.value = getSelectedPeajeName();
+          }
+        }
 
         var operador2 = document.getElementById('setupOperador2');
         if (operador2) operador2.value = getOperatorFullName();
@@ -1377,7 +1390,8 @@
         document.getElementById('setupCaseta2Box').classList.toggle('hidden', profiles.length <= 1);
         document.getElementById('setupCaseta2').value = secondary.numeroCaseta || '';
         document.getElementById('setupSentido2').value = secondary.sentidoCirculacion || '';
-        syncSecondaryFromPrimary();
+        if (secondary && secondary.boothId) applyAssignmentToSecondary(secondary.boothId);
+        else syncSecondaryFromPrimary();
         applyAuthenticatedUserDefaults();
         updateSetupManualMode();
       }
@@ -1447,12 +1461,14 @@
         if (!document.getElementById('setupCaseta2').value) throw new Error('Ingrese el número de caseta secundaria.');
         if (!document.getElementById('setupSentido2').value) throw new Error('Seleccione el sentido de la caseta secundaria.');
         var assigned2 = findAssignmentByBoothId(document.getElementById('setupAssigned2').value);
+        var secondaryConcessionName = assigned2 && assigned2.concessionName ? assigned2.concessionName : concessionName;
+        var secondaryTollName = assigned2 && assigned2.stationName ? assigned2.stationName : tollName;
         return {
-          nombrePeaje: tollName,
+          nombrePeaje: secondaryTollName,
           numeroCaseta: document.getElementById('setupCaseta2').value,
           operador: operatorName,
           sentidoCirculacion: document.getElementById('setupSentido2').value,
-          concessionName: concessionName,
+          concessionName: secondaryConcessionName,
           projectId: assigned2 ? assigned2.projectId : null,
           stationId: assigned2 ? assigned2.stationId : null,
           boothId: assigned2 ? assigned2.boothId : null
@@ -1716,10 +1732,11 @@
         });
 
         var backButton = document.getElementById('btnBackToPanel');
-        if (backButton) backButton.classList.add('hidden');
-
-        var historyBack = document.getElementById('btnHistoryBack');
-        if (historyBack) historyBack.classList.add('hidden');
+        if (backButton) {
+          backButton.classList.toggle('hidden', !sessionVisible);
+          backButton.textContent = '← Atrás';
+          backButton.title = 'Volver a la vista anterior';
+        }
       }
 
       async function logoutRegisterSession() {
@@ -2059,6 +2076,9 @@
           ejesSecundaria: secondaryAxles,
           totalEjes: Number(mainAxles) + Number(secondaryAxles),
           isFugitive: settings.isFugitive,
+          projectId: act.projectId || null,
+          stationId: act.stationId || null,
+          boothId: act.boothId || null,
           sessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : '',
           syncStatus: 'pending'
         };
@@ -2068,7 +2088,6 @@
         var wasEditing = Boolean(editingId);
         if (wasEditing) { registros = registros.map(r => r.id === editingId ? data : r); lastCreatedId = null; }
         else { registros.push(data); lastCreatedId = data.id; }
-
         try {
           await putDB(STORAGE_KEY, registros);
           await syncSessionToServer(siteInfo);
@@ -2129,45 +2148,10 @@
           alert(err.message || 'No se pudo guardar el registro.');
         }
         return;
-        var act = getCurrentSiteInfo();
-        if (!act) return alert('Faltan datos de la caseta.');
-        if (!placaPrincipal.value || !selectedTipo || !selectedEjesPrincipal) return alert('Complete placa, tipo y ejes principales.');
-        if (tieneSecundaria.checked && (!placaSecundaria.value || !selectedEjesSecundaria)) return alert('Complete datos de la placa secundaria.');
-        
-        // Forzamos el formato de hora por si guardaron muy rapido sin que se dispare el onblur
-        horaPaso.value = formatSmartTime(horaPaso.value);
-
-        var data = {
-          id: editingId || generateId(),
-          fecha: getActiveDate(), nombrePeaje: act.nombrePeaje, numeroCaseta: act.numeroCaseta, sentidoCirculacion: act.sentidoCirculacion, operador: act.operador,
-          horaPaso: horaPaso.value, placaPrincipal: placaPrincipal.value, tipoVehiculo: selectedTipo, ejesPrincipal: selectedEjesPrincipal,
-          placaSecundaria: tieneSecundaria.checked ? placaSecundaria.value : '', ejesSecundaria: tieneSecundaria.checked ? selectedEjesSecundaria : 0,
-          totalEjes: Number(selectedEjesPrincipal) + (tieneSecundaria.checked ? Number(selectedEjesSecundaria) : 0)
-        };
-
-        data.sessionId = siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : '';
-        data.syncStatus = 'pending';
-
-        if (editingId) { registros = registros.map(r => r.id === editingId ? data : r); lastCreatedId = null; } 
-        else { registros.push(data); lastCreatedId = data.id; }
-
-        try {
-          await putDB(STORAGE_KEY, registros);
-          await syncSessionToServer(siteInfo);
-          await syncRecordToServer(data);
-          data.syncStatus = 'synced';
-          await markRecordSyncStatus(data.id, 'synced');
-          await putDB(STORAGE_KEY, registros);
-          sendPresenceHeartbeat().catch(() => {});
+        /*
           playFeedback(); setStatus(editingId ? 'Cambios guardados y sincronizados' : 'Vehículo registrado y sincronizado');
           resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
-        } catch(err) {
-          await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
-          await queueSyncTask('record-upsert', data, 'record-upsert:' + data.id);
-          await putDB(STORAGE_KEY, registros).catch(()=>{});
-          playFeedback(); setStatus('Guardado local. Sincronizacion pendiente.', 'danger');
-          resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
-        }
+        */
       });
 
       document.getElementById('btnCerrarTurno').addEventListener('click', async () => {

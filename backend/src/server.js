@@ -94,19 +94,27 @@ function mapSessionPayload(body = {}) {
   if (!body.id) throw badRequest('Falta id de sesion.');
   if (!body.operationDate) throw badRequest('Falta fecha de operacion.');
   if (!Array.isArray(body.profiles) || body.profiles.length === 0) throw badRequest('Faltan perfiles de caseta.');
+  const profiles = body.profiles.map((p, i) => ({
+    profileIndex: i,
+    tollName: String(p.nombrePeaje || ''),
+    boothNumber: String(p.numeroCaseta || ''),
+    operatorName: String(p.operador || ''),
+    direction: String(p.sentidoCirculacion || ''),
+    projectId: parseOptionalInt(p.projectId),
+    stationId: parseOptionalInt(p.stationId),
+    boothId: parseOptionalInt(p.boothId)
+  }));
+  const profileProjectIds = [...new Set(profiles.map((profile) => profile.projectId).filter(Boolean))];
+  const profileStationIds = [...new Set(profiles.map((profile) => profile.stationId).filter(Boolean))];
   return {
     id: String(body.id),
     operationDate: String(body.operationDate),
     multi: Boolean(body.multi),
     activeIndex: Number(body.activeIndex || 0),
     status: String(body.status || 'open'),
-    profiles: body.profiles.map((p, i) => ({
-      profileIndex: i,
-      tollName: String(p.nombrePeaje || ''),
-      boothNumber: String(p.numeroCaseta || ''),
-      operatorName: String(p.operador || ''),
-      direction: String(p.sentidoCirculacion || '')
-    }))
+    projectId: profileProjectIds.length === 1 ? profileProjectIds[0] : parseOptionalInt(body.projectId),
+    stationId: profileStationIds.length === 1 ? profileStationIds[0] : parseOptionalInt(body.stationId),
+    profiles
   };
 }
 
@@ -124,6 +132,9 @@ function mapRecordPayload(body = {}) {
     secondaryPlate: body.placaSecundaria ? String(body.placaSecundaria) : null,
     secondaryAxles: Number(body.ejesSecundaria || 0), totalAxles: Number(body.totalEjes || 0),
     syncStatus: String(body.syncStatus || 'synced'),
+    projectId: parseOptionalInt(body.projectId),
+    stationId: parseOptionalInt(body.stationId),
+    boothId: parseOptionalInt(body.boothId),
     isFugitive: body.isFugitive ? 1 : 0
   };
 }
@@ -134,6 +145,19 @@ function normalizeText(value) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+}
+
+function parseOptionalInt(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return Math.round(numeric);
+}
+
+function parseCsvIds(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => parseOptionalInt(item))
+    .filter(Boolean);
 }
 
 function sanitizeMaxBoothsPerOperator(value) {
@@ -180,6 +204,143 @@ async function getPresenceStateForUserProject(userId, projectId) {
   if (seconds <= 45) return 'online';
   if (seconds <= 120) return 'idle';
   return 'offline';
+}
+
+async function getCoordinatorManagedStations(userId, projectId = null) {
+  const filters = ['user_id = ?', "booth_id IS NULL", 'is_active = 1', `station_id IS NOT NULL`];
+  const params = [userId];
+  const numericProjectId = parseOptionalInt(projectId);
+  if (numericProjectId) {
+    filters.push('project_id = ?');
+    params.push(numericProjectId);
+  }
+  const rows = await query(
+    `SELECT DISTINCT project_id, station_id
+     FROM ${TABLES.assignments}
+     WHERE ${filters.join(' AND ')}`,
+    params
+  );
+  return rows.map((row) => ({
+    projectId: Number(row.project_id),
+    stationId: Number(row.station_id)
+  }));
+}
+
+async function assertProjectAccess(authUser, projectId, { stationId = null } = {}) {
+  const numericProjectId = parseOptionalInt(projectId);
+  if (!numericProjectId) throw badRequest('Proyecto invalido.');
+  if (['admin', 'director'].includes(authUser.role)) {
+    return { projectId: numericProjectId, managedStationIds: [] };
+  }
+  if (authUser.role === 'coordinador') {
+    const managedStations = await getCoordinatorManagedStations(authUser.user_id, numericProjectId);
+    if (!managedStations.length) throw forbidden('No tienes acceso a este proyecto.');
+    const managedStationIds = managedStations.map((item) => item.stationId);
+    const numericStationId = parseOptionalInt(stationId);
+    if (numericStationId && !managedStationIds.includes(numericStationId)) {
+      throw forbidden('No tienes acceso a este peaje dentro del proyecto.');
+    }
+    return { projectId: numericProjectId, managedStationIds };
+  }
+  if (authUser.role === 'registrador') {
+    const rows = await query(
+      `SELECT 1
+       FROM ${TABLES.assignments}
+       WHERE user_id = ? AND project_id = ? AND is_active = 1
+       LIMIT 1`,
+      [authUser.user_id, numericProjectId]
+    );
+    if (!rows.length) throw forbidden('No tienes acceso a este proyecto.');
+    return { projectId: numericProjectId, managedStationIds: [] };
+  }
+  throw forbidden('No tienes acceso a este proyecto.');
+}
+
+async function getSessionContext(sessionId) {
+  const rows = await query(
+    `SELECT s.id, s.operation_date, s.is_multi, s.active_profile_index, s.status,
+            s.owner_user_id, s.project_id, s.station_id, s.created_at, s.updated_at,
+            GROUP_CONCAT(DISTINCT sp.station_id ORDER BY sp.station_id SEPARATOR ',') AS profile_station_ids
+     FROM ${TABLES.sessions} s
+     LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
+     WHERE s.id = ?
+     GROUP BY s.id
+     LIMIT 1`,
+    [sessionId]
+  );
+  return rows[0] || null;
+}
+
+async function assertSessionAccess(authUser, sessionId, options = {}) {
+  const session = typeof sessionId === 'object' && sessionId !== null ? sessionId : await getSessionContext(sessionId);
+  if (!session) throw badRequest('Sesion no encontrada.');
+  if (['admin', 'director'].includes(authUser.role)) return session;
+  if (authUser.role === 'registrador') {
+    const allowOwnSession = options.allowRegistradorOwn !== false;
+    if (allowOwnSession && Number(session.owner_user_id || 0) === Number(authUser.user_id)) return session;
+    throw forbidden('No tienes acceso a este turno.');
+  }
+  if (authUser.role === 'coordinador') {
+    if (!session.project_id) throw forbidden('El turno no esta vinculado a un proyecto coordinable.');
+    const access = await assertProjectAccess(authUser, session.project_id);
+    const managedStationIds = access.managedStationIds || [];
+    const sessionStationIds = [...new Set([
+      parseOptionalInt(session.station_id),
+      ...parseCsvIds(session.profile_station_ids)
+    ].filter(Boolean))];
+    if (!sessionStationIds.length) throw forbidden('El turno no tiene un peaje operativo valido.');
+    if (!sessionStationIds.some((id) => managedStationIds.includes(id))) {
+      throw forbidden('No tienes acceso a este turno.');
+    }
+    return session;
+  }
+  throw forbidden('No tienes acceso a este turno.');
+}
+
+async function closeOpenSessionsForScope({ projectId = null, stationId = null, boothId = null, stationName = '', boothCode = '' } = {}) {
+  const filters = [`s.status = 'open'`];
+  const params = [];
+  const numericProjectId = parseOptionalInt(projectId);
+  const numericStationId = parseOptionalInt(stationId);
+  const numericBoothId = parseOptionalInt(boothId);
+  const trimmedStationName = String(stationName || '').trim();
+  const trimmedBoothCode = String(boothCode || '').trim();
+
+  if (numericProjectId) {
+    filters.push(`s.project_id = ?`);
+    params.push(numericProjectId);
+  }
+
+  if (numericBoothId) {
+    const boothFilters = [`p.booth_id = ?`];
+    params.push(numericBoothId);
+    if (trimmedStationName && trimmedBoothCode) {
+      boothFilters.push(`(p.booth_id IS NULL AND LOWER(TRIM(p.toll_name)) = LOWER(TRIM(?)) AND p.booth_number = ?)`);
+      params.push(trimmedStationName, trimmedBoothCode);
+    }
+    filters.push(`(${boothFilters.join(' OR ')})`);
+  } else {
+    const stationFilters = [];
+    if (numericStationId) {
+      stationFilters.push(`COALESCE(s.station_id, p.station_id) = ?`);
+      params.push(numericStationId);
+    }
+    if (trimmedStationName) {
+      stationFilters.push(`LOWER(TRIM(p.toll_name)) = LOWER(TRIM(?))`);
+      params.push(trimmedStationName);
+    }
+    if (!stationFilters.length) return 0;
+    filters.push(`(${stationFilters.join(' OR ')})`);
+  }
+
+  const result = await query(
+    `UPDATE ${TABLES.sessions} s
+     LEFT JOIN ${TABLES.profiles} p ON p.session_id = s.id
+     SET s.status = 'closed'
+     WHERE ${filters.join(' AND ')}`,
+    params
+  );
+  return Number(result.affectedRows || 0);
 }
 
 async function getAssignmentsForUser(userId) {
@@ -251,19 +412,20 @@ async function getProjectStations(projectId) {
 
   const stationIds = stations.map((station) => station.id);
   const placeholders = stationIds.map(() => '?').join(',');
-  const boothParams = [projectId, ...stationIds];
+  const boothParams = [projectId, projectId, projectId, ...stationIds];
   const regParams = [projectId, ...stationIds];
 
   const allBooths = await query(
     `SELECT tb.id, tb.station_id, tb.code, tb.directions,
             a.id AS assignment_id, u.id AS assigned_user_id, u.full_name AS assigned_user_name, u.username AS assigned_username,
             (SELECT COUNT(*) FROM ${TABLES.records} r
-             WHERE r.booth_number = tb.code AND r.toll_name = ts2.name AND r.operation_date = CURDATE()) AS records_today,
+             WHERE r.project_id = ? AND r.operation_date = CURDATE()
+               AND (r.booth_id = tb.id OR (r.booth_id IS NULL AND r.booth_number = tb.code AND r.toll_name = ts2.name))) AS records_today,
             (SELECT IF(COUNT(*) > 0, 1, 0)
              FROM ${TABLES.sessions} ss
              JOIN ${TABLES.profiles} sp ON sp.session_id = ss.id
              WHERE ss.status = 'open' AND ss.operation_date = CURDATE()
-               AND sp.toll_name = ts2.name AND sp.booth_number = tb.code) AS has_open_shift
+               AND ss.project_id = ? AND (sp.booth_id = tb.id OR (sp.booth_id IS NULL AND sp.toll_name = ts2.name AND sp.booth_number = tb.code))) AS has_open_shift
      FROM ${TABLES.booths} tb
      INNER JOIN ${TABLES.stations} ts2 ON ts2.id = tb.station_id
      LEFT JOIN ${TABLES.assignments} a ON a.booth_id = tb.id AND a.project_id = ? AND a.is_active = 1
@@ -480,13 +642,13 @@ app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), asy
         `SELECT COUNT(*) AS total_records,
                 COUNT(DISTINCT session_id) AS total_sessions
          FROM ${TABLES.records}
-         WHERE toll_name IN (
+         WHERE project_id = ? OR (project_id IS NULL AND toll_name IN (
            SELECT DISTINCT ts.name
            FROM ${TABLES.projectSites} ps
            INNER JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
            WHERE ps.project_id = ? AND ps.is_active = 1
-         )`,
-        [p.id]
+         ))`,
+        [p.id, p.id]
       );
       const [boothCounts] = await query(
         `SELECT COUNT(*) AS total_booths,
@@ -573,7 +735,12 @@ app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'),
 
 app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
-    const stations = await getProjectStations(Number(req.params.projectId));
+    const access = await assertProjectAccess(req.authUser, req.params.projectId);
+    let stations = await getProjectStations(access.projectId);
+    if (req.authUser.role === 'coordinador') {
+      const allowedStationIds = new Set((access.managedStationIds || []).map((id) => Number(id)));
+      stations = stations.filter((station) => allowedStationIds.has(Number(station.id)));
+    }
     const [projectRow] = await query(`SELECT name FROM ${TABLES.projects} WHERE id = ? LIMIT 1`, [req.params.projectId]);
     res.json({ ok: true, stations, projectName: projectRow?.name || '' });
   } catch (error) { next(error); }
@@ -601,7 +768,7 @@ app.post('/api/projects/:projectId/stations', authenticateRequest, requireMinRol
       const result = await query(
         `INSERT INTO ${TABLES.stations} (project_id, concession_id, name, location, daily_start_time, daily_end_time)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [req.params.projectId, resolvedConcessionId, String(name).trim(), location || null, daily_start_time || null, daily_end_time || null]
+        [null, resolvedConcessionId, String(name).trim(), location || null, daily_start_time || null, daily_end_time || null]
       );
       stationId = result.insertId;
     }
@@ -696,8 +863,11 @@ app.post('/api/stations/:stationId/booths', authenticateRequest, requireMinRole(
 
 app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
+    const [station] = await query(`SELECT id, name FROM ${TABLES.stations} WHERE id = ? LIMIT 1`, [req.params.stationId]);
+    if (!station) throw badRequest('Peaje no encontrado.');
     const projectId = Number(req.query.projectId || 0);
     if (projectId) {
+      await closeOpenSessionsForScope({ projectId, stationId: station.id, stationName: station.name });
       await query(
         `UPDATE ${TABLES.assignments}
          SET is_active = 0
@@ -710,10 +880,12 @@ app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('dire
         [req.params.stationId]
       );
       if (Number(remainingLinks?.total || 0) === 0) {
+        await closeOpenSessionsForScope({ stationId: station.id, stationName: station.name });
         await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ?`, [req.params.stationId]);
         await query(`DELETE FROM ${TABLES.stations} WHERE id = ?`, [req.params.stationId]);
       }
     } else {
+      await closeOpenSessionsForScope({ stationId: station.id, stationName: station.name });
       await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ?`, [req.params.stationId]);
       await query(`DELETE FROM ${TABLES.projectSites} WHERE station_id = ?`, [req.params.stationId]);
       await query(`DELETE FROM ${TABLES.stations} WHERE id = ?`, [req.params.stationId]);
@@ -724,6 +896,21 @@ app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('dire
 
 app.delete('/api/booths/:boothId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
+    const [booth] = await query(
+      `SELECT tb.id, tb.code, tb.station_id, ts.name AS station_name
+       FROM ${TABLES.booths} tb
+       INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
+       WHERE tb.id = ?
+       LIMIT 1`,
+      [req.params.boothId]
+    );
+    if (!booth) throw badRequest('Caseta no encontrada.');
+    await closeOpenSessionsForScope({
+      boothId: booth.id,
+      stationId: booth.station_id,
+      stationName: booth.station_name,
+      boothCode: booth.code
+    });
     await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE booth_id = ?`, [req.params.boothId]);
     await query(`DELETE FROM ${TABLES.booths} WHERE id = ?`, [req.params.boothId]);
     res.json({ ok: true });
@@ -740,6 +927,7 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
     if (!targetUser) throw badRequest('Usuario no encontrado.');
 
     if (station_id && !booth_id) {
+      await assertProjectAccess(req.authUser, project_id, { stationId: station_id });
       if ((ROLE_LEVEL[req.authUser.role] || 0) < ROLE_LEVEL['director']) throw forbidden('Solo directores pueden asignar personal a peajes.');
       if (targetUser?.role === 'registrador') {
         // Pool de peaje: solo desactivar asignación previa de este usuario en esta estación
@@ -770,6 +958,7 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
 
     const [boothRow] = await query(`SELECT id, station_id FROM ${TABLES.booths} WHERE id = ? LIMIT 1`, [booth_id]);
     if (!boothRow) throw badRequest('La caseta indicada no existe.');
+    await assertProjectAccess(req.authUser, project_id, { stationId: boothRow.station_id });
     if (targetUser.role !== 'registrador') throw badRequest('Solo se puede asignar casetas a registradores.');
     if (req.authUser.role === 'coordinador') {
       const presenceState = await getPresenceStateForUserProject(user_id, project_id);
@@ -835,6 +1024,15 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
 
 app.delete('/api/assignments/:id', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
+    const rows = await query(
+      `SELECT id, project_id, station_id
+       FROM ${TABLES.assignments}
+       WHERE id = ?
+       LIMIT 1`,
+      [req.params.id]
+    );
+    if (!rows.length) throw badRequest('Asignacion no encontrada.');
+    await assertProjectAccess(req.authUser, rows[0].project_id, { stationId: rows[0].station_id });
     await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE id = ?`, [req.params.id]);
     res.json({ ok: true });
   } catch (error) { next(error); }
@@ -843,6 +1041,7 @@ app.delete('/api/assignments/:id', authenticateRequest, requireMinRole('coordina
 // Usuarios disponibles para asignar (filtrado por ?role=)
 app.get('/api/projects/:projectId/available-users', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
+    await assertProjectAccess(req.authUser, req.params.projectId);
     const roleFilter = req.query.role === 'coordinador' ? "u.role = 'coordinador'" : "u.role = 'registrador'";
     const rows = await query(
       `SELECT u.id, u.full_name, u.username, u.role,
@@ -892,6 +1091,9 @@ app.post('/api/presence/heartbeat', authenticateRequest, async (req, res, next) 
   try {
     const deviceId = String(req.body.deviceId || '').trim();
     if (!deviceId) throw badRequest('Falta deviceId.');
+    if (req.body.projectId) {
+      await assertProjectAccess(req.authUser, req.body.projectId, { stationId: req.body.stationId || null });
+    }
     await query(
       `INSERT INTO ${TABLES.presence}
        (user_id, device_id, project_id, station_id, session_id, current_mode, network_status, context_json, last_heartbeat_at)
@@ -921,6 +1123,11 @@ app.post('/api/presence/heartbeat', authenticateRequest, async (req, res, next) 
 
 app.get('/api/projects/:projectId/presence', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
+    const access = await assertProjectAccess(req.authUser, req.params.projectId);
+    const managedStationIds = (access.managedStationIds || []).filter(Boolean);
+    const stationFilter = req.authUser.role === 'coordinador'
+      ? ` AND pr.station_id IN (${managedStationIds.map(() => '?').join(', ')})`
+      : '';
     const rows = await query(
       `SELECT pr.user_id, pr.device_id, pr.project_id, pr.station_id, pr.session_id, pr.current_mode, pr.network_status,
               pr.last_heartbeat_at, u.full_name, u.username, u.role, ts.name AS station_name
@@ -928,8 +1135,9 @@ app.get('/api/projects/:projectId/presence', authenticateRequest, requireMinRole
        INNER JOIN ${TABLES.users} u ON u.id = pr.user_id
        LEFT JOIN ${TABLES.stations} ts ON ts.id = pr.station_id
        WHERE pr.project_id = ?
+       ${stationFilter}
        ORDER BY pr.last_heartbeat_at DESC`,
-      [req.params.projectId]
+      [req.params.projectId, ...managedStationIds]
     );
     const presence = rows.map((row) => {
       const seconds = Math.max(0, Math.round((Date.now() - new Date(row.last_heartbeat_at).getTime()) / 1000));
@@ -975,33 +1183,44 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('director'), 
     // Detectar sesiones abiertas de ayer o antes (turno sin cerrar)
     const staleSessions = await query(
       `SELECT s.id AS session_id, s.operation_date, s.created_at,
-              p.operator_name, p.toll_name, p.booth_number,
+              COALESCE(u.full_name, p.operator_name) AS operator_name, p.toll_name, p.booth_number,
               DATEDIFF(NOW(), s.operation_date) AS days_open
        FROM ${TABLES.sessions} s
        INNER JOIN ${TABLES.profiles} p ON p.session_id = s.id AND p.profile_index = 0
+       LEFT JOIN ${TABLES.users} u ON u.id = s.owner_user_id
        WHERE s.status = 'open' AND s.operation_date < CURDATE()
        ORDER BY s.operation_date ASC`
     );
 
     // Detectar operadores con registros en turnos consecutivos (mismo día, diferente sesión)
     const consecutiveShifts = await query(
-      `SELECT operator_name, operation_date, COUNT(DISTINCT session_id) AS sessions_count,
-              MIN(passed_at) AS first_record, MAX(passed_at) AS last_record
-       FROM ${TABLES.records}
-       WHERE operation_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-       GROUP BY operator_name, operation_date
+      `SELECT COALESCE(u.full_name, r.operator_name) AS operator_name,
+              r.operation_date, COUNT(DISTINCT r.session_id) AS sessions_count,
+              MIN(r.passed_at) AS first_record, MAX(r.passed_at) AS last_record
+       FROM ${TABLES.records} r
+       LEFT JOIN ${TABLES.sessions} s ON s.id = r.session_id
+       LEFT JOIN ${TABLES.users} u ON u.id = COALESCE(r.owner_user_id, s.owner_user_id)
+       WHERE r.operation_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+       GROUP BY COALESCE(r.owner_user_id, s.owner_user_id, CONCAT('legacy:', LOWER(TRIM(r.operator_name)))),
+                COALESCE(u.full_name, r.operator_name), r.operation_date
        HAVING sessions_count > 1`
     );
 
     // Actividad hoy por usuario
     const todayActivity = await query(
-      `SELECT r.operator_name, COUNT(*) AS records_today,
+      `SELECT COALESCE(u.full_name, r.operator_name) AS operator_name, COUNT(*) AS records_today,
               MIN(r.passed_at) AS first_time, MAX(r.passed_at) AS last_time,
-              COUNT(DISTINCT r.booth_number) AS booths_used,
-              GROUP_CONCAT(DISTINCT r.toll_name SEPARATOR ', ') AS toll_names
+              COUNT(DISTINCT COALESCE(r.booth_id, CONCAT('legacy:', r.booth_number))) AS booths_used,
+              GROUP_CONCAT(DISTINCT COALESCE(ts.name, r.toll_name) SEPARATOR ', ') AS toll_names
        FROM ${TABLES.records} r
+       LEFT JOIN ${TABLES.sessions} s ON s.id = r.session_id
+       LEFT JOIN ${TABLES.users} u ON u.id = COALESCE(r.owner_user_id, s.owner_user_id)
+       LEFT JOIN ${TABLES.booths} tb ON tb.id = r.booth_id
+       LEFT JOIN ${TABLES.stations} ts ON ts.id = COALESCE(r.station_id, tb.station_id)
        WHERE r.operation_date = CURDATE()
-       GROUP BY r.operator_name ORDER BY records_today DESC`
+       GROUP BY COALESCE(r.owner_user_id, s.owner_user_id, CONCAT('legacy:', LOWER(TRIM(r.operator_name)))),
+                COALESCE(u.full_name, r.operator_name)
+       ORDER BY records_today DESC`
     );
 
     res.json({
@@ -1035,7 +1254,7 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
        LEFT JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
        LEFT JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
        LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id
-       LEFT JOIN ${TABLES.records} r ON r.toll_name = ts.name
+       LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id OR (r.project_id IS NULL AND r.toll_name = ts.name))
        GROUP BY p.id ORDER BY p.start_date DESC`
     );
 
@@ -1061,17 +1280,10 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
 
 app.get('/api/dashboard/coordinator/:projectId', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
-    // Coordinador solo ve sus peajes asignados; director/admin ven todos
-    const isCoord = req.authUser.role === 'coordinador';
-    let stations = await getProjectStations(Number(req.params.projectId));
-    if (isCoord) {
-      const coordStationRows = await query(
-        `SELECT DISTINCT station_id
-         FROM ${TABLES.assignments}
-         WHERE user_id = ? AND project_id = ? AND booth_id IS NULL AND is_active = 1`,
-        [req.authUser.user_id, req.params.projectId]
-      );
-      const allowedStationIds = new Set(coordStationRows.map((row) => Number(row.station_id)));
+    const access = await assertProjectAccess(req.authUser, req.params.projectId);
+    let stations = await getProjectStations(access.projectId);
+    if (req.authUser.role === 'coordinador') {
+      const allowedStationIds = new Set((access.managedStationIds || []).map((id) => Number(id)));
       stations = stations.filter((station) => allowedStationIds.has(Number(station.id)));
     }
 
@@ -1085,6 +1297,7 @@ app.get('/api/dashboard/coordinator/:projectId', authenticateRequest, requireMin
 
 app.post('/api/sessions/:id/close', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
+    await assertSessionAccess(req.authUser, req.params.id, { allowRegistradorOwn: false });
     await query(`UPDATE ${TABLES.sessions} SET status = 'closed' WHERE id = ?`, [req.params.id]);
     res.json({ ok: true });
   } catch (error) { next(error); }
@@ -1094,27 +1307,71 @@ app.post('/api/sessions/close-bulk', authenticateRequest, requireMinRole('coordi
   try {
     const ids = Array.isArray(req.body.ids) ? req.body.ids.map((id) => String(id).trim()).filter(Boolean) : [];
     if (ids.length) {
-      const placeholders = ids.map(() => '?').join(', ');
-      await query(`UPDATE ${TABLES.sessions} SET status = 'closed' WHERE id IN (${placeholders})`, ids);
-      return res.json({ ok: true, closed: ids.length, scope: 'selected' });
+      let closed = 0;
+      for (const id of ids) {
+        try {
+          await assertSessionAccess(req.authUser, id, { allowRegistradorOwn: false });
+          const result = await query(`UPDATE ${TABLES.sessions} SET status = 'closed' WHERE id = ? AND status <> 'closed'`, [id]);
+          closed += Number(result.affectedRows || 0);
+        } catch (error) {
+          if (![400, 403].includes(Number(error?.status || 0))) throw error;
+        }
+      }
+      return res.json({ ok: true, closed, scope: 'selected' });
     }
-    await query(`UPDATE ${TABLES.sessions} SET status = 'closed' WHERE status = 'open'`);
-    res.json({ ok: true, scope: 'all_open' });
+    if (req.authUser.role === 'coordinador') {
+      const access = await assertProjectAccess(req.authUser, req.body.projectId);
+      const managedStationIds = (access.managedStationIds || []).filter(Boolean);
+      if (!managedStationIds.length) return res.json({ ok: true, closed: 0, scope: 'project' });
+      const result = await query(
+        `UPDATE ${TABLES.sessions} s
+         LEFT JOIN ${TABLES.profiles} p ON p.session_id = s.id AND p.profile_index = 0
+         SET s.status = 'closed'
+         WHERE s.status = 'open'
+           AND s.project_id = ?
+           AND COALESCE(s.station_id, p.station_id) IN (${managedStationIds.map(() => '?').join(', ')})`,
+        [access.projectId, ...managedStationIds]
+      );
+      return res.json({ ok: true, scope: 'project', projectId: access.projectId, closed: Number(result.affectedRows || 0) });
+    }
+    const result = await query(`UPDATE ${TABLES.sessions} SET status = 'closed' WHERE status = 'open'`);
+    res.json({ ok: true, scope: 'all_open', closed: Number(result.affectedRows || 0) });
   } catch (error) { next(error); }
 });
 
 // ─── SESIONES ─────────────────────────────────────────────────────────────────
 
 // Listar sesiones abiertas (para cerrar turno desde el panel)
-app.get('/api/sessions/open', authenticateRequest, requireMinRole('coordinador'), async (_req, res, next) => {
+app.get('/api/sessions/open', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
+    const requestedProjectId = parseOptionalInt(req.query.projectId);
+    if (requestedProjectId && req.authUser.role === 'coordinador') {
+      await assertProjectAccess(req.authUser, requestedProjectId);
+    }
+    const filters = [`s.status = 'open'`];
+    const params = [];
+    if (requestedProjectId) {
+      filters.push(`s.project_id = ?`);
+      params.push(requestedProjectId);
+    }
+    if (req.authUser.role === 'coordinador') {
+      const managedStations = await getCoordinatorManagedStations(req.authUser.user_id, requestedProjectId);
+      if (!managedStations.length) return res.json({ ok: true, sessions: [] });
+      const scope = managedStations.map(() => `(s.project_id = ? AND COALESCE(s.station_id, p.station_id) = ?)`);
+      filters.push(`(${scope.join(' OR ')})`);
+      managedStations.forEach((item) => {
+        params.push(item.projectId, item.stationId);
+      });
+    }
     const sessions = await query(
       `SELECT s.id, s.operation_date, s.status,
+              s.project_id, COALESCE(s.station_id, p.station_id) AS station_id,
               p.operator_name, p.toll_name, p.booth_number, p.direction
        FROM ${TABLES.sessions} s
        INNER JOIN ${TABLES.profiles} p ON p.session_id = s.id AND p.profile_index = 0
-       WHERE s.status = 'open'
-       ORDER BY s.operation_date DESC, p.toll_name ASC`
+       WHERE ${filters.join(' AND ')}
+       ORDER BY s.operation_date DESC, p.toll_name ASC`,
+      params
     );
     res.json({ ok: true, sessions });
   } catch (error) { next(error); }
@@ -1123,20 +1380,35 @@ app.get('/api/sessions/open', authenticateRequest, requireMinRole('coordinador')
 app.post('/api/sessions/upsert', authenticateRequest, async (req, res, next) => {
   try {
     const session = mapSessionPayload(req.body);
+    const existingSession = await getSessionContext(session.id);
+    if (
+      existingSession &&
+      existingSession.owner_user_id &&
+      Number(existingSession.owner_user_id) !== Number(req.authUser.user_id) &&
+      !['admin', 'director'].includes(req.authUser.role)
+    ) {
+      throw forbidden('No puedes modificar un turno que pertenece a otro usuario.');
+    }
+    if (session.projectId && req.authUser.role !== 'registrador') {
+      await assertProjectAccess(req.authUser, session.projectId, { stationId: session.stationId });
+    }
+    const ownerUserId = Number(existingSession?.owner_user_id || req.authUser.user_id);
     await withTransaction(async (conn) => {
       await conn.execute(
-        `INSERT INTO ${TABLES.sessions} (id,operation_date,is_multi,active_profile_index,status)
-         VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE
+        `INSERT INTO ${TABLES.sessions} (id,operation_date,is_multi,active_profile_index,status,owner_user_id,project_id,station_id)
+         VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE
          operation_date=VALUES(operation_date),is_multi=VALUES(is_multi),
-         active_profile_index=VALUES(active_profile_index),status=VALUES(status)`,
-        [session.id, session.operationDate, session.multi?1:0, session.activeIndex, session.status]
+         active_profile_index=VALUES(active_profile_index),status=VALUES(status),
+         owner_user_id=COALESCE(owner_user_id, VALUES(owner_user_id)),
+         project_id=VALUES(project_id),station_id=VALUES(station_id)`,
+        [session.id, session.operationDate, session.multi ? 1 : 0, session.activeIndex, session.status, ownerUserId, session.projectId, session.stationId]
       );
       await conn.execute(`DELETE FROM ${TABLES.profiles} WHERE session_id = ?`, [session.id]);
       for (const p of session.profiles) {
         await conn.execute(
-          `INSERT INTO ${TABLES.profiles} (session_id,profile_index,toll_name,booth_number,operator_name,direction)
-           VALUES (?,?,?,?,?,?)`,
-          [session.id, p.profileIndex, p.tollName, p.boothNumber, p.operatorName, p.direction]
+          `INSERT INTO ${TABLES.profiles} (session_id,profile_index,toll_name,booth_number,operator_name,direction,project_id,station_id,booth_id)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+          [session.id, p.profileIndex, p.tollName, p.boothNumber, p.operatorName, p.direction, p.projectId, p.stationId, p.boothId]
         );
       }
     });
@@ -1146,13 +1418,12 @@ app.post('/api/sessions/upsert', authenticateRequest, async (req, res, next) => 
 
 app.get('/api/sessions/:id', authenticateRequest, async (req, res, next) => {
   try {
-    const sessions = await query(`SELECT * FROM ${TABLES.sessions} WHERE id = ?`, [req.params.id]);
-    if (!sessions.length) return res.status(404).json({ ok: false, error: 'Sesion no encontrada.' });
+    const session = await assertSessionAccess(req.authUser, req.params.id);
     const profiles = await query(
-      `SELECT profile_index,toll_name,booth_number,operator_name,direction FROM ${TABLES.profiles}
+      `SELECT profile_index,toll_name,booth_number,operator_name,direction,project_id,station_id,booth_id FROM ${TABLES.profiles}
        WHERE session_id = ? ORDER BY profile_index ASC`, [req.params.id]
     );
-    res.json({ ok: true, session: sessions[0], profiles });
+    res.json({ ok: true, session, profiles });
   } catch (error) { next(error); }
 });
 
@@ -1161,20 +1432,28 @@ app.get('/api/sessions/:id', authenticateRequest, async (req, res, next) => {
 app.post('/api/records/upsert', authenticateRequest, async (req, res, next) => {
   try {
     const r = mapRecordPayload(req.body);
+    const session = await assertSessionAccess(req.authUser, r.sessionId);
+    const ownerUserId = Number(session.owner_user_id || req.authUser.user_id);
+    const recordProjectId = parseOptionalInt(session.project_id || r.projectId);
+    const recordStationId = parseOptionalInt(session.station_id || r.stationId);
+    const recordBoothId = parseOptionalInt(r.boothId);
     await query(
       `INSERT INTO ${TABLES.records}
        (id,session_id,operation_date,toll_name,booth_number,direction,operator_name,
-        passed_at,main_plate,vehicle_type,main_axles,secondary_plate,secondary_axles,total_axles,sync_status,is_fugitive)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        passed_at,main_plate,vehicle_type,main_axles,secondary_plate,secondary_axles,total_axles,sync_status,is_fugitive,
+        owner_user_id,project_id,station_id,booth_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE
        session_id=VALUES(session_id),operation_date=VALUES(operation_date),toll_name=VALUES(toll_name),
        booth_number=VALUES(booth_number),direction=VALUES(direction),operator_name=VALUES(operator_name),
        passed_at=VALUES(passed_at),main_plate=VALUES(main_plate),vehicle_type=VALUES(vehicle_type),
        main_axles=VALUES(main_axles),secondary_plate=VALUES(secondary_plate),
        secondary_axles=VALUES(secondary_axles),total_axles=VALUES(total_axles),sync_status=VALUES(sync_status),
-       is_fugitive=VALUES(is_fugitive)`,
+       is_fugitive=VALUES(is_fugitive),owner_user_id=VALUES(owner_user_id),
+       project_id=VALUES(project_id),station_id=VALUES(station_id),booth_id=VALUES(booth_id)`,
       [r.id,r.sessionId,r.operationDate,r.tollName,r.boothNumber,r.direction,r.operatorName,
-       r.passedAt,r.mainPlate,r.vehicleType,r.mainAxles,r.secondaryPlate,r.secondaryAxles,r.totalAxles,r.syncStatus,r.isFugitive]
+       r.passedAt,r.mainPlate,r.vehicleType,r.mainAxles,r.secondaryPlate,r.secondaryAxles,r.totalAxles,r.syncStatus,r.isFugitive,
+       ownerUserId, recordProjectId, recordStationId, recordBoothId]
     );
     res.json({ ok: true, recordId: r.id });
   } catch (error) { next(error); }
@@ -1183,13 +1462,35 @@ app.post('/api/records/upsert', authenticateRequest, async (req, res, next) => {
 app.get('/api/records', authenticateRequest, async (req, res, next) => {
   try {
     const filters = []; const params = [];
-    if (req.query.sessionId)     { filters.push('session_id = ?');     params.push(String(req.query.sessionId)); }
-    if (req.query.operationDate) { filters.push('operation_date = ?'); params.push(String(req.query.operationDate)); }
-    if (req.query.tollName)      { filters.push('toll_name = ?');      params.push(String(req.query.tollName)); }
-    if (req.query.boothNumber)   { filters.push('booth_number = ?');   params.push(String(req.query.boothNumber)); }
+    const requestedProjectId = parseOptionalInt(req.query.projectId);
+    if (req.authUser.role === 'registrador') {
+      filters.push('s.owner_user_id = ?');
+      params.push(req.authUser.user_id);
+    } else if (req.authUser.role === 'coordinador') {
+      if (requestedProjectId) await assertProjectAccess(req.authUser, requestedProjectId);
+      const managedStations = await getCoordinatorManagedStations(req.authUser.user_id, requestedProjectId);
+      if (!managedStations.length) return res.json({ ok: true, rows: [] });
+      const scope = managedStations.map(() => `(s.project_id = ? AND COALESCE(s.station_id, sp.station_id) = ?)`);
+      filters.push(`(${scope.join(' OR ')})`);
+      managedStations.forEach((item) => {
+        params.push(item.projectId, item.stationId);
+      });
+    } else if (requestedProjectId) {
+      filters.push('s.project_id = ?');
+      params.push(requestedProjectId);
+    }
+    if (req.query.sessionId)     { filters.push('r.session_id = ?');     params.push(String(req.query.sessionId)); }
+    if (req.query.operationDate) { filters.push('r.operation_date = ?'); params.push(String(req.query.operationDate)); }
+    if (req.query.tollName)      { filters.push('r.toll_name = ?');      params.push(String(req.query.tollName)); }
+    if (req.query.boothNumber)   { filters.push('r.booth_number = ?');   params.push(String(req.query.boothNumber)); }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     const rows = await query(
-      `SELECT * FROM ${TABLES.records} ${where} ORDER BY operation_date DESC, passed_at DESC, created_at DESC`,
+      `SELECT r.*
+       FROM ${TABLES.records} r
+       INNER JOIN ${TABLES.sessions} s ON s.id = r.session_id
+       LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id AND sp.profile_index = 0
+       ${where}
+       ORDER BY r.operation_date DESC, r.passed_at DESC, r.created_at DESC`,
       params
     );
     res.json({ ok: true, rows });
@@ -1198,6 +1499,15 @@ app.get('/api/records', authenticateRequest, async (req, res, next) => {
 
 app.delete('/api/records/:id', authenticateRequest, async (req, res, next) => {
   try {
+    const rows = await query(
+      `SELECT id, session_id
+       FROM ${TABLES.records}
+       WHERE id = ?
+       LIMIT 1`,
+      [req.params.id]
+    );
+    if (!rows.length) throw badRequest('Registro no encontrado.');
+    await assertSessionAccess(req.authUser, rows[0].session_id);
     await query(`DELETE FROM ${TABLES.records} WHERE id = ?`, [req.params.id]);
     res.json({ ok: true });
   } catch (error) { next(error); }
@@ -1300,15 +1610,14 @@ async function runMigrations() {
   await query(`
     CREATE TABLE IF NOT EXISTS ${TABLES.stations} (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-      project_id INT UNSIGNED NOT NULL,
+      project_id INT UNSIGNED NULL,
       concession_id INT UNSIGNED NULL,
       name VARCHAR(120) NOT NULL,
       location VARCHAR(200) NULL,
       daily_start_time TIME NULL COMMENT 'Hora inicio registro en este peaje',
       daily_end_time TIME NULL COMMENT 'Hora fin registro en este peaje',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      CONSTRAINT fk_cidatt_stations_project FOREIGN KEY (project_id) REFERENCES ${TABLES.projects} (id) ON DELETE CASCADE
+      PRIMARY KEY (id)
     )
   `);
 
@@ -1361,10 +1670,14 @@ async function runMigrations() {
       is_multi TINYINT(1) NOT NULL DEFAULT 0,
       active_profile_index INT NOT NULL DEFAULT 0,
       status VARCHAR(20) NOT NULL DEFAULT 'open',
+      owner_user_id BIGINT UNSIGNED NULL,
+      project_id INT UNSIGNED NULL,
+      station_id INT UNSIGNED NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
-      KEY idx_cidatt_shift_sessions_operation_date (operation_date)
+      KEY idx_cidatt_shift_sessions_operation_date (operation_date),
+      KEY idx_cidatt_shift_sessions_scope (project_id, station_id, status)
     )
   `);
 
@@ -1377,6 +1690,9 @@ async function runMigrations() {
       booth_number VARCHAR(30) NOT NULL,
       operator_name VARCHAR(120) NOT NULL,
       direction VARCHAR(60) NOT NULL,
+      project_id INT UNSIGNED NULL,
+      station_id INT UNSIGNED NULL,
+      booth_id INT UNSIGNED NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY uk_cidatt_shift_profiles_session_profile (session_id, profile_index),
@@ -1402,12 +1718,17 @@ async function runMigrations() {
       total_axles INT NOT NULL,
       sync_status VARCHAR(20) NOT NULL DEFAULT 'synced',
       is_fugitive TINYINT(1) NOT NULL DEFAULT 0,
+      owner_user_id BIGINT UNSIGNED NULL,
+      project_id INT UNSIGNED NULL,
+      station_id INT UNSIGNED NULL,
+      booth_id INT UNSIGNED NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_cidatt_vehicle_records_session_id (session_id),
       KEY idx_cidatt_vehicle_records_operation_date (operation_date),
       KEY idx_cidatt_vehicle_records_main_plate (main_plate),
+      KEY idx_cidatt_vehicle_records_scope (project_id, station_id, booth_id),
       CONSTRAINT fk_cidatt_vehicle_records_session FOREIGN KEY (session_id) REFERENCES ${TABLES.sessions} (id) ON DELETE CASCADE
     )
   `);
@@ -1439,10 +1760,46 @@ async function runMigrations() {
     await query(`ALTER TABLE ${TABLES.projects} ADD COLUMN concession_id INT UNSIGNED NULL AFTER end_date`);
   } catch (_) {}
   try {
+    await query(`ALTER TABLE ${TABLES.stations} DROP FOREIGN KEY fk_cidatt_stations_project`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.stations} MODIFY COLUMN project_id INT UNSIGNED NULL`);
+  } catch (_) {}
+  try {
     await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN concession_id INT UNSIGNED NULL AFTER project_id`);
   } catch (_) {}
   try {
     await query(`ALTER TABLE ${TABLES.records} ADD COLUMN is_fugitive TINYINT(1) NOT NULL DEFAULT 0 AFTER sync_status`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.sessions} ADD COLUMN owner_user_id BIGINT UNSIGNED NULL AFTER status`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.sessions} ADD COLUMN project_id INT UNSIGNED NULL AFTER owner_user_id`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.sessions} ADD COLUMN station_id INT UNSIGNED NULL AFTER project_id`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.profiles} ADD COLUMN project_id INT UNSIGNED NULL AFTER direction`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.profiles} ADD COLUMN station_id INT UNSIGNED NULL AFTER project_id`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.profiles} ADD COLUMN booth_id INT UNSIGNED NULL AFTER station_id`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.records} ADD COLUMN owner_user_id BIGINT UNSIGNED NULL AFTER is_fugitive`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.records} ADD COLUMN project_id INT UNSIGNED NULL AFTER owner_user_id`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.records} ADD COLUMN station_id INT UNSIGNED NULL AFTER project_id`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.records} ADD COLUMN booth_id INT UNSIGNED NULL AFTER station_id`);
   } catch (_) {}
   await query(`UPDATE ${TABLES.projects} SET max_booths_per_operator = 2 WHERE max_booths_per_operator IS NULL OR max_booths_per_operator > 2 OR max_booths_per_operator < 1`);
 
@@ -1453,6 +1810,40 @@ async function runMigrations() {
     `INSERT IGNORE INTO ${TABLES.projectSites} (project_id, station_id, linked_by, is_active)
      SELECT project_id, id, NULL, 1
      FROM ${TABLES.stations}`
+  );
+  await query(`UPDATE ${TABLES.stations} SET project_id = NULL`);
+  await query(
+    `UPDATE ${TABLES.profiles} sp
+     INNER JOIN ${TABLES.booths} tb ON tb.code = sp.booth_number
+     INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id AND LOWER(TRIM(ts.name)) = LOWER(TRIM(sp.toll_name))
+     SET sp.station_id = COALESCE(sp.station_id, ts.id),
+         sp.booth_id = COALESCE(sp.booth_id, tb.id)
+     WHERE sp.station_id IS NULL OR sp.booth_id IS NULL`
+  );
+  await query(
+    `UPDATE ${TABLES.sessions} s
+     INNER JOIN ${TABLES.profiles} sp ON sp.session_id = s.id AND sp.profile_index = 0
+     LEFT JOIN ${TABLES.users} u ON LOWER(TRIM(u.full_name)) = LOWER(TRIM(sp.operator_name))
+     SET s.owner_user_id = COALESCE(s.owner_user_id, u.id),
+         s.project_id = COALESCE(s.project_id, sp.project_id),
+         s.station_id = COALESCE(s.station_id, sp.station_id)
+     WHERE s.owner_user_id IS NULL OR s.project_id IS NULL OR s.station_id IS NULL`
+  );
+  await query(
+    `UPDATE ${TABLES.records} r
+     INNER JOIN ${TABLES.sessions} s ON s.id = r.session_id
+     SET r.owner_user_id = COALESCE(r.owner_user_id, s.owner_user_id),
+         r.project_id = COALESCE(r.project_id, s.project_id),
+         r.station_id = COALESCE(r.station_id, s.station_id)
+     WHERE r.owner_user_id IS NULL OR r.project_id IS NULL OR r.station_id IS NULL`
+  );
+  await query(
+    `UPDATE ${TABLES.records} r
+     INNER JOIN ${TABLES.booths} tb ON tb.code = r.booth_number
+     INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id AND LOWER(TRIM(ts.name)) = LOWER(TRIM(r.toll_name))
+     SET r.station_id = COALESCE(r.station_id, ts.id),
+         r.booth_id = COALESCE(r.booth_id, tb.id)
+     WHERE r.station_id IS NULL OR r.booth_id IS NULL`
   );
 
   const seedUsers = [

@@ -730,6 +730,7 @@
   var _projectPresenceIndex = {};
   var _presenceInterval = null;
   var _suspendHashSync = false;
+  var _openSessionsSnapshot = [];
 
   // ── AUTH ──────────────────────────────────────────────────────────────────
 
@@ -1810,6 +1811,7 @@
       ]);
       const a = data.alerts;
       const sessions = sessionsData.sessions || [];
+      _openSessionsSnapshot = sessions.slice();
       const projects = projectsData.projects || [];
       let html = '';
 
@@ -1899,6 +1901,7 @@
       } catch (_err) { users = []; }
       const useful = users.filter((u) => u.presence_state !== 'offline' || Number(u.active_booths || 0) > 0);
       if (!useful.length) continue;
+      const maxBooths = Number(project.max_booths_per_operator || 2);
       blocks.push(`
         <div class="card card-sm" style="margin-top:12px;">
           <div class="section-header">
@@ -1914,7 +1917,7 @@
                 <div class="quick-user-top">
                   <div>
                     <div class="quick-user-name">${esc(u.full_name)}</div>
-                    <div class="quick-user-meta">@${esc(u.username)} · ${Number(u.active_booths || 0)}/2 casetas${u.booth_codes ? ' · C' + esc(u.booth_codes) : ''}</div>
+                    <div class="quick-user-meta">@${esc(u.username)} · ${Number(u.active_booths || 0)}/${maxBooths} casetas${u.booth_codes ? ' · ' + esc(u.booth_codes) : ''}</div>
                   </div>
                   ${presenceBadge(u.presence_state)}
                 </div>
@@ -1967,7 +1970,9 @@
   async function closeAllOpenSessions() {
     if (!confirm('Cerrar todos los turnos abiertos?')) return;
     try {
-      await api('/sessions/close-bulk', { method: 'POST', body: {} });
+      const ids = (_openSessionsSnapshot || []).map((session) => session.id).filter(Boolean);
+      if (!ids.length) return;
+      await api('/sessions/close-bulk', { method: 'POST', body: { ids } });
       loadAlerts();
     } catch (e) { alert(e.message); }
   }
@@ -2341,7 +2346,7 @@
       data.stations.forEach(s => {
         s.booths.forEach(b => {
           totalBooths++;
-          if (b.user_id) staffed++;
+          if (b.assigned_user_id) staffed++;
           todayRecords += b.records_today || 0;
         });
       });
@@ -2375,12 +2380,12 @@
           ${hoursBar}
           ${s.station_regs && s.station_regs.length ? `<div style="margin-bottom:10px;padding:6px 8px;background:#f0fdf4;border-radius:8px;font-size:.8rem;color:var(--accent);">👥 Pool del peaje: ${s.station_regs.map(r => esc(r.full_name)).join(', ')}</div>` : '<div style="margin-bottom:8px;font-size:.78rem;color:var(--muted);">⬜ Sin registradores en el pool</div>'}
           <div class="booth-map">${s.booths.map(b => {
-            const stClass = b.has_open_shift ? 'active-shift' : (b.user_id ? 'inactive-shift' : 'unstaffed');
+            const stClass = b.has_open_shift ? 'active-shift' : (b.assigned_user_id ? 'inactive-shift' : 'unstaffed');
             return `
             <div class="booth-card ${stClass}">
               <div class="booth-num">C-${esc(b.code)}</div>
               <div class="booth-name">${esc(b.directions||'')}</div>
-              <div class="booth-staff">${b.full_name ? '👤 ' + esc(b.full_name) : '⬜ Sin personal'}</div>
+              <div class="booth-staff">${b.assigned_user_name ? '👤 ' + esc(b.assigned_user_name) : '⬜ Sin personal'}</div>
               ${b.has_open_shift ? '<div style="font-size:.65rem;color:#16a34a;font-weight:700;margin-top:2px;">⚡ En turno</div>' : ''}
               <div class="booth-records">${b.records_today > 0 ? b.records_today + ' hoy' : ''}</div>
             </div>`;}).join('')}
@@ -2723,8 +2728,10 @@
     listEl.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);">Cargando turnos...</div>';
     openModal('modalCloseShift');
     try {
-      const data = await api('/sessions/open');
+      const query = currentUser && currentUser.role === 'coordinador' && assigningProjectId ? ('?projectId=' + assigningProjectId) : '';
+      const data = await api('/sessions/open' + query);
       const sessions = data.sessions || [];
+      _openSessionsSnapshot = sessions.slice();
       if (!sessions.length) {
         listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);">✅ No hay turnos abiertos.</div>';
         document.getElementById('btnConfirmCloseShift').style.display = 'none';
@@ -2749,10 +2756,15 @@
     const ids = Array.from(checkboxes).map(cb => cb.value);
     if (!ids.length) { alert('No hay turnos seleccionados.'); return; }
     if (!confirm(`¿Cerrar ${ids.length} turno(s) seleccionado(s)?`)) return;
+    const body = { ids };
+    if (currentUser && currentUser.role === 'coordinador' && assigningProjectId) body.projectId = assigningProjectId;
     let ok = 0, fail = 0;
-    for (const id of ids) {
-      try { await api('/sessions/' + id + '/close', { method: 'POST' }); ok++; }
-      catch (e) { fail++; }
+    try {
+      const result = await api('/sessions/close-bulk', { method: 'POST', body });
+      ok = Number(result.closed || 0);
+      fail = Math.max(0, ids.length - ok);
+    } catch (_err) {
+      fail = ids.length;
     }
     closeModal('modalCloseShift');
     alert(`Turnos cerrados: ✅ ${ok}${fail ? `  ❌ ${fail} fallidos` : ''}`);
