@@ -253,6 +253,37 @@
       color: var(--accent);
       margin-bottom: 8px;
     }
+    .setup-mode-card.locked-assigned {
+      border-color: rgba(15, 118, 110, .35);
+      background: rgba(15, 118, 110, .06);
+    }
+    .setup-mode-card.manual-active {
+      border-color: rgba(234, 179, 8, .55);
+      background: rgba(254, 240, 138, .18);
+    }
+    .setup-mode-status {
+      font-size: .74rem;
+      font-weight: bold;
+      border-radius: 999px;
+      padding: 4px 8px;
+      display: inline-flex;
+      margin: 0 0 8px;
+    }
+    .setup-mode-status.assigned {
+      color: var(--ok);
+      background: var(--ok-bg);
+    }
+    .setup-mode-status.manual {
+      color: #854d0e;
+      background: #fef08a;
+    }
+    .setup-mode-card select:disabled,
+    .setup-mode-card input:disabled {
+      opacity: .72;
+      background: var(--bg);
+      color: var(--muted);
+      font-weight: bold;
+    }
     .btn-fuga {
       background: var(--danger-bg);
       color: var(--danger);
@@ -324,13 +355,14 @@
           <label style="color:var(--accent);">▶ CASETA PRINCIPAL</label>
           <div class="setup-mode-card">
             <span class="setup-badge">Asignación / Manual</span>
+            <div class="setup-mode-status manual" id="setupModeStatus1">Modo manual disponible</div>
             <label>Caseta asignada</label>
             <select id="setupAssigned1" class="setup-assignment-select">
               <option value="__manual__">Sin asignación / configuración manual</option>
             </select>
             <p class="setup-mini-note">Use esta lista cuando el coordinador ya asignó la caseta. Si no hay asignación o no hay internet, use la configuración manual.</p>
 
-            <div class="setup-small-grid">
+            <div class="setup-small-grid" id="manualPrimaryFields">
               <div>
                 <label>Concesión</label>
                 <select id="setupConcession1" required></select>
@@ -366,6 +398,7 @@
           <label style="color:var(--warn);">▶ CASETA SECUNDARIA</label>
           <div class="setup-mode-card">
             <span class="setup-badge">Misma concesión y peaje</span>
+            <div class="setup-mode-status manual" id="setupModeStatus2">Modo manual disponible</div>
             <label>Caseta asignada</label>
             <select id="setupAssigned2" class="setup-assignment-select">
               <option value="__manual__">Sin asignación / configuración manual</option>
@@ -1185,6 +1218,62 @@
         } else {
           select.value = '__manual__';
         }
+        updateSetupManualMode();
+      }
+
+      function isManualSetupMode(selectId) {
+        var select = document.getElementById(selectId);
+        return !navigator.onLine || !select || !select.value || select.value === '__manual__';
+      }
+
+      function setDisabledByIds(ids, disabled) {
+        ids.forEach(function(id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          el.disabled = Boolean(disabled);
+        });
+      }
+
+      function updateSetupManualMode() {
+        var primaryManual = isManualSetupMode('setupAssigned1');
+        var secondaryManual = isManualSetupMode('setupAssigned2');
+
+        var primaryCard = document.getElementById('setupAssigned1')?.closest('.setup-mode-card');
+        var secondaryCard = document.getElementById('setupAssigned2')?.closest('.setup-mode-card');
+        var status1 = document.getElementById('setupModeStatus1');
+        var status2 = document.getElementById('setupModeStatus2');
+
+        if (primaryCard) {
+          primaryCard.classList.toggle('manual-active', primaryManual);
+          primaryCard.classList.toggle('locked-assigned', !primaryManual);
+        }
+        if (secondaryCard) {
+          secondaryCard.classList.toggle('manual-active', secondaryManual);
+          secondaryCard.classList.toggle('locked-assigned', !secondaryManual);
+        }
+
+        if (status1) {
+          status1.className = 'setup-mode-status ' + (primaryManual ? 'manual' : 'assigned');
+          status1.textContent = primaryManual
+            ? (!navigator.onLine ? 'Modo manual por falta de conexión' : 'Modo manual: sin asignación')
+            : 'Usando caseta asignada por el coordinador';
+        }
+
+        if (status2) {
+          status2.className = 'setup-mode-status ' + (secondaryManual ? 'manual' : 'assigned');
+          status2.textContent = secondaryManual
+            ? (!navigator.onLine ? 'Modo manual secundario por falta de conexión' : 'Modo manual secundario')
+            : 'Usando segunda caseta asignada';
+        }
+
+        // La concesión y peaje solo se editan cuando el perfil principal está en modo manual.
+        setDisabledByIds(['setupConcession1', 'setupConcessionCustom1', 'setupPeaje1', 'setupPeajeCustom1'], !primaryManual);
+        setDisabledByIds(['setupCaseta1', 'setupSentido1'], !primaryManual);
+        // En la secundaria nunca se edita concesión/peaje; solo caseta y sentido si está en manual.
+        setDisabledByIds(['setupCaseta2', 'setupSentido2'], !secondaryManual);
+
+        applyAuthenticatedUserDefaults();
+        syncSecondaryFromPrimary();
       }
 
       function findAssignmentByBoothId(boothId) {
@@ -1193,18 +1282,26 @@
 
       function applyAssignmentToPrimary(boothId) {
         var item = findAssignmentByBoothId(boothId);
-        if (!item) return;
+        if (!item) {
+          updateSetupManualMode();
+          return;
+        }
         var profile = assignmentToProfile(item);
         setPrimaryProfileFields(profile);
+        updateSetupManualMode();
       }
 
       function applyAssignmentToSecondary(boothId) {
         var item = findAssignmentByBoothId(boothId);
-        if (!item) return;
+        if (!item) {
+          updateSetupManualMode();
+          return;
+        }
         document.getElementById('setupCaseta2').value = item.boothCode || '';
         document.getElementById('setupSentido2').value = item.directions || '';
         syncSecondaryFromPrimary();
         applyAuthenticatedUserDefaults();
+        updateSetupManualMode();
       }
 
       function setPrimaryProfileFields(profile) {
@@ -1214,6 +1311,7 @@
         document.getElementById('setupSentido1').value = profile.sentidoCirculacion || '';
         applyAuthenticatedUserDefaults();
         syncSecondaryFromPrimary();
+        updateSetupManualMode();
       }
 
       function syncSecondaryFromPrimary() {
@@ -1243,6 +1341,7 @@
         document.getElementById('setupSentido2').value = secondary.sentidoCirculacion || '';
         syncSecondaryFromPrimary();
         applyAuthenticatedUserDefaults();
+        updateSetupManualMode();
       }
 
       function populateSetupFromAssignments() {
@@ -1282,6 +1381,7 @@
         document.getElementById('setupSentido2').value = '';
         syncSecondaryFromPrimary();
         applyAuthenticatedUserDefaults();
+        updateSetupManualMode();
       }
 
       function buildProfileFromSetup(index) {
@@ -1553,11 +1653,15 @@
       }
 
       function showPanelButtons() {
+        var logoutButton = document.getElementById('btnLogoutRegister');
+        if (logoutButton) logoutButton.classList.toggle('hidden', !hasValidLicense);
+
+        var backButton = document.getElementById('btnBackToPanel');
+        if (!backButton) return;
+
         var params = new URLSearchParams(window.location.search);
-        if (isPanelRole(authUser && authUser.role) && params.get('mode') === 'register') {
-          document.getElementById('btnBackToPanel').classList.remove('hidden');
-          document.getElementById('btnLogoutRegister').classList.remove('hidden');
-        }
+        var shouldShowPanelBack = isPanelRole(authUser && authUser.role) && params.get('mode') === 'register';
+        backButton.classList.toggle('hidden', !shouldShowPanelBack);
       }
 
       document.getElementById('btnLogoutRegister').addEventListener('click', function() {
@@ -1615,10 +1719,12 @@
         refreshWarningBanner().catch(()=>{});
         flushOutbox().catch(()=>{});
         sendPresenceHeartbeat().catch(()=>{});
+        updateSetupManualMode();
       });
 
       window.addEventListener('offline', function() {
         refreshWarningBanner().catch(()=>{});
+        updateSetupManualMode();
       });
 
       function playFeedback() {
@@ -1715,12 +1821,15 @@
       function applySetupVisibility() {
         if (!hasValidLicense) {
             licenseCard.classList.remove('hidden'); setupCard.classList.add('hidden');
-            mainContent.classList.add('hidden'); siteInfoBar.classList.add('hidden'); fabSave.classList.add('hidden'); return;
+            mainContent.classList.add('hidden'); siteInfoBar.classList.add('hidden'); fabSave.classList.add('hidden');
+            showPanelButtons();
+            return;
         }
         licenseCard.classList.add('hidden');
+        showPanelButtons();
+        updateSetupManualMode();
         var hasSite = Boolean(getCurrentSiteInfo());
         var showSetup = !hasSite || isEditingSetup;
-        if (btnHistoryBack) btnHistoryBack.classList.toggle('hidden', !hasValidLicense);
         setupCard.classList.toggle('hidden', !showSetup);
         mainContent.classList.toggle('hidden', !hasSite || showSetup);
         siteInfoBar.classList.toggle('hidden', !hasSite);
@@ -2406,6 +2515,7 @@
       renderAssignmentSelect('setupAssigned1', '', false);
       renderAssignmentSelect('setupAssigned2', '', true);
       applyAuthenticatedUserDefaults();
+      updateSetupManualMode();
 
       document.getElementById('setupConcession1').addEventListener('change', function() {
         toggleConcessionCustom();
@@ -2428,10 +2538,12 @@
 
       document.getElementById('setupAssigned1').addEventListener('change', function(e) {
         if (e.target.value !== '__manual__') applyAssignmentToPrimary(e.target.value);
+        else updateSetupManualMode();
       });
 
       document.getElementById('setupAssigned2').addEventListener('change', function(e) {
         if (e.target.value !== '__manual__') applyAssignmentToSecondary(e.target.value);
+        else updateSetupManualMode();
       });
 
       document.getElementById('setupMultiCaseta').addEventListener('change', (e) => {
