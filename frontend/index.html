@@ -222,7 +222,7 @@
     <div class="header-top">
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
-        <button class="theme-toggle" id="btnHistoryBack" title="Volver">Atras</button>
+        <button class="theme-toggle hidden" id="btnHistoryBack" title="Volver">Atras</button>
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
         <button class="theme-toggle hidden" id="btnBackToPanel" onclick="window.location.href='/panel.html'" title="Volver al panel">← Panel</button>
         <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión">🔓 Salir</button>
@@ -1229,6 +1229,7 @@
         licenseCard.classList.add('hidden');
         var hasSite = Boolean(getCurrentSiteInfo());
         var showSetup = !hasSite || isEditingSetup;
+        if (btnHistoryBack) btnHistoryBack.classList.toggle('hidden', !hasValidLicense);
         setupCard.classList.toggle('hidden', !showSetup);
         mainContent.classList.toggle('hidden', !hasSite || showSetup);
         siteInfoBar.classList.toggle('hidden', !hasSite);

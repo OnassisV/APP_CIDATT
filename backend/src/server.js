@@ -544,6 +544,26 @@ app.put('/api/projects/:id', authenticateRequest, requireMinRole('director'), as
   } catch (error) { next(error); }
 });
 
+
+app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id || 0);
+    if (!projectId) throw badRequest('Proyecto invalido.');
+    const [activeAssignments] = await query(
+      `SELECT COUNT(*) AS total FROM ${TABLES.assignments} WHERE project_id = ? AND is_active = 1`,
+      [projectId]
+    );
+    if (Number(activeAssignments?.total || 0) > 0) {
+      throw badRequest('No se puede eliminar el proyecto porque tiene personal asignado. Retira las asignaciones primero.');
+    }
+    await withTransaction(async (conn) => {
+      await conn.execute(`UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ?`, [projectId]);
+      await conn.execute(`DELETE FROM ${TABLES.projects} WHERE id = ?`, [projectId]);
+    });
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
 // ─── ESTACIONES / CASETAS ─────────────────────────────────────────────────────
 
 app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {

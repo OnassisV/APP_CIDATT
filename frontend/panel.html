@@ -290,6 +290,23 @@
       }
     }
 
+
+    /* ── BLOQUE 2: AJUSTES OPERATIVOS UI ── */
+    .soft-note { font-size: .76rem; color: var(--muted); margin-top: 6px; line-height: 1.35; }
+    .select-hint { font-size: .73rem; color: var(--muted); margin-top: 4px; }
+    .quick-users-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .quick-user-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--card); }
+    .quick-user-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .quick-user-name { font-weight: 700; font-size: .86rem; }
+    .quick-user-meta { font-size: .74rem; color: var(--muted); margin-top: 4px; }
+    .presence-dot { display:inline-flex; align-items:center; gap:5px; font-size:.7rem; font-weight:700; text-transform:uppercase; border-radius:999px; padding:3px 8px; }
+    .presence-dot.online { background:#dcfce7; color:#166534; }
+    .presence-dot.idle { background:#fef3c7; color:#92400e; }
+    .presence-dot.offline { background:#fee2e2; color:#991b1b; }
+    .danger-link-btn { color: var(--danger); border-color: var(--danger) !important; }
+    .danger-link-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .assignment-warning { background:#fffbeb; border:1px solid #fcd34d; color:#92400e; border-radius:10px; padding:10px 12px; font-size:.82rem; margin-bottom:12px; }
+
     /* ── MOBILE ── */
     @media (max-width: 768px) {
       .sidebar { transform: translateX(-100%); }
@@ -440,7 +457,7 @@
 <div class="modal-overlay" id="modalProject">
   <div class="modal">
     <div class="modal-title" id="modalProjectTitle">Nuevo Proyecto</div>
-    <div class="form-group"><label>Nombre del proyecto *</label><input id="pName" placeholder="Ej: Relevamiento Norte 2026"/></div>
+    <div class="form-group"><label>Nombre del proyecto</label><input id="pName" placeholder="Se completará con la concesión seleccionada"/><div class="select-hint">El nombre se toma de la concesión. Usa “Otros” si no aparece en la lista.</div></div>
     <div class="form-group"><label>Descripción</label><textarea id="pDesc" rows="2" placeholder="Descripción opcional"></textarea></div>
     <div class="form-row">
       <div class="form-group"><label>Fecha inicio *</label><input id="pStart" type="date"/></div>
@@ -770,7 +787,7 @@
     if (concessionsCache.length && !forceRefresh) return concessionsCache;
     try {
       const data = await api('/concessions');
-      concessionsCache = data.concessions || [];
+      concessionsCache = (data.concessions || []).filter((item) => !isDefaultConcessionName(item.name));
     } catch (_err) {
       concessionsCache = [];
     }
@@ -852,15 +869,61 @@
     stationSelect.dataset.catalogReady = '1';
   }
 
-  function renderConcessionOptions(selectId, includeOther) {
+
+  function isDefaultConcessionName(name) {
+    const normalized = normalizeForFilter(name);
+    return normalized === 'concesion general' || normalized === 'concesion-general' || normalized === 'general';
+  }
+
+  function getCatalogConcessions() {
+    const stationSelect = document.getElementById('sName');
+    if (!stationSelect) return [];
+    const map = new Map();
+    Array.from(stationSelect.querySelectorAll('optgroup')).forEach((group) => {
+      const label = String(group.label || '').trim();
+      if (!label || isDefaultConcessionName(label)) return;
+      const key = normalizeForFilter(label);
+      if (!map.has(key)) map.set(key, { id: 'catalog:' + key.replace(/[^a-z0-9]+/g, '-'), name: label, isCatalog: true });
+    });
+    return Array.from(map.values());
+  }
+
+  function getMergedConcessions() {
+    const merged = new Map();
+    (concessionsCache || []).forEach((item) => {
+      if (!item || !item.name || isDefaultConcessionName(item.name)) return;
+      merged.set(normalizeForFilter(item.name), item);
+    });
+    getCatalogConcessions().forEach((item) => {
+      if (!merged.has(normalizeForFilter(item.name))) merged.set(normalizeForFilter(item.name), item);
+    });
+    return Array.from(merged.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
+  }
+
+  function getSelectedConcessionPayload(selectId, customInputId) {
+    const select = document.getElementById(selectId);
+    const custom = document.getElementById(customInputId);
+    if (!select) return { id: null, name: '' };
+    if (select.value === '__other__') return { id: null, name: String(custom?.value || '').trim() };
+    const selected = select.options[select.selectedIndex];
+    const rawValue = String(select.value || '');
+    const isDbId = rawValue && !rawValue.startsWith('catalog:');
+    return {
+      id: isDbId ? Number(rawValue) : null,
+      name: String(selected?.dataset?.name || selected?.text || '').trim()
+    };
+  }
+
+    function renderConcessionOptions(selectId, includeOther) {
     const select = document.getElementById(selectId);
     if (!select) return;
     const currentValue = select.value;
-    const base = ['<option value="">Seleccionar...</option>']
-      .concat(concessionsCache.map((item) => `<option value="${item.id}" data-name="${esc(item.name)}">${esc(item.name)}</option>`));
-    if (includeOther) base.push('<option value="__other__">Otro</option>');
+    const label = selectId === 'dashFilterConcession' ? 'Todas las concesiones' : 'Seleccionar concesión...';
+    const base = [`<option value="">${label}</option>`]
+      .concat(getMergedConcessions().map((item) => `<option value="${item.id}" data-name="${esc(item.name)}">${esc(item.name)}</option>`));
+    if (includeOther) base.push('<option value="__other__">Otros</option>');
     select.innerHTML = base.join('');
-    if (currentValue) select.value = currentValue;
+    if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) select.value = currentValue;
   }
 
   function syncProjectNameFromConcession(force) {
@@ -881,22 +944,24 @@
     if (!nameInput.value || force) nameInput.value = concessionName;
   }
 
-  function filterStationOptionsByConcession() {
+    function filterStationOptionsByConcession() {
     buildStationCatalogFromSelect();
     const stationSelect = document.getElementById('sName');
     const concessionSelect = document.getElementById('sConcessionSelect');
     const concessionInput = document.getElementById('sConcessionName');
     if (!stationSelect || !concessionSelect || !concessionInput) return;
     const selectedOption = concessionSelect.options[concessionSelect.selectedIndex];
+    const isOther = concessionSelect.value === '__other__';
     const selectedLabel = selectedOption ? (selectedOption.dataset.name || selectedOption.text) : '';
     const normalizedSelected = normalizeForFilter(selectedLabel);
     Array.from(stationSelect.options).forEach((option) => {
       if (!option.value) return option.hidden = false;
       if (option.value === '__otro__') return option.hidden = false;
+      if (isOther || !normalizedSelected) return option.hidden = false;
       const optionConcession = normalizeForFilter(option.dataset.concessionLabel || option.parentElement?.label || '');
-      option.hidden = Boolean(normalizedSelected) && optionConcession.indexOf(normalizedSelected) === -1;
+      option.hidden = Boolean(normalizedSelected) && !(optionConcession.includes(normalizedSelected) || normalizedSelected.includes(optionConcession));
     });
-    concessionInput.value = concessionSelect.value === '__other__' ? '' : selectedLabel;
+    concessionInput.value = isOther ? '' : selectedLabel;
     if (stationSelect.selectedOptions[0]?.hidden) stationSelect.value = '';
     stationSelect.dispatchEvent(new Event('change'));
   }
@@ -947,7 +1012,7 @@
     if (projectModal && !document.getElementById('pConcessionSelect')) {
       const field = document.createElement('div');
       field.className = 'form-group';
-      field.innerHTML = '<label>Concesion base</label><select id="pConcessionSelect"></select><div id="pConcessionCustomWrap" style="display:none;margin-top:8px;"><input id="pConcessionCustom" placeholder="Nueva concesion"/></div>';
+      field.innerHTML = '<label>Nombre / Concesión del proyecto *</label><select id="pConcessionSelect"></select><div id="pConcessionCustomWrap" style="display:none;margin-top:8px;"><input id="pConcessionCustom" placeholder="Nueva concesión"/></div><div class="select-hint">Selecciona una concesión existente u “Otros” para registrar una nueva.</div>';
       const nameGroup = document.getElementById('pName')?.closest('.form-group');
       if (nameGroup && nameGroup.parentNode) nameGroup.parentNode.insertBefore(field, nameGroup);
     }
@@ -963,7 +1028,7 @@
     if (stationModal && !document.getElementById('sConcessionSelect')) {
       const field = document.createElement('div');
       field.className = 'form-group';
-      field.innerHTML = '<label>Concesion</label><select id="sConcessionSelect"></select><div id="sConcessionCustomWrap" style="display:none;margin-top:8px;"><input id="sConcessionCustom" placeholder="Nueva concesion"/></div>';
+      field.innerHTML = '<label>Concesión *</label><select id="sConcessionSelect"></select><div id="sConcessionCustomWrap" style="display:none;margin-top:8px;"><input id="sConcessionCustom" placeholder="Nueva concesión"/></div><div class="select-hint">Al elegir una concesión, el listado de peajes se filtra automáticamente.</div>';
       const firstGroup = stationModal.querySelector('.form-group');
       if (firstGroup && firstGroup.parentNode) firstGroup.parentNode.insertBefore(field, firstGroup);
     }
@@ -1243,6 +1308,7 @@
     const isCoord = currentUser.role === 'coordinador';
 
     loadConcessions().then(() => {
+      buildStationCatalogFromSelect();
       renderConcessionOptions('pConcessionSelect', true);
       renderConcessionOptions('sConcessionSelect', true);
       renderConcessionOptions('dashFilterConcession', false);
@@ -1360,7 +1426,7 @@
     if (!select || !dashboardRawData) return;
 
     const currentValue = select.value;
-    const projects = dashboardRawData.projectStats || [];
+    const projects = (dashboardRawData.projectStats || []).filter((project) => !isDefaultConcessionName(project.concession_name));
 
     const visibleProjects = projects.filter((project) => {
       if (!dashboardFilterState.concessionId) return true;
@@ -1478,7 +1544,7 @@
     } catch (e) { showError(e); }
   }
 
-  function renderProjectsList(projects) {
+    function renderProjectsList(projects) {
     if (!projects.length) {
       document.getElementById('projectsListTable').innerHTML = '<div class="empty-state"><div class="icon">📋</div>No hay proyectos. Crea el primero.</div>';
       return;
@@ -1487,20 +1553,34 @@
       <table>
         <thead><tr><th>Nombre</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Casetas</th><th></th></tr></thead>
         <tbody>${projects.map(p => {
+          const canDelete = Number(p.staffed_booths || 0) === 0;
           return `<tr>
             <td><strong>${esc(p.name)}</strong><br><small style="color:var(--muted)">${esc(p.description||'')}</small></td>
             <td><span class="badge badge-${p.status}">${p.status}</span></td>
             <td>${p.start_date||'—'}</td>
             <td>${p.end_date||'—'}</td>
             <td>${p.staffed_booths||0}/${p.total_booths||0}</td>
-            <td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <td class="table-actions">
               <button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Detalle</button>
               <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}',${p.max_booths_per_operator||2},${p.concession_id||0},'${esc(p.concession_name||'')}')">Editar</button>
+              <button class="btn btn-soft btn-sm danger-link-btn" ${canDelete ? '' : 'disabled'} title="${canDelete ? 'Eliminar proyecto' : 'No se puede eliminar con personal asignado'}" onclick="deleteProject(${p.id},'${esc(p.name)}')">Eliminar</button>
             </td>
           </tr>`;
         }).join('')}</tbody>
       </table>`;
   }
+
+  async function deleteProject(projectId, projectName) {
+    if (!projectId) return;
+    if (!confirm(`¿Eliminar el proyecto "${projectName}"? Solo se permite si no tiene personal asignado.`)) return;
+    try {
+      await api('/projects/' + projectId, { method: 'DELETE' });
+      loadProjects();
+      if (currentViewId === 'viewDashboard') loadDashboard();
+    } catch (e) { alert(e.message); }
+  }
+  window.deleteProject = deleteProject;
+
 
   async function openProjectDetail(projectId, skipHashSync) {
     currentProjectId = projectId;
@@ -1563,12 +1643,14 @@
 
   async function loadAlerts() {
     try {
-      const [data, sessionsData] = await Promise.all([
+      const [data, sessionsData, projectsData] = await Promise.all([
         api('/alerts/workers'),
-        api('/sessions/open').catch(() => ({ sessions: [] }))
+        api('/sessions/open').catch(() => ({ sessions: [] })),
+        api('/projects').catch(() => ({ projects: [] }))
       ]);
       const a = data.alerts;
       const sessions = sessionsData.sessions || [];
+      const projects = projectsData.projects || [];
       let html = '';
 
       if (a.overloadedOperators && a.overloadedOperators.length) {
@@ -1628,33 +1710,82 @@
         html += '</tbody></table></div></div>';
       }
 
-      if (!html) html = '<div class="empty-state"><div class="icon">✅</div>Sin alertas activas.</div>';
-      if (!html && sessions && sessions.length) html = '<div style="display:none"></div>';
       const sessionsTable = renderOpenSessionsTable(sessions);
-      if (sessionsTable && html.indexOf('empty-state') >= 0) html = '';
+      const assignablePanel = await renderAssignableUsersPanel(projects);
+      if (!html && !sessionsTable && !assignablePanel) html = '<div class="empty-state"><div class="icon">✅</div>Sin alertas activas.</div>';
       if (sessionsTable) html += sessionsTable;
+      if (assignablePanel) html += assignablePanel;
       document.getElementById('alertsContent').innerHTML = html;
     } catch (e) { document.getElementById('alertsContent').innerHTML = `<div class="alert alert-danger"><span>❌</span><div>${esc(e.message)}</div></div>`; }
   }
   window.loadAlerts = loadAlerts;
 
-  function renderOpenSessionsTable(sessions) {
+
+  function presenceBadge(state) {
+    const safeState = state || 'offline';
+    const label = safeState === 'online' ? 'online' : safeState === 'idle' ? 'inactivo' : 'offline';
+    return `<span class="presence-dot ${safeState}">${label}</span>`;
+  }
+
+  async function renderAssignableUsersPanel(projects) {
+    const activeProjects = (projects || []).filter((p) => p.status !== 'cerrado');
+    if (!activeProjects.length) return '';
+    const blocks = [];
+    for (const project of activeProjects.slice(0, 6)) {
+      let users = [];
+      try {
+        const data = await api('/projects/' + project.id + '/available-users?role=registrador');
+        users = data.users || [];
+      } catch (_err) { users = []; }
+      const useful = users.filter((u) => u.presence_state !== 'offline' || Number(u.active_booths || 0) > 0);
+      if (!useful.length) continue;
+      blocks.push(`
+        <div class="card card-sm" style="margin-top:12px;">
+          <div class="section-header">
+            <div>
+              <h3 style="margin-bottom:2px;font-size:.9rem;">Usuarios disponibles — ${esc(project.name)}</h3>
+              <div class="soft-note">Usuarios conectados o con asignación activa. Para asignar caseta, entra al proyecto y usa “Asignar”.</div>
+            </div>
+            <button class="btn btn-soft btn-sm" onclick="openProjectDetail(${project.id})">Ir al proyecto</button>
+          </div>
+          <div class="quick-users-grid">
+            ${useful.map((u) => `
+              <div class="quick-user-card">
+                <div class="quick-user-top">
+                  <div>
+                    <div class="quick-user-name">${esc(u.full_name)}</div>
+                    <div class="quick-user-meta">@${esc(u.username)} · ${Number(u.active_booths || 0)}/2 casetas${u.booth_codes ? ' · C' + esc(u.booth_codes) : ''}</div>
+                  </div>
+                  ${presenceBadge(u.presence_state)}
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>`);
+    }
+    return blocks.join('');
+  }
+
+    function renderOpenSessionsTable(sessions) {
     if (!sessions || !sessions.length) return '';
     return `
       <div class="card card-sm" style="margin-top:12px;">
         <div class="section-header">
-          <h3 style="margin-bottom:0;font-size:.9rem;">Turnos abiertos</h3>
-          <button class="btn btn-soft btn-sm" onclick="closeAllOpenSessions()">Cerrar todos</button>
+          <div>
+            <h3 style="margin-bottom:0;font-size:.9rem;">Turnos abiertos</h3>
+            <div class="soft-note">Cierre operativo individual por registrador/caseta.</div>
+          </div>
+          ${sessions.length > 1 ? '<button class="btn btn-soft btn-sm" onclick="closeAllOpenSessions()">Cerrar todos</button>' : ''}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Operador</th><th>Peaje</th><th>Caseta</th><th>Fecha</th><th></th></tr></thead>
+            <thead><tr><th>Operador</th><th>Peaje</th><th>Caseta</th><th>Fecha</th><th>Estado</th><th></th></tr></thead>
             <tbody>${sessions.map((session) => `
               <tr>
                 <td>${esc(session.operator_name)}</td>
                 <td>${esc(session.toll_name)}</td>
                 <td>${esc(session.booth_number)}</td>
                 <td>${esc(session.operation_date)}</td>
+                <td><span class="badge badge-activo">${esc(session.status || 'open')}</span></td>
                 <td><button class="btn btn-soft btn-sm" onclick="closeSingleSession('${esc(session.id)}')">Cerrar turno</button></td>
               </tr>`).join('')}
             </tbody>
@@ -1737,8 +1868,8 @@
       description: document.getElementById('pDesc').value.trim(),
       start_date: document.getElementById('pStart').value,
       end_date: document.getElementById('pEnd').value || null,
-      concession_id: concessionSelect && concessionSelect.value && concessionSelect.value !== '__other__' ? Number(concessionSelect.value) : null,
-      concession_name: selectedConcessionName,
+      concession_id: getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom').id,
+      concession_name: getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom').name,
       max_booths_per_operator: document.getElementById('pMaxBooths') ? Math.min(2, Math.max(1, Number(document.getElementById('pMaxBooths').value || 2))) : 2,
       status: document.getElementById('pStatus').value
     };
@@ -1821,12 +1952,8 @@
     const selectedConcessionOption = concessionSelect ? concessionSelect.options[concessionSelect.selectedIndex] : null;
     const body = {
       name,
-      concession_id: concessionSelect && concessionSelect.value && concessionSelect.value !== '__other__' ? Number(concessionSelect.value) : null,
-      concession_name: concessionSelect
-        ? (concessionSelect.value === '__other__'
-            ? document.getElementById('sConcessionCustom').value.trim()
-            : (selectedConcessionOption?.dataset.name || selectedConcessionOption?.text || ''))
-        : (document.getElementById('sConcessionName') ? document.getElementById('sConcessionName').value.trim() : ''),
+      concession_id: getSelectedConcessionPayload('sConcessionSelect', 'sConcessionCustom').id,
+      concession_name: getSelectedConcessionPayload('sConcessionSelect', 'sConcessionCustom').name || (document.getElementById('sConcessionName') ? document.getElementById('sConcessionName').value.trim() : ''),
       location: document.getElementById('sLocation').value.trim(),
       daily_start_time: document.getElementById('sTimeStart').value || null,
       daily_end_time: document.getElementById('sTimeEnd').value || null
@@ -2301,12 +2428,20 @@
     const releasesCurrentBooth = _dragRegFromBooth !== null && _dragRegFromBooth !== boothId ? 1 : 0;
     const effectiveLoad = currentLoad - releasesCurrentBooth;
     if (currentEntry.userId !== _dragRegUserId && effectiveLoad >= maxBooths) {
-      alert('El registrador ya alcanzo el limite de casetas activas para este proyecto.');
+      alert('El registrador ya alcanzó el límite de casetas activas para este proyecto.');
       _dragRegUserId = null; _dragRegFromBooth = null;
       _renderRegsAvailable(); _renderBoothSlots();
       return;
     }
-    if (_dragRegFromBooth !== null) _boothAssignments[_dragRegFromBooth] = { ..._boothAssignments[_dragRegFromBooth], userId: null, name: null };
+    if (currentEntry.userId && currentEntry.userId !== _dragRegUserId) {
+      const currentName = currentEntry.name || 'otro registrador';
+      if (!confirm(`Esta caseta ya está asignada a ${currentName}. ¿Deseas reemplazar la asignación?`)) {
+        _dragRegUserId = null; _dragRegFromBooth = null;
+        _renderRegsAvailable(); _renderBoothSlots();
+        return;
+      }
+    }
+    if (_dragRegFromBooth !== null && _dragRegFromBooth !== boothId) _boothAssignments[_dragRegFromBooth] = { ..._boothAssignments[_dragRegFromBooth], userId: null, name: null };
     const u = _regAvailUsers.find(u => u.id === _dragRegUserId);
     _boothAssignments[boothId] = { userId: _dragRegUserId, name: u ? u.full_name : '', assignmentId: currentEntry.assignmentId || null };
     _dragRegUserId = null; _dragRegFromBooth = null;
@@ -2328,24 +2463,31 @@
     _assignProjectId = projectId;
     _isDirectorAssign = !isCoord;
     const s = _stationsCache[stationId];
-    document.getElementById('modalAssignTitle').textContent = 'Asignar Personal \u2014 ' + (s ? esc(s.name) : '');
-    // Director necesita ambas pestañas (coordinador + pool de regs); otros roles solo una
+    document.getElementById('modalAssignTitle').textContent = 'Asignar Personal — ' + (s ? esc(s.name) : '');
     document.getElementById('assignTabBar').style.display = _isDirectorAssign ? '' : 'none';
     try {
       if (isCoord) {
-        // Coordinador: disponibles = pool del peaje; casetas = asignaciones actuales
-        _regAvailUsers = ((s || {}).station_regs || []).filter((user) => {
-          const presence = _projectPresenceIndex[user.id];
-          return presence && presence.presence_state !== 'offline';
-        });
         const booths = (s || {}).booths || [];
         _boothAssignments = {}; _boothOriginal = {};
         booths.forEach(b => {
           const entry = { userId: b.assigned_user_id || null, name: b.assigned_user_name || null, assignmentId: b.assignment_id || null };
           _boothAssignments[b.id] = { ...entry }; _boothOriginal[b.id] = { ...entry };
         });
+
+        let poolUsers = (s || {}).station_regs || [];
+        if (['admin','director'].includes(currentUser.role)) {
+          const allRegsData = await api('/projects/' + projectId + '/available-users?role=registrador').catch(() => ({ users: [] }));
+          const merged = new Map();
+          poolUsers.forEach((u) => merged.set(Number(u.id), u));
+          (allRegsData.users || []).forEach((u) => merged.set(Number(u.id), u));
+          _regAvailUsers = Array.from(merged.values());
+        } else {
+          _regAvailUsers = poolUsers.filter((user) => {
+            const presence = _projectPresenceIndex[user.id];
+            return presence && presence.presence_state !== 'offline';
+          });
+        }
       } else {
-        // Director: gestiona pool + asigna coordinador
         const poolData = (s || {}).station_regs || [];
         _poolMembers = {}; _poolOriginal = {};
         poolData.forEach(u => {
@@ -2353,14 +2495,12 @@
           _poolOriginal[u.id] = { name: u.full_name, assignmentId: u.assignment_id };
         });
         const allRegsData = await api('/projects/' + projectId + '/available-users?role=registrador');
-        // _allAvailRegs incluye TODOS (incluyendo los ya en pool) — el filtro ocurre en _renderRegsAvailable
         _allAvailRegs = allRegsData.users;
         const coordData = await api('/projects/' + projectId + '/available-users?role=coordinador');
         _coordUsers = coordData.users;
         _assignSelectedUserId  = s ? (s.coord_user_id || null) : null;
         _assignCurrentAssignId = s ? (s.coord_assignment_id || null) : null;
       }
-      // Los labels se actualizan con contadores en _renderRegsAvailable al llamar switchAssignTab
       switchAssignTab('regs');
     } catch (e) { alert(e.message); return; }
     openModal('modalAssign');
