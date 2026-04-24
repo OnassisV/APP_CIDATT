@@ -309,7 +309,7 @@
       <div class="header-actions">
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
         <button class="theme-toggle hidden" id="btnBackToPanel" onclick="window.location.href='/panel.html'" title="Volver al panel">← Panel</button>
-        <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión">🔓 Salir</button>
+        <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión / cambiar usuario">🔓 Cerrar sesión</button>
         <button class="theme-toggle" id="btnHelp" title="Ayuda">❓</button>
         <button class="theme-toggle" id="btnTheme">🌙</button>
       </div>
@@ -1029,6 +1029,7 @@
         putDB(OPERATION_CONTEXT_KEY, null).catch(()=>{});
         hasValidLicense = false;
         stopRealtimeServices();
+        try { showPanelButtons(); } catch (_err) {}
       }
 
       function cleanConcessionDisplayName(name) {
@@ -1565,6 +1566,7 @@
           operationContext: authOperationContext
         });
         hasValidLicense = true;
+        showPanelButtons();
         populateSetupFromAssignments();
         if (siteInfo && Array.isArray(siteInfo.profiles) && siteInfo.profiles.length) await syncSiteInfoWithAssignments();
         applyAuthenticatedUserDefaults();
@@ -1652,9 +1654,24 @@
         return ['admin', 'director', 'coordinador'].includes(role);
       }
 
+      function hasStoredAuthSession() {
+        return Boolean(
+          hasValidLicense ||
+          authToken ||
+          authUser ||
+          localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ||
+          localStorage.getItem(AUTH_USER_STORAGE_KEY)
+        );
+      }
+
       function showPanelButtons() {
         var logoutButton = document.getElementById('btnLogoutRegister');
-        if (logoutButton) logoutButton.classList.toggle('hidden', !hasValidLicense);
+        if (logoutButton) {
+          var showLogout = hasStoredAuthSession();
+          logoutButton.classList.toggle('hidden', !showLogout);
+          logoutButton.textContent = '🔓 Cerrar sesión';
+          logoutButton.title = 'Cerrar sesión para ingresar con otro usuario';
+        }
 
         var backButton = document.getElementById('btnBackToPanel');
         if (!backButton) return;
@@ -1666,6 +1683,12 @@
 
       document.getElementById('btnLogoutRegister').addEventListener('click', function() {
         clearCachedAuth();
+        if (licenseCard) licenseCard.classList.remove('hidden');
+        if (setupCard) setupCard.classList.add('hidden');
+        if (mainContent) mainContent.classList.add('hidden');
+        if (siteInfoBar) siteInfoBar.classList.add('hidden');
+        if (fabSave) fabSave.classList.add('hidden');
+        showPanelButtons();
         window.location.href = '/';
       });
 
@@ -2514,6 +2537,7 @@
       renderPeajeSelect('');
       renderAssignmentSelect('setupAssigned1', '', false);
       renderAssignmentSelect('setupAssigned2', '', true);
+      showPanelButtons();
       applyAuthenticatedUserDefaults();
       updateSetupManualMode();
 
