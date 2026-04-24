@@ -210,6 +210,86 @@
     .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 0.9rem; }
     .empty-state .icon { font-size: 3rem; margin-bottom: 10px; }
 
+
+
+    /* ── FILTROS OPERATIVOS ── */
+    .hidden-force {
+      display: none !important;
+    }
+
+    .filters-card {
+      margin-bottom: 18px;
+      border-left: 4px solid var(--accent);
+    }
+
+    .filters-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .filters-header h2 {
+      font-size: 1rem;
+      margin-bottom: 2px;
+    }
+
+    .filters-header p {
+      font-size: .78rem;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .filters-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(140px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .72rem;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #ecfeff;
+      color: var(--accent);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .muted-help {
+      font-size: .75rem;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .table-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 1100px) {
+      .filters-grid {
+        grid-template-columns: repeat(2, minmax(160px, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .filters-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .filters-header {
+        flex-direction: column;
+      }
+    }
+
     /* ── MOBILE ── */
     @media (max-width: 768px) {
       .sidebar { transform: translateX(-100%); }
@@ -242,7 +322,7 @@
     <div class="sidebar-footer">
       <div class="user-name" id="sidebarUserName">—</div>
       <div class="user-role" id="sidebarUserRole">—</div>
-      <button class="btn-close-shift" id="btnCloseShift">⏹ Cerrar Turno</button>
+      <button title="El cierre de turnos se gestiona desde Alertas de Personal" type="button" class="btn-close-shift hidden-force" id="btnCloseShift">⏹ Cerrar Turno</button>
       <button class="btn-logout" id="btnLogout">Cerrar sesión</button>
     </div>
   </nav>
@@ -251,7 +331,7 @@
   <!-- TOPBAR GLOBAL (desktop) -->
   <div class="global-topbar" id="globalTopbar">
     <span class="user-chip" id="globalUserChip"></span>
-    <button class="btn btn-soft btn-sm" id="btnCloseShiftGlobal">⏹ Cerrar Turno</button>
+    <button title="El cierre de turnos se gestiona desde Alertas de Personal" type="button" class="btn btn-soft btn-sm hidden-force" id="btnCloseShiftGlobal">⏹ Cerrar Turno</button>
     <button class="btn btn-danger btn-sm" id="btnLogoutGlobal">🔓 Cerrar sesión</button>
   </div>
 
@@ -262,7 +342,7 @@
       <button class="btn-menu" id="btnMenu">☰</button>
       <strong>CIDATT Gestión</strong>
       <div style="margin-left:auto;display:flex;gap:6px;">
-        <button class="btn btn-soft btn-sm" id="btnCloseShiftTop" title="Cerrar Turno">⏹</button>
+        <button type="button" class="btn btn-soft btn-sm hidden-force" id="btnCloseShiftTop" title="Cerrar Turno">⏹</button>
         <button class="btn btn-danger btn-sm" id="btnLogoutTop" title="Cerrar sesión">🔓 Salir</button>
       </div>
     </div>
@@ -622,7 +702,14 @@
   var assigningProjectId = null;
   var concessionsCache = [];
   var dashboardRawData = null;
-  var dashboardFilterState = { concessionId: '', status: 'all', dateMode: 'quarter', dateFrom: '', dateTo: '' };
+  var dashboardFilterState = {
+    concessionId: '',
+    projectId: '',
+    status: 'all',
+    dateMode: 'quarter',
+    dateFrom: '',
+    dateTo: ''
+  };
   var _projectPresenceIndex = {};
   var _presenceInterval = null;
   var _suspendHashSync = false;
@@ -721,6 +808,7 @@
 
   function projectMatchesDashboardFilters(project) {
     if (!project) return false;
+    if (dashboardFilterState.projectId && String(project.id || '') !== String(dashboardFilterState.projectId)) return false;
     if (dashboardFilterState.concessionId && String(project.concession_id || '') !== String(dashboardFilterState.concessionId)) return false;
     if (dashboardFilterState.status !== 'all' && project.status !== dashboardFilterState.status) return false;
     const range = getDashboardDateRange();
@@ -891,7 +979,7 @@
     const coordTopbarActions = document.querySelector('#viewCoordProject .topbar > div');
     if (coordTopbarActions && !document.getElementById('btnCloseShiftCoord')) {
       const btn = document.createElement('button');
-      btn.className = 'btn btn-soft btn-sm';
+      btn.className = 'btn btn-soft btn-sm hidden-force';
       btn.id = 'btnCloseShiftCoord';
       btn.textContent = '⏹ Cerrar Turno';
       btn.onclick = doOpenCloseShift;
@@ -1009,6 +1097,91 @@
     }
   }
 
+
+
+  function upgradeDashboardFiltersCard() {
+    const card = document.getElementById('dashboardFiltersCard');
+    if (!card) return;
+
+    if (!document.getElementById('dashFilterProject')) {
+      card.className = 'card filters-card';
+      card.innerHTML = `
+        <div class="filters-header">
+          <div>
+            <h2>Filtros del Dashboard</h2>
+            <p>Filtra las tarjetas y la tabla de proyectos según concesión, proyecto, estado y fecha.</p>
+          </div>
+          <span class="filter-pill" id="dashboardFilterCounter">0 proyecto(s)</span>
+        </div>
+
+        <div class="filters-grid">
+          <div class="form-group">
+            <label>Concesión</label>
+            <select id="dashFilterConcession"><option value="">Todas</option></select>
+          </div>
+
+          <div class="form-group">
+            <label>Proyecto</label>
+            <select id="dashFilterProject"><option value="">Todos los proyectos</option></select>
+          </div>
+
+          <div class="form-group">
+            <label>Estado</label>
+            <select id="dashFilterStatus">
+              <option value="all">Mostrar todo</option>
+              <option value="activo">Activos</option>
+              <option value="cerrado">Finalizado</option>
+              <option value="pausado">Pausado</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Fecha</label>
+            <select id="dashFilterDateMode">
+              <option value="quarter">Trimestral</option>
+              <option value="custom">Fechas específicas</option>
+              <option value="all">Todo</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Rango</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              <input id="dashFilterDateFrom" type="date" title="Desde"/>
+              <input id="dashFilterDateTo" type="date" title="Hasta"/>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    renderConcessionOptions('dashFilterConcession', false);
+    const concessionSelect = document.getElementById('dashFilterConcession');
+    if (concessionSelect && !concessionSelect.querySelector('option[value=""]')) {
+      concessionSelect.insertAdjacentHTML('afterbegin', '<option value="">Todas</option>');
+    }
+
+    if (!card.dataset.enhanced) {
+      ['dashFilterConcession', 'dashFilterProject', 'dashFilterStatus', 'dashFilterDateMode', 'dashFilterDateFrom', 'dashFilterDateTo'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('change', () => {
+          dashboardFilterState = {
+            concessionId: document.getElementById('dashFilterConcession')?.value || '',
+            projectId: document.getElementById('dashFilterProject')?.value || '',
+            status: document.getElementById('dashFilterStatus')?.value || 'all',
+            dateMode: document.getElementById('dashFilterDateMode')?.value || 'all',
+            dateFrom: document.getElementById('dashFilterDateFrom')?.value || '',
+            dateTo: document.getElementById('dashFilterDateTo')?.value || ''
+          };
+          applyDashboardFilters();
+        });
+      });
+      card.dataset.enhanced = '1';
+    }
+
+    renderDashboardProjectFilterOptions();
+  }
+
   function routeToHash(skipHashSync) {
     if (skipHashSync || _suspendHashSync) return;
     let nextHash = '#dashboard';
@@ -1057,6 +1230,7 @@
   function setupUI() {
     ensureDynamicFields();
     ensureOperationalEnhancements();
+    upgradeDashboardFiltersCard();
     document.getElementById('sidebarUserName').textContent = currentUser.fullName;
     document.getElementById('sidebarUserRole').textContent = roleLabel(currentUser.role);
     document.getElementById('dashTitle').textContent = 'Dashboard — ' + roleLabel(currentUser.role);
@@ -1076,6 +1250,8 @@
       if (dashSelect && !dashSelect.querySelector('option[value=""]')) {
         dashSelect.insertAdjacentHTML('afterbegin', '<option value="">Todas</option>');
       }
+      upgradeDashboardFiltersCard();
+      applyDashboardFilters();
     }).catch(() => {});
 
     nav.innerHTML = `
@@ -1177,11 +1353,47 @@
     } catch(e) {}
   }
 
+
+
+  function renderDashboardProjectFilterOptions() {
+    const select = document.getElementById('dashFilterProject');
+    if (!select || !dashboardRawData) return;
+
+    const currentValue = select.value;
+    const projects = dashboardRawData.projectStats || [];
+
+    const visibleProjects = projects.filter((project) => {
+      if (!dashboardFilterState.concessionId) return true;
+      return String(project.concession_id || '') === String(dashboardFilterState.concessionId);
+    });
+
+    select.innerHTML =
+      '<option value="">Todos los proyectos</option>' +
+      visibleProjects.map((project) => {
+        const label = `${project.name || 'Proyecto'}${project.concession_name ? ' — ' + project.concession_name : ''}`;
+        return `<option value="${project.id}">${esc(label)}</option>`;
+      }).join('');
+
+    if (currentValue && visibleProjects.some((project) => String(project.id) === String(currentValue))) {
+      select.value = currentValue;
+    } else {
+      select.value = '';
+      dashboardFilterState.projectId = '';
+    }
+  }
+
   function applyDashboardFilters() {
     if (!dashboardRawData) return;
+
+    renderDashboardProjectFilterOptions();
+
     const filteredStats = (dashboardRawData.projectStats || []).filter(projectMatchesDashboardFilters);
+
     renderDashboardStats({ projectStats: filteredStats });
     renderDashboardProjects(filteredStats);
+
+    const counter = document.getElementById('dashboardFilterCounter');
+    if (counter) counter.textContent = `${filteredStats.length} proyecto(s) mostrado(s)`;
   }
 
   function renderDashboardStats(data) {
@@ -2268,10 +2480,17 @@
   document.getElementById('btnLogoutTop').onclick    = doLogout;
   document.getElementById('btnLogoutGlobal').onclick = doLogout;
 
-  function doOpenCloseShift() { document.getElementById('btnCloseShift').onclick(); }
-  document.getElementById('btnCloseShiftTop').onclick    = doOpenCloseShift;
-  document.getElementById('btnCloseShiftGlobal').onclick = doOpenCloseShift;
-  if (document.getElementById('btnCloseShiftCoord')) document.getElementById('btnCloseShiftCoord').onclick = doOpenCloseShift;
+  function doOpenCloseShift() {
+    showView('viewAlerts');
+    loadAlerts();
+  }
+  ['btnCloseShift', 'btnCloseShiftTop', 'btnCloseShiftGlobal', 'btnCloseShiftCoord'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.add('hidden-force');
+      el.onclick = doOpenCloseShift;
+    }
+  });
 
   // ── UTILS ─────────────────────────────────────────────────────────────────
 
