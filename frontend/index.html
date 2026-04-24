@@ -333,6 +333,7 @@
         <button type="button" class="btn-soft btn-sm hidden" id="btnLocalCloseShift">Cerrar local</button>
         <button type="button" class="btn-switch btn-sm hidden" id="btnSwitchCaseta">🔄 Cambiar</button>
         <button type="button" class="btn-soft btn-sm" id="btnCambiarDatos">⚙️ Ajustes</button>
+        <button type="button" class="btn-danger btn-sm hidden" id="btnLogoutRegisterInline">🔓 Salir</button>
       </div>
     </div>
 
@@ -1207,18 +1208,35 @@
       function renderAssignmentSelect(selectId, selectedBoothId, secondaryMode) {
         var select = document.getElementById(selectId);
         if (!select) return;
-        var booths = getAssignedBooths();
-        var html = '<option value="__manual__">Sin asignación / configuración manual</option>';
+
+        var primarySelected = document.getElementById('setupAssigned1') ? document.getElementById('setupAssigned1').value : '';
+        var booths = getAssignedBooths().filter(function(item) {
+          if (!secondaryMode) return true;
+          return !primarySelected || primarySelected === '__manual__' || String(item.boothId) !== String(primarySelected);
+        });
+
+        var manualLabel = secondaryMode
+          ? 'Manual: misma concesión/peaje, otra caseta'
+          : 'Manual: seleccionar concesión, peaje y caseta';
+
+        var html = '<option value="__manual__">' + manualLabel + '</option>';
         html += booths.map(function(item) {
-          var label = [item.concessionName ? cleanConcessionDisplayName(item.concessionName) : '', item.stationName || 'Peaje', item.boothCode ? 'Caseta ' + item.boothCode : 'Caseta'].filter(Boolean).join(' · ');
+          var label = [
+            item.concessionName ? cleanConcessionDisplayName(item.concessionName) : '',
+            item.stationName || 'Peaje',
+            item.boothCode ? 'Caseta ' + item.boothCode : 'Caseta'
+          ].filter(Boolean).join(' · ');
           return '<option value="' + item.boothId + '">' + label + '</option>';
         }).join('');
+
         select.innerHTML = html;
+
         if (selectedBoothId && booths.some(function(item) { return String(item.boothId) === String(selectedBoothId); })) {
           select.value = String(selectedBoothId);
         } else {
           select.value = '__manual__';
         }
+
         updateSetupManualMode();
       }
 
@@ -1270,8 +1288,13 @@
         // La concesión y peaje solo se editan cuando el perfil principal está en modo manual.
         setDisabledByIds(['setupConcession1', 'setupConcessionCustom1', 'setupPeaje1', 'setupPeajeCustom1'], !primaryManual);
         setDisabledByIds(['setupCaseta1', 'setupSentido1'], !primaryManual);
+
         // En la secundaria nunca se edita concesión/peaje; solo caseta y sentido si está en manual.
         setDisabledByIds(['setupCaseta2', 'setupSentido2'], !secondaryManual);
+
+        // Los selectores de asignación se mantienen habilitados para que el operador elija entre lo asignado
+        // o pase a manual cuando no exista asignación / no haya conexión.
+        setDisabledByIds(['setupAssigned1', 'setupAssigned2'], false);
 
         applyAuthenticatedUserDefaults();
         syncSecondaryFromPrimary();
@@ -1287,8 +1310,18 @@
           updateSetupManualMode();
           return;
         }
+
+        var previousSecondary = document.getElementById('setupAssigned2') ? document.getElementById('setupAssigned2').value : '';
         var profile = assignmentToProfile(item);
         setPrimaryProfileFields(profile);
+
+        renderAssignmentSelect('setupAssigned2', previousSecondary, true);
+        if (document.getElementById('setupAssigned2') && document.getElementById('setupAssigned2').value !== '__manual__') {
+          applyAssignmentToSecondary(document.getElementById('setupAssigned2').value);
+        } else {
+          syncSecondaryFromPrimary();
+        }
+
         updateSetupManualMode();
       }
 
@@ -1318,6 +1351,9 @@
       function syncSecondaryFromPrimary() {
         var secondaryPeaje = document.getElementById('setupPeaje2');
         if (secondaryPeaje) secondaryPeaje.value = getSelectedPeajeName();
+
+        var operador2 = document.getElementById('setupOperador2');
+        if (operador2) operador2.value = getOperatorFullName();
       }
 
       function fillSetupFormFromProfiles(meta) {
@@ -1327,7 +1363,6 @@
         document.getElementById('setupFecha').value = meta && meta.fechaTurno ? meta.fechaTurno : todayDate();
 
         renderAssignmentSelect('setupAssigned1', primary.boothId || '', false);
-        renderAssignmentSelect('setupAssigned2', secondary.boothId || '', true);
 
         if (primary && (primary.nombrePeaje || primary.concessionName || primary.numeroCaseta)) {
           setPrimaryProfileFields(primary);
@@ -1335,6 +1370,8 @@
           renderConcessionSelect('');
           renderPeajeSelect('');
         }
+
+        renderAssignmentSelect('setupAssigned2', secondary.boothId || '', true);
 
         document.getElementById('setupMultiCaseta').checked = profiles.length > 1;
         document.getElementById('setupCaseta2Box').classList.toggle('hidden', profiles.length <= 1);
@@ -1665,32 +1702,49 @@
       }
 
       function showPanelButtons() {
-        var logoutButton = document.getElementById('btnLogoutRegister');
-        if (logoutButton) {
-          var showLogout = hasStoredAuthSession();
-          logoutButton.classList.toggle('hidden', !showLogout);
-          logoutButton.textContent = '🔓 Cerrar sesión';
+        var sessionVisible = hasStoredAuthSession() || Boolean(hasValidLicense);
+        var logoutButtons = [
+          document.getElementById('btnLogoutRegister'),
+          document.getElementById('btnLogoutRegisterInline')
+        ];
+
+        logoutButtons.forEach(function(logoutButton) {
+          if (!logoutButton) return;
+          logoutButton.classList.toggle('hidden', !sessionVisible);
+          logoutButton.textContent = '🔓 Salir';
           logoutButton.title = 'Cerrar sesión para ingresar con otro usuario';
-        }
+        });
 
         var backButton = document.getElementById('btnBackToPanel');
-        if (!backButton) return;
+        if (backButton) backButton.classList.add('hidden');
 
-        var params = new URLSearchParams(window.location.search);
-        var shouldShowPanelBack = isPanelRole(authUser && authUser.role) && params.get('mode') === 'register';
-        backButton.classList.toggle('hidden', !shouldShowPanelBack);
+        var historyBack = document.getElementById('btnHistoryBack');
+        if (historyBack) historyBack.classList.add('hidden');
       }
 
-      document.getElementById('btnLogoutRegister').addEventListener('click', function() {
+      async function logoutRegisterSession() {
         clearCachedAuth();
+        siteInfo = null;
+        draftInfo = null;
+        editingId = null;
+        isEditingSetup = false;
+        await putDB(SITE_INFO_KEY, null).catch(()=>{});
+        await putDB(DRAFT_KEY, null).catch(()=>{});
+        await putDB(OPERATION_CONTEXT_KEY, null).catch(()=>{});
+
         if (licenseCard) licenseCard.classList.remove('hidden');
         if (setupCard) setupCard.classList.add('hidden');
         if (mainContent) mainContent.classList.add('hidden');
         if (siteInfoBar) siteInfoBar.classList.add('hidden');
         if (fabSave) fabSave.classList.add('hidden');
+
         showPanelButtons();
         window.location.href = '/';
-      });
+      }
+
+      document.getElementById('btnLogoutRegister').addEventListener('click', logoutRegisterSession);
+      var logoutInlineButton = document.getElementById('btnLogoutRegisterInline');
+      if (logoutInlineButton) logoutInlineButton.addEventListener('click', logoutRegisterSession);
 
       function redirectToPanelIfNeeded(role) {
         if (!isPanelRole(role)) return false;
@@ -2561,8 +2615,13 @@
       });
 
       document.getElementById('setupAssigned1').addEventListener('change', function(e) {
-        if (e.target.value !== '__manual__') applyAssignmentToPrimary(e.target.value);
-        else updateSetupManualMode();
+        if (e.target.value !== '__manual__') {
+          applyAssignmentToPrimary(e.target.value);
+        } else {
+          renderAssignmentSelect('setupAssigned2', document.getElementById('setupAssigned2')?.value || '', true);
+          updateSetupManualMode();
+          syncSecondaryFromPrimary();
+        }
       });
 
       document.getElementById('setupAssigned2').addEventListener('change', function(e) {
@@ -2574,6 +2633,21 @@
          document.getElementById('setupCaseta2Box').classList.toggle('hidden', !e.target.checked);
          syncSecondaryFromPrimary();
          applyAuthenticatedUserDefaults();
+
+         if (e.target.checked) {
+           var select2 = document.getElementById('setupAssigned2');
+           renderAssignmentSelect('setupAssigned2', select2 ? select2.value : '', true);
+
+           var firstAssignedOption = Array.from(document.getElementById('setupAssigned2').options)
+             .find(function(option) { return option.value && option.value !== '__manual__'; });
+
+           if (firstAssignedOption && document.getElementById('setupAssigned2').value === '__manual__' && navigator.onLine) {
+             document.getElementById('setupAssigned2').value = firstAssignedOption.value;
+             applyAssignmentToSecondary(firstAssignedOption.value);
+           }
+         }
+
+         updateSetupManualMode();
       });
 
       document.getElementById('setupForm').addEventListener('submit', async e => {
