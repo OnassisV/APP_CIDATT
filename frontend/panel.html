@@ -787,7 +787,9 @@
     if (concessionsCache.length && !forceRefresh) return concessionsCache;
     try {
       const data = await api('/concessions');
-      concessionsCache = (data.concessions || []).filter((item) => !isDefaultConcessionName(item.name));
+      concessionsCache = (data.concessions || [])
+        .map((item) => Object.assign({}, item, { name: canonicalConcessionName(item.name) }))
+        .filter((item) => item.name && !isDefaultConcessionName(item.name));
     } catch (_err) {
       concessionsCache = [];
     }
@@ -825,8 +827,26 @@
 
   function projectMatchesDashboardFilters(project) {
     if (!project) return false;
+    if (isDefaultConcessionName(project.concession_name)) return false;
+
     if (dashboardFilterState.projectId && String(project.id || '') !== String(dashboardFilterState.projectId)) return false;
-    if (dashboardFilterState.concessionId && String(project.concession_id || '') !== String(dashboardFilterState.concessionId)) return false;
+
+    if (dashboardFilterState.concessionId) {
+      const filter = String(dashboardFilterState.concessionId || '');
+      const projectValue = getProjectConcessionFilterValue(project);
+      const projectNameValue = 'name:' + concessionKey(getProjectConcessionName(project));
+
+      if (filter.startsWith('id:')) {
+        const filterId = filter.slice(3);
+        const projectId = project.concession_id ? String(project.concession_id) : '';
+        if (projectId !== filterId && projectNameValue !== filter) return false;
+      } else if (filter.startsWith('name:')) {
+        if (projectNameValue !== filter && projectValue !== filter) return false;
+      } else if (String(project.concession_id || '') !== filter) {
+        return false;
+      }
+    }
+
     if (dashboardFilterState.status !== 'all' && project.status !== dashboardFilterState.status) return false;
     const range = getDashboardDateRange();
     if (range.from || range.to) {
@@ -852,27 +872,73 @@
     const stationSelect = document.getElementById('sName');
     const concessionInput = document.getElementById('sConcessionName');
     if (!stationSelect || !concessionInput) return;
+
     const selectedOption = stationSelect.options[stationSelect.selectedIndex];
-    if (!selectedOption) return;
+    if (!selectedOption || selectedOption.value === '__otro__') return;
+
     const parent = selectedOption.parentElement;
-    if (!concessionInput.value && parent && parent.tagName === 'OPTGROUP') concessionInput.value = parent.label;
+    const label = canonicalConcessionName(selectedOption.dataset.concessionName || (parent && parent.tagName === 'OPTGROUP' ? parent.label : ''));
+    if (label) concessionInput.value = label;
   }
 
   function buildStationCatalogFromSelect() {
     const stationSelect = document.getElementById('sName');
     if (!stationSelect || stationSelect.dataset.catalogReady === '1') return;
+
     Array.from(stationSelect.querySelectorAll('optgroup')).forEach((group) => {
+      const canonicalName = canonicalConcessionName(group.label);
       Array.from(group.querySelectorAll('option')).forEach((option) => {
         option.dataset.concessionLabel = group.label;
+        option.dataset.concessionName = canonicalName;
+        option.dataset.concessionKey = concessionKey(canonicalName);
       });
     });
+
     stationSelect.dataset.catalogReady = '1';
   }
 
 
+  function normalizeForFilter(value) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[–—]/g, '-')
+      .replace(/\s+/g, ' ');
+  }
+
   function isDefaultConcessionName(name) {
     const normalized = normalizeForFilter(name);
     return normalized === 'concesion general' || normalized === 'concesion-general' || normalized === 'general';
+  }
+
+  function canonicalConcessionName(name) {
+    let value = String(name || '').trim();
+    if (!value) return '';
+    value = value.replace(/\s+/g, ' ');
+    // Los optgroup traen rutas entre paréntesis. La lista de concesiones debe mostrar el nombre operativo.
+    value = value.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+    return value;
+  }
+
+  function concessionKey(name) {
+    return normalizeForFilter(canonicalConcessionName(name));
+  }
+
+  function getProjectConcessionName(project) {
+    const fromConcession = canonicalConcessionName(project && project.concession_name);
+    if (fromConcession && !isDefaultConcessionName(fromConcession)) return fromConcession;
+    // Si un proyecto antiguo quedó sin concesión explícita, usamos el nombre del proyecto como respaldo visual.
+    const fromProject = canonicalConcessionName(project && project.name);
+    return isDefaultConcessionName(fromProject) ? '' : fromProject;
+  }
+
+  function getProjectConcessionFilterValue(project) {
+    const name = getProjectConcessionName(project);
+    if (!name) return '';
+    if (project && project.concession_id && !isDefaultConcessionName(project.concession_name)) return 'id:' + project.concession_id;
+    return 'name:' + concessionKey(name);
   }
 
   function getCatalogConcessions() {
@@ -880,50 +946,92 @@
     if (!stationSelect) return [];
     const map = new Map();
     Array.from(stationSelect.querySelectorAll('optgroup')).forEach((group) => {
-      const label = String(group.label || '').trim();
+      const label = canonicalConcessionName(group.label);
       if (!label || isDefaultConcessionName(label)) return;
-      const key = normalizeForFilter(label);
-      if (!map.has(key)) map.set(key, { id: 'catalog:' + key.replace(/[^a-z0-9]+/g, '-'), name: label, isCatalog: true });
+      const key = concessionKey(label);
+      if (!map.has(key)) map.set(key, { id: 'catalog:' + key.replace(/[^a-z0-9]+/g, '-'), name: label, isCatalog: true, key });
     });
     return Array.from(map.values());
   }
 
   function getMergedConcessions() {
     const merged = new Map();
+
+    // Primero van las concesiones registradas en la BD.
     (concessionsCache || []).forEach((item) => {
-      if (!item || !item.name || isDefaultConcessionName(item.name)) return;
-      merged.set(normalizeForFilter(item.name), item);
+      const displayName = canonicalConcessionName(item && item.name);
+      if (!item || !displayName || isDefaultConcessionName(displayName)) return;
+      const key = concessionKey(displayName);
+      merged.set(key, { id: item.id, name: displayName, isCatalog: false, key });
     });
+
+    // Luego completamos con el catálogo estático de peajes, sin duplicar nombres equivalentes.
     getCatalogConcessions().forEach((item) => {
-      if (!merged.has(normalizeForFilter(item.name))) merged.set(normalizeForFilter(item.name), item);
+      if (!merged.has(item.key)) merged.set(item.key, item);
     });
+
     return Array.from(merged.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
+  }
+
+  function getDashboardConcessionOptions() {
+    const map = new Map();
+    const projects = dashboardRawData && dashboardRawData.projectStats ? dashboardRawData.projectStats : [];
+
+    projects.forEach((project) => {
+      const name = getProjectConcessionName(project);
+      if (!name || isDefaultConcessionName(name)) return;
+      const value = getProjectConcessionFilterValue(project);
+      if (!value) return;
+      if (!map.has(value)) map.set(value, { value, name });
+    });
+
+    return Array.from(map.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
   }
 
   function getSelectedConcessionPayload(selectId, customInputId) {
     const select = document.getElementById(selectId);
     const custom = document.getElementById(customInputId);
     if (!select) return { id: null, name: '' };
-    if (select.value === '__other__') return { id: null, name: String(custom?.value || '').trim() };
+
+    if (select.value === '__other__') {
+      return { id: null, name: canonicalConcessionName(custom?.value || '') };
+    }
+
     const selected = select.options[select.selectedIndex];
     const rawValue = String(select.value || '');
-    const isDbId = rawValue && !rawValue.startsWith('catalog:');
+    const isDbId = rawValue && !rawValue.startsWith('catalog:') && !rawValue.startsWith('id:') && !rawValue.startsWith('name:');
+
     return {
       id: isDbId ? Number(rawValue) : null,
-      name: String(selected?.dataset?.name || selected?.text || '').trim()
+      name: canonicalConcessionName(selected?.dataset?.name || selected?.text || '')
     };
   }
 
-    function renderConcessionOptions(selectId, includeOther) {
+  function renderConcessionOptions(selectId, includeOther) {
     const select = document.getElementById(selectId);
     if (!select) return;
+
     const currentValue = select.value;
-    const label = selectId === 'dashFilterConcession' ? 'Todas las concesiones' : 'Seleccionar concesión...';
-    const base = [`<option value="">${label}</option>`]
-      .concat(getMergedConcessions().map((item) => `<option value="${item.id}" data-name="${esc(item.name)}">${esc(item.name)}</option>`));
-    if (includeOther) base.push('<option value="__other__">Otros</option>');
-    select.innerHTML = base.join('');
-    if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) select.value = currentValue;
+    const isDashboard = selectId === 'dashFilterConcession';
+    const label = isDashboard ? 'Todas las concesiones' : 'Seleccionar concesión...';
+    const source = isDashboard ? getDashboardConcessionOptions() : getMergedConcessions();
+
+    const options = [`<option value="">${label}</option>`].concat(
+      source.map((item) => {
+        const value = isDashboard ? item.value : item.id;
+        return `<option value="${esc(value)}" data-name="${esc(item.name)}">${esc(item.name)}</option>`;
+      })
+    );
+
+    if (includeOther) options.push('<option value="__other__">Otros</option>');
+
+    select.innerHTML = options.join('');
+
+    if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
+      select.value = currentValue;
+    } else if (isDashboard) {
+      dashboardFilterState.concessionId = '';
+    }
   }
 
   function syncProjectNameFromConcession(force) {
@@ -934,44 +1042,74 @@
     if (!select || !nameInput) return;
     if (select.value === '__other__') {
       if (customWrap) customWrap.style.display = 'block';
-      nameInput.value = customInput ? customInput.value.trim() : '';
+      nameInput.value = customInput ? canonicalConcessionName(customInput.value.trim()) : '';
       return;
     }
     if (customWrap) customWrap.style.display = 'none';
     const selected = select.options[select.selectedIndex];
     if (!selected || !select.value) return;
-    const concessionName = selected.dataset.name || selected.text || '';
+    const concessionName = canonicalConcessionName(selected.dataset.name || selected.text || '');
     if (!nameInput.value || force) nameInput.value = concessionName;
   }
 
-    function filterStationOptionsByConcession() {
+  function getSelectedConcessionNameFromSelect(selectId, customInputId) {
+    const payload = getSelectedConcessionPayload(selectId, customInputId);
+    return canonicalConcessionName(payload.name);
+  }
+
+  function filterStationOptionsByConcession() {
     buildStationCatalogFromSelect();
+
     const stationSelect = document.getElementById('sName');
     const concessionSelect = document.getElementById('sConcessionSelect');
     const concessionInput = document.getElementById('sConcessionName');
-    if (!stationSelect || !concessionSelect || !concessionInput) return;
-    const selectedOption = concessionSelect.options[concessionSelect.selectedIndex];
-    const isOther = concessionSelect.value === '__other__';
-    const selectedLabel = selectedOption ? (selectedOption.dataset.name || selectedOption.text) : '';
-    const normalizedSelected = normalizeForFilter(selectedLabel);
-    Array.from(stationSelect.options).forEach((option) => {
-      if (!option.value) return option.hidden = false;
-      if (option.value === '__otro__') return option.hidden = false;
-      if (isOther || !normalizedSelected) return option.hidden = false;
-      const optionConcession = normalizeForFilter(option.dataset.concessionLabel || option.parentElement?.label || '');
-      option.hidden = Boolean(normalizedSelected) && !(optionConcession.includes(normalizedSelected) || normalizedSelected.includes(optionConcession));
-    });
-    concessionInput.value = isOther ? '' : selectedLabel;
-    if (stationSelect.selectedOptions[0]?.hidden) stationSelect.value = '';
-    stationSelect.dispatchEvent(new Event('change'));
-  }
 
-  function normalizeForFilter(value) {
-    return String(value || '')
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
+    if (!stationSelect || !concessionSelect || !concessionInput) return;
+
+    const previousValue = stationSelect.value;
+    const isOther = concessionSelect.value === '__other__';
+    const selectedName = getSelectedConcessionNameFromSelect('sConcessionSelect', 'sConcessionCustom');
+    const selectedKey = concessionKey(selectedName);
+
+    concessionInput.value = isOther ? '' : selectedName;
+
+    Array.from(stationSelect.options).forEach((option) => {
+      if (!option.value || option.value === '__otro__') {
+        option.hidden = false;
+        return;
+      }
+
+      if (isOther || !selectedKey) {
+        option.hidden = true;
+        return;
+      }
+
+      const optionKey = option.dataset.concessionKey || concessionKey(option.dataset.concessionName || option.dataset.concessionLabel || option.parentElement?.label || '');
+      option.hidden = optionKey !== selectedKey;
+    });
+
+    const visibleOptions = Array.from(stationSelect.options).filter((option) => option.value && option.value !== '__otro__' && !option.hidden);
+
+    if (isOther || !selectedKey) {
+      stationSelect.value = '__otro__';
+      const customWrap = document.getElementById('sNameCustomWrap');
+      if (customWrap) customWrap.style.display = 'block';
+    } else if (previousValue && Array.from(stationSelect.options).some((option) => option.value === previousValue && !option.hidden)) {
+      stationSelect.value = previousValue;
+    } else if (visibleOptions.length === 1) {
+      stationSelect.value = visibleOptions[0].value;
+    } else {
+      stationSelect.value = '';
+    }
+
+    const hint = document.getElementById('sTemplateHint');
+    if (hint) {
+      if (isOther) hint.textContent = 'Nueva concesión: registra el peaje manualmente.';
+      else if (!selectedKey) hint.textContent = 'Selecciona una concesión para mostrar sus peajes.';
+      else hint.textContent = visibleOptions.length ? `${visibleOptions.length} peaje(s) disponibles para ${selectedName}.` : `No hay peajes precargados para ${selectedName}. Usa “Otros” para registrarlo.`;
+    }
+
+    stationSelect.dispatchEvent(new Event('change'));
   }
 
   async function applyStationTemplate() {
@@ -988,10 +1126,11 @@
       return;
     }
     try {
+      const selectedConcession = getSelectedConcessionPayload('sConcessionSelect', 'sConcessionCustom');
       const data = await api('/stations/template?' + new URLSearchParams({
         name: stationName,
-        concession_id: concessionSelect && concessionSelect.value && concessionSelect.value !== '__other__' ? concessionSelect.value : '',
-        concession_name: concessionInput.value || ''
+        concession_id: selectedConcession.id || '',
+        concession_name: selectedConcession.name || concessionInput.value || ''
       }).toString());
       const template = data.template;
       if (!template) {
@@ -1130,7 +1269,8 @@
         applyStationTemplate();
       });
       document.getElementById('sConcessionCustom').addEventListener('input', () => {
-        document.getElementById('sConcessionName').value = document.getElementById('sConcessionCustom').value.trim();
+        document.getElementById('sConcessionName').value = canonicalConcessionName(document.getElementById('sConcessionCustom').value.trim());
+        filterStationOptionsByConcession();
       });
       const hint = document.createElement('div');
       hint.id = 'sTemplateHint';
@@ -1147,14 +1287,17 @@
 
     if (document.getElementById('dashFilterConcession') && !document.getElementById('dashFilterConcession').dataset.bound) {
       document.getElementById('dashFilterConcession').dataset.bound = '1';
-      ['dashFilterConcession', 'dashFilterStatus', 'dashFilterDateMode', 'dashFilterDateFrom', 'dashFilterDateTo'].forEach((id) => {
-        document.getElementById(id).addEventListener('change', () => {
+      ['dashFilterConcession', 'dashFilterProject', 'dashFilterStatus', 'dashFilterDateMode', 'dashFilterDateFrom', 'dashFilterDateTo'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('change', () => {
           dashboardFilterState = {
-            concessionId: document.getElementById('dashFilterConcession').value,
-            status: document.getElementById('dashFilterStatus').value,
-            dateMode: document.getElementById('dashFilterDateMode').value,
-            dateFrom: document.getElementById('dashFilterDateFrom').value,
-            dateTo: document.getElementById('dashFilterDateTo').value
+            concessionId: document.getElementById('dashFilterConcession')?.value || '',
+            projectId: document.getElementById('dashFilterProject')?.value || '',
+            status: document.getElementById('dashFilterStatus')?.value || 'all',
+            dateMode: document.getElementById('dashFilterDateMode')?.value || 'all',
+            dateFrom: document.getElementById('dashFilterDateFrom')?.value || '',
+            dateTo: document.getElementById('dashFilterDateTo')?.value || ''
           };
           applyDashboardFilters();
         });
@@ -1421,23 +1564,40 @@
 
 
 
+  function projectMatchesDashboardConcessionOnly(project) {
+    if (!dashboardFilterState.concessionId) return true;
+    const filter = String(dashboardFilterState.concessionId || '');
+    const projectValue = getProjectConcessionFilterValue(project);
+    const projectNameValue = 'name:' + concessionKey(getProjectConcessionName(project));
+
+    if (filter.startsWith('id:')) {
+      const filterId = filter.slice(3);
+      const projectId = project && project.concession_id ? String(project.concession_id) : '';
+      return projectId === filterId || projectNameValue === filter;
+    }
+
+    if (filter.startsWith('name:')) {
+      return projectNameValue === filter || projectValue === filter;
+    }
+
+    return String(project && project.concession_id || '') === filter;
+  }
+
   function renderDashboardProjectFilterOptions() {
     const select = document.getElementById('dashFilterProject');
     if (!select || !dashboardRawData) return;
 
     const currentValue = select.value;
-    const projects = (dashboardRawData.projectStats || []).filter((project) => !isDefaultConcessionName(project.concession_name));
+    const projects = (dashboardRawData.projectStats || []).filter((project) => getProjectConcessionName(project));
 
-    const visibleProjects = projects.filter((project) => {
-      if (!dashboardFilterState.concessionId) return true;
-      return String(project.concession_id || '') === String(dashboardFilterState.concessionId);
-    });
+    const visibleProjects = projects.filter((project) => projectMatchesDashboardConcessionOnly(project));
 
     select.innerHTML =
       '<option value="">Todos los proyectos</option>' +
       visibleProjects.map((project) => {
-        const label = `${project.name || 'Proyecto'}${project.concession_name ? ' — ' + project.concession_name : ''}`;
-        return `<option value="${project.id}">${esc(label)}</option>`;
+        const concessionName = getProjectConcessionName(project);
+        const label = `${project.name || 'Proyecto'}${concessionName ? ' — ' + concessionName : ''}`;
+        return `<option value="${esc(project.id)}">${esc(label)}</option>`;
       }).join('');
 
     if (currentValue && visibleProjects.some((project) => String(project.id) === String(currentValue))) {
@@ -1575,8 +1735,8 @@
     if (!confirm(`¿Eliminar el proyecto "${projectName}"? Solo se permite si no tiene personal asignado.`)) return;
     try {
       await api('/projects/' + projectId, { method: 'DELETE' });
-      loadProjects();
-      if (currentViewId === 'viewDashboard') loadDashboard();
+      await loadProjectsList();
+      await loadDashboard();
     } catch (e) { alert(e.message); }
   }
   window.deleteProject = deleteProject;
@@ -1841,13 +2001,17 @@
     if (document.getElementById('pMaxBooths')) document.getElementById('pMaxBooths').value = maxBooths || 2;
     if (document.getElementById('pConcessionSelect')) {
       const select = document.getElementById('pConcessionSelect');
-      const hasOption = Array.from(select.options).some((option) => String(option.value) === String(concessionId || ''));
-      if (hasOption) {
-        select.value = concessionId || '';
+      const targetName = canonicalConcessionName(concessionName || name || '');
+      const byId = Array.from(select.options).find((option) => String(option.value) === String(concessionId || ''));
+      const byName = Array.from(select.options).find((option) => concessionKey(option.dataset.name || option.text) === concessionKey(targetName));
+      const matched = byId || byName;
+
+      if (matched) {
+        select.value = matched.value;
         if (document.getElementById('pConcessionCustomWrap')) document.getElementById('pConcessionCustomWrap').style.display = 'none';
       } else {
         select.value = '__other__';
-        if (document.getElementById('pConcessionCustom')) document.getElementById('pConcessionCustom').value = concessionName || '';
+        if (document.getElementById('pConcessionCustom')) document.getElementById('pConcessionCustom').value = targetName || '';
         if (document.getElementById('pConcessionCustomWrap')) document.getElementById('pConcessionCustomWrap').style.display = 'block';
       }
     }

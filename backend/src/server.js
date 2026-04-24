@@ -431,7 +431,12 @@ app.put('/api/users/:id', authenticateRequest, requireMinRole('director'), async
 
 app.get('/api/concessions', authenticateRequest, requireMinRole('coordinador'), async (_req, res, next) => {
   try {
-    const rows = await query(`SELECT id, name, status FROM ${TABLES.concessions} ORDER BY name ASC`);
+    const rows = await query(
+      `SELECT id, name, status
+       FROM ${TABLES.concessions}
+       WHERE LOWER(TRIM(name)) NOT IN ('concesion general', 'concesión general', 'general')
+       ORDER BY name ASC`
+    );
     res.json({ ok: true, concessions: rows });
   } catch (error) { next(error); }
 });
