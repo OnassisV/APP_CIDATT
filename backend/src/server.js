@@ -161,6 +161,24 @@ function parseBaseCatalogGroupName(rawName) {
   return { concessionName: raw, projectName: raw };
 }
 
+function normalizeProjectType(value) {
+  const raw = normalizeText(value || '');
+  if (['base', 'catalogo', 'catalog', 'parametro', 'parametros', 'red vial', 'red_vial'].includes(raw)) return 'base';
+  return 'operativo';
+}
+
+function getProjectTypeFilter(value) {
+  const raw = normalizeText(value || '');
+  if (!raw) return 'operativo';
+  if (['all', 'todos', 'todo'].includes(raw)) return 'all';
+  return normalizeProjectType(raw);
+}
+
+function looksLikeImportedBaseDescription(value) {
+  const normalized = normalizeText(value || '');
+  return normalized.includes('importado desde lista base') || normalized.includes('catalogo base') || normalized.includes('catálogo base') || normalized.includes('parametros');
+}
+
 function parseOptionalInt(value) {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
@@ -490,10 +508,13 @@ async function buildCatalogStructure() {
     `SELECT p.id, p.name, p.description, p.status, p.start_date, p.end_date,
             p.concession_id, c.name AS concession_name,
             COALESCE(p.max_booths_per_operator, 2) AS max_booths_per_operator,
+            COALESCE(p.project_type, 'operativo') AS project_type,
+            p.base_project_id, p.operation_label,
             p.created_at, p.updated_at
      FROM ${TABLES.projects} p
      LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
-     WHERE c.id IS NULL OR LOWER(TRIM(c.name)) NOT IN ('concesion general', 'concesión general', 'general')
+     WHERE COALESCE(p.project_type, 'operativo') = 'base'
+       AND (c.id IS NULL OR LOWER(TRIM(c.name)) NOT IN ('concesion general', 'concesión general', 'general'))
      ORDER BY c.name ASC, p.name ASC`
   );
 
@@ -783,6 +804,32 @@ app.get('/api/catalog/structure', authenticateRequest, async (_req, res, next) =
   } catch (error) { next(error); }
 });
 
+app.get('/api/catalog/base-projects', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
+  try {
+    const concessionId = parseOptionalInt(req.query.concession_id);
+    const params = [];
+    const filters = [`COALESCE(p.project_type, 'operativo') = 'base'`];
+
+    if (concessionId) {
+      filters.push('p.concession_id = ?');
+      params.push(concessionId);
+    }
+
+    filters.push("(c.id IS NULL OR LOWER(TRIM(c.name)) NOT IN ('concesion general', 'concesión general', 'general'))");
+
+    const rows = await query(
+      `SELECT p.id, p.name, p.status, p.concession_id, c.name AS concession_name
+       FROM ${TABLES.projects} p
+       LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+       WHERE ${filters.join(' AND ')}
+       ORDER BY c.name ASC, p.name ASC`,
+      params
+    );
+
+    res.json({ ok: true, baseProjects: rows });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/catalog/import-base', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
     const catalog = Array.isArray(req.body.catalog) ? req.body.catalog : [];
@@ -829,7 +876,8 @@ app.post('/api/catalog/import-base', authenticateRequest, requireMinRole('direct
         if (projectName) {
           const [existingProjects] = await conn.execute(
             `SELECT id FROM ${TABLES.projects}
-             WHERE concession_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+             WHERE concession_id = ? AND COALESCE(project_type, 'operativo') = 'base'
+               AND LOWER(TRIM(name)) = LOWER(TRIM(?))
              LIMIT 1`,
             [concessionId, projectName]
           );
@@ -839,11 +887,11 @@ app.post('/api/catalog/import-base', authenticateRequest, requireMinRole('direct
           } else {
             const [projectResult] = await conn.execute(
               `INSERT INTO ${TABLES.projects}
-               (name, description, status, start_date, end_date, concession_id, max_booths_per_operator, created_by)
-               VALUES (?, ?, 'activo', COALESCE(?, CURDATE()), ?, ?, 2, ?)`,
+               (name, description, status, start_date, end_date, concession_id, project_type, base_project_id, operation_label, max_booths_per_operator, created_by)
+               VALUES (?, ?, 'activo', COALESCE(?, '1970-01-01'), ?, ?, 'base', NULL, NULL, 2, ?)`,
               [
                 projectName,
-                group.description || 'Importado desde lista base de desplegables',
+                group.description || 'Catalogo base editable desde Parametros',
                 group.start_date || null,
                 group.end_date || null,
                 concessionId,
@@ -948,11 +996,22 @@ app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), asy
     const filters = [];
     const params = [];
     const concessionId = parseOptionalInt(req.query.concession_id);
+    const baseProjectId = parseOptionalInt(req.query.base_project_id);
     const status = String(req.query.status || '').trim();
+    const projectTypeFilter = getProjectTypeFilter(req.query.project_type || req.query.type);
+
+    if (projectTypeFilter !== 'all') {
+      filters.push(`COALESCE(p.project_type, 'operativo') = ?`);
+      params.push(projectTypeFilter);
+    }
 
     if (concessionId) {
       filters.push('p.concession_id = ?');
       params.push(concessionId);
+    }
+    if (baseProjectId) {
+      filters.push('p.base_project_id = ?');
+      params.push(baseProjectId);
     }
     if (status) {
       filters.push('p.status = ?');
@@ -964,23 +1023,32 @@ app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), asy
     if (['admin', 'director'].includes(req.authUser.role)) {
       const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
       rows = await query(
-        `SELECT p.*, c.name AS concession_name
+        `SELECT p.*, COALESCE(p.project_type, 'operativo') AS project_type,
+                c.name AS concession_name,
+                bp.name AS base_project_name
          FROM ${TABLES.projects} p
          LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+         LEFT JOIN ${TABLES.projects} bp ON bp.id = p.base_project_id
          ${where}
-         ORDER BY p.start_date DESC`,
+         ORDER BY p.start_date DESC, p.name ASC`,
         params
       );
     } else {
       const where = filters.length ? 'AND ' + filters.join(' AND ') : '';
       rows = await query(
-        `SELECT DISTINCT p.*, c.name AS concession_name FROM ${TABLES.projects} p
+        `SELECT DISTINCT p.*, COALESCE(p.project_type, 'operativo') AS project_type,
+                c.name AS concession_name,
+                bp.name AS base_project_name
+         FROM ${TABLES.projects} p
          LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+         LEFT JOIN ${TABLES.projects} bp ON bp.id = p.base_project_id
          INNER JOIN ${TABLES.assignments} a ON a.project_id = p.id
-         WHERE a.user_id = ? AND a.is_active = 1 ${where} ORDER BY p.start_date DESC`,
+         WHERE a.user_id = ? AND a.is_active = 1 ${where}
+         ORDER BY p.start_date DESC, p.name ASC`,
         [req.authUser.user_id, ...params]
       );
     }
+
     for (const p of rows) {
       const [counts] = await query(
         `SELECT COUNT(*) AS total_records,
@@ -1017,41 +1085,180 @@ app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), asy
       p.total_concessions = boothCounts.total_concessions;
       p.total_sites = stationCounts.total_sites;
     }
+
     res.json({ ok: true, projects: rows });
   } catch (error) { next(error); }
 });
 
 app.post('/api/projects', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
-    const { name, description, start_date, end_date, max_booths_per_operator, concession_id, concession_name } = req.body;
-    if (!name || !start_date) throw badRequest('Nombre y fecha inicio son obligatorios.');
-    const resolvedConcessionId = await resolveConcessionId({ concessionId: concession_id, concessionName: concession_name, fallbackToDefault: false });
+    const {
+      name, description, start_date, end_date, max_booths_per_operator,
+      concession_id, concession_name, project_type, base_project_id,
+      operation_label, station_ids, stations
+    } = req.body;
+
+    const resolvedProjectType = normalizeProjectType(project_type || 'operativo');
+    const baseProjectId = parseOptionalInt(base_project_id);
+    const selectedStationIds = uniquePositiveIds(station_ids || stations || []);
+
+    let resolvedConcessionId = await resolveConcessionId({
+      concessionId: concession_id,
+      concessionName: concession_name,
+      fallbackToDefault: false
+    });
+
+    let baseProject = null;
+    if (baseProjectId) {
+      const baseRows = await query(
+        `SELECT id, name, concession_id, COALESCE(project_type, 'operativo') AS project_type
+         FROM ${TABLES.projects}
+         WHERE id = ?
+         LIMIT 1`,
+        [baseProjectId]
+      );
+      if (!baseRows.length) throw badRequest('Proyecto base no encontrado.');
+      baseProject = baseRows[0];
+      if (normalizeProjectType(baseProject.project_type) !== 'base') {
+        throw badRequest('El proyecto base seleccionado no pertenece al catalogo de Parametros.');
+      }
+      if (resolvedConcessionId && Number(baseProject.concession_id || 0) !== Number(resolvedConcessionId)) {
+        throw badRequest('El proyecto base no pertenece a la concesion seleccionada.');
+      }
+      resolvedConcessionId = Number(baseProject.concession_id || 0) || resolvedConcessionId;
+    }
+
+    const finalName = String(name || '').trim();
+    if (!finalName) throw badRequest(resolvedProjectType === 'base' ? 'Nombre del proyecto base requerido.' : 'Nombre del proyecto operativo requerido.');
+    if (!resolvedConcessionId) throw badRequest('La concesion es obligatoria.');
+
+    const finalStartDate = resolvedProjectType === 'base' ? (start_date || '1970-01-01') : start_date;
+    if (resolvedProjectType !== 'base' && !finalStartDate) {
+      throw badRequest('Fecha inicio es obligatoria para un proyecto operativo.');
+    }
+
     const result = await query(
-      `INSERT INTO ${TABLES.projects} (name, description, start_date, end_date, concession_id, max_booths_per_operator, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [String(name).trim(), description||null, start_date, end_date||null, resolvedConcessionId, sanitizeMaxBoothsPerOperator(max_booths_per_operator), req.authUser.user_id]
+      `INSERT INTO ${TABLES.projects}
+       (name, description, status, start_date, end_date, concession_id, project_type, base_project_id, operation_label, max_booths_per_operator, created_by)
+       VALUES (?, ?, COALESCE(?, 'activo'), ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        finalName,
+        description || null,
+        req.body.status || null,
+        finalStartDate,
+        end_date || null,
+        resolvedConcessionId,
+        resolvedProjectType,
+        resolvedProjectType === 'base' ? null : baseProjectId,
+        operation_label || null,
+        sanitizeMaxBoothsPerOperator(max_booths_per_operator),
+        req.authUser.user_id
+      ]
     );
-    res.json({ ok: true, projectId: result.insertId });
+    const projectId = result.insertId;
+
+    if (selectedStationIds.length) {
+      const placeholders = selectedStationIds.map(() => '?').join(',');
+      const stationRows = await query(
+        `SELECT id, concession_id
+         FROM ${TABLES.stations}
+         WHERE id IN (${placeholders})`,
+        selectedStationIds
+      );
+      if (stationRows.length !== selectedStationIds.length) throw badRequest('Alguno de los peajes seleccionados no existe.');
+      for (const station of stationRows) {
+        if (Number(station.concession_id || 0) !== Number(resolvedConcessionId)) {
+          throw badRequest('Todos los peajes seleccionados deben pertenecer a la concesion del proyecto.');
+        }
+        await query(
+          `INSERT INTO ${TABLES.projectSites} (project_id, station_id, linked_by, is_active)
+           VALUES (?, ?, ?, 1)
+           ON DUPLICATE KEY UPDATE is_active = 1, linked_by = VALUES(linked_by)`,
+          [projectId, station.id, req.authUser.user_id]
+        );
+      }
+    } else if (resolvedProjectType !== 'base' && baseProjectId) {
+      const baseStations = await query(
+        `SELECT station_id FROM ${TABLES.projectSites}
+         WHERE project_id = ? AND is_active = 1`,
+        [baseProjectId]
+      );
+      for (const station of baseStations) {
+        await query(
+          `INSERT INTO ${TABLES.projectSites} (project_id, station_id, linked_by, is_active)
+           VALUES (?, ?, ?, 1)
+           ON DUPLICATE KEY UPDATE is_active = 1, linked_by = VALUES(linked_by)`,
+          [projectId, station.station_id, req.authUser.user_id]
+        );
+      }
+    }
+
+    res.json({ ok: true, projectId, projectType: resolvedProjectType, baseProjectId: baseProjectId || null });
   } catch (error) { next(error); }
 });
 
 app.put('/api/projects/:id', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
-    const { name, description, start_date, end_date, daily_start_time, daily_end_time, status, max_booths_per_operator, concession_id, concession_name } = req.body;
+    const {
+      name, description, start_date, end_date, daily_start_time, daily_end_time,
+      status, max_booths_per_operator, concession_id, concession_name,
+      project_type, base_project_id, operation_label
+    } = req.body;
+
+    const projectId = parseOptionalInt(req.params.id);
+    if (!projectId) throw badRequest('Proyecto invalido.');
+
+    const [currentProject] = await query(
+      `SELECT id, COALESCE(project_type, 'operativo') AS project_type, base_project_id, concession_id
+       FROM ${TABLES.projects}
+       WHERE id = ?
+       LIMIT 1`,
+      [projectId]
+    );
+    if (!currentProject) throw badRequest('Proyecto no encontrado.');
+
+    const nextProjectType = project_type ? normalizeProjectType(project_type) : normalizeProjectType(currentProject.project_type);
+    const nextBaseProjectId = base_project_id !== undefined ? parseOptionalInt(base_project_id) : currentProject.base_project_id;
     const resolvedConcessionId = concession_id || concession_name
       ? await resolveConcessionId({ concessionId: concession_id, concessionName: concession_name, fallbackToDefault: false })
       : null;
+
+    if (nextBaseProjectId) {
+      const [baseProject] = await query(
+        `SELECT id, concession_id, COALESCE(project_type, 'operativo') AS project_type
+         FROM ${TABLES.projects}
+         WHERE id = ?
+         LIMIT 1`,
+        [nextBaseProjectId]
+      );
+      if (!baseProject || normalizeProjectType(baseProject.project_type) !== 'base') {
+        throw badRequest('Proyecto base invalido.');
+      }
+      const targetConcessionId = resolvedConcessionId || currentProject.concession_id;
+      if (targetConcessionId && Number(baseProject.concession_id || 0) !== Number(targetConcessionId)) {
+        throw badRequest('El proyecto base no pertenece a la concesion seleccionada.');
+      }
+    }
+
     await query(
       `UPDATE ${TABLES.projects} SET name=COALESCE(?,name), description=COALESCE(?,description),
        start_date=COALESCE(?,start_date), end_date=COALESCE(?,end_date),
        daily_start_time=COALESCE(?,daily_start_time), daily_end_time=COALESCE(?,daily_end_time),
        status=COALESCE(?,status), concession_id=COALESCE(?, concession_id),
+       project_type=COALESCE(?, project_type),
+       base_project_id=?,
+       operation_label=COALESCE(?, operation_label),
        max_booths_per_operator=COALESCE(?,max_booths_per_operator) WHERE id=?`,
-      [name||null, description||null, start_date||null, end_date||null,
-       daily_start_time||null, daily_end_time||null, status||null,
-       resolvedConcessionId, max_booths_per_operator != null ? sanitizeMaxBoothsPerOperator(max_booths_per_operator) : null, req.params.id]
+      [
+        name || null, description || null, start_date || null, end_date || null,
+        daily_start_time || null, daily_end_time || null, status || null,
+        resolvedConcessionId, nextProjectType, nextProjectType === 'base' ? null : nextBaseProjectId || null,
+        operation_label || null,
+        max_booths_per_operator != null ? sanitizeMaxBoothsPerOperator(max_booths_per_operator) : null,
+        projectId
+      ]
     );
-    res.json({ ok: true });
+    res.json({ ok: true, projectId, projectType: nextProjectType });
   } catch (error) { next(error); }
 });
 
@@ -1059,6 +1266,20 @@ app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'),
   try {
     const projectId = Number(req.params.id || 0);
     if (!projectId) throw badRequest('Proyecto invalido.');
+    const [projectRow] = await query(
+      `SELECT id, COALESCE(project_type, 'operativo') AS project_type FROM ${TABLES.projects} WHERE id = ? LIMIT 1`,
+      [projectId]
+    );
+    if (!projectRow) throw badRequest('Proyecto no encontrado.');
+
+    const [childOperations] = await query(
+      `SELECT COUNT(*) AS total FROM ${TABLES.projects} WHERE base_project_id = ?`,
+      [projectId]
+    );
+    if (Number(childOperations?.total || 0) > 0) {
+      throw badRequest('No se puede eliminar el proyecto base porque ya fue usado por proyectos operativos.');
+    }
+
     const [activeAssignments] = await query(
       `SELECT COUNT(*) AS total FROM ${TABLES.assignments} WHERE project_id = ? AND is_active = 1`,
       [projectId]
@@ -1962,6 +2183,7 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
        LEFT JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
        LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id AND a.booth_id = tb.id AND a.is_active = 1
        LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id OR (r.project_id IS NULL AND r.toll_name = ts.name))
+       WHERE COALESCE(p.project_type, 'operativo') = 'operativo'
        GROUP BY p.id, p.name, p.status, p.start_date, p.end_date, p.daily_start_time, p.daily_end_time, p.concession_id, c.name
        ORDER BY p.start_date DESC`
     );
@@ -2373,6 +2595,9 @@ async function runMigrations() {
       start_date DATE NOT NULL,
       end_date DATE NULL,
       concession_id INT UNSIGNED NULL,
+      project_type VARCHAR(20) NOT NULL DEFAULT 'operativo',
+      base_project_id INT UNSIGNED NULL,
+      operation_label VARCHAR(160) NULL,
       daily_start_time TIME NULL COMMENT 'Hora inicio registro cada día',
       daily_end_time TIME NULL COMMENT 'Hora fin registro cada día',
       max_booths_per_operator INT NOT NULL DEFAULT 2,
@@ -2416,6 +2641,10 @@ async function runMigrations() {
       station_id INT UNSIGNED NOT NULL,
       linked_by BIGINT UNSIGNED NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
+      work_start_date DATE NULL,
+      work_end_date DATE NULL,
+      daily_start_time TIME NULL,
+      daily_end_time TIME NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -2546,6 +2775,35 @@ async function runMigrations() {
     await query(`ALTER TABLE ${TABLES.projects} ADD COLUMN concession_id INT UNSIGNED NULL AFTER end_date`);
   } catch (_) {}
   try {
+    await query(`ALTER TABLE ${TABLES.projects} ADD COLUMN project_type VARCHAR(20) NOT NULL DEFAULT 'operativo' AFTER concession_id`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projects} ADD COLUMN base_project_id INT UNSIGNED NULL AFTER project_type`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projects} ADD COLUMN operation_label VARCHAR(160) NULL AFTER base_project_id`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projectSites} ADD COLUMN work_start_date DATE NULL AFTER is_active`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projectSites} ADD COLUMN work_end_date DATE NULL AFTER work_start_date`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projectSites} ADD COLUMN daily_start_time TIME NULL AFTER work_end_date`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projectSites} ADD COLUMN daily_end_time TIME NULL AFTER daily_start_time`);
+  } catch (_) {}
+  await query(
+    `UPDATE ${TABLES.projects}
+     SET project_type = 'base'
+     WHERE COALESCE(project_type, 'operativo') <> 'base'
+       AND (LOWER(COALESCE(description, '')) LIKE '%importado desde lista base%'
+            OR LOWER(COALESCE(description, '')) LIKE '%catalogo base%'
+            OR LOWER(COALESCE(description, '')) LIKE '%catálogo base%')`
+  );
+  try {
     await query(`ALTER TABLE ${TABLES.stations} DROP FOREIGN KEY fk_cidatt_stations_project`);
   } catch (_) {}
   try {
@@ -2592,6 +2850,12 @@ async function runMigrations() {
   } catch (_) {}
   try {
     await query(`ALTER TABLE ${TABLES.presence} ADD INDEX idx_cidatt_presence_project_user (project_id, user_id, last_heartbeat_at)`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projects} ADD INDEX idx_cidatt_projects_type_concession (project_type, concession_id)`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projects} ADD INDEX idx_cidatt_projects_base (base_project_id)`);
   } catch (_) {}
 
   await query(`UPDATE ${TABLES.projects} SET max_booths_per_operator = 2 WHERE max_booths_per_operator IS NULL OR max_booths_per_operator > 2 OR max_booths_per_operator < 1`);

@@ -1866,6 +1866,7 @@
     ensureDynamicFields();
     ensureOperationalEnhancements();
     upgradeDashboardFiltersCard();
+    applyBaseOperationalPanelPatch();
     document.getElementById('sidebarUserName').textContent = currentUser.fullName;
     document.getElementById('sidebarUserRole').textContent = roleLabel(currentUser.role);
     document.getElementById('dashTitle').textContent = 'Dashboard — ' + roleLabel(currentUser.role);
@@ -1887,6 +1888,9 @@
         dashSelect.insertAdjacentHTML('afterbegin', '<option value="">Todas</option>');
       }
       upgradeDashboardFiltersCard();
+      applyBaseOperationalPanelPatch();
+      renderBaseProjectOptions();
+      renderProjectStationChecklist();
       applyDashboardFilters();
     }).catch(() => {});
 
@@ -2256,7 +2260,7 @@
             <td>${p.staffed_booths||0}/${p.total_booths||0}</td>
             <td class="table-actions">
               <button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Detalle</button>
-              <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}',${p.max_booths_per_operator||2},${p.concession_id||0},'${esc(p.concession_name||'')}')">Editar</button>
+              <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}',${p.max_booths_per_operator||2},${p.concession_id||0},'${esc(p.concession_name||'')}',${p.base_project_id||0},'${esc(p.operation_label||'')}')">Editar</button>
               <button class="btn btn-soft btn-sm danger-link-btn" ${canDelete ? '' : 'disabled'} title="${canDelete ? 'Eliminar proyecto' : 'No se puede eliminar con personal asignado o turnos abiertos'}" onclick="deleteProject(${p.id},'${esc(p.name)}')">Eliminar</button>
             </td>
           </tr>`;
@@ -3700,6 +3704,479 @@
       btn.style.width = 'auto';
     }
   }
+
+
+  // ── PATCH: CATÁLOGO BASE VS PROYECTO OPERATIVO ───────────────────────────
+  // Parámetros = catálogo base editable.
+  // Proyectos = operativos/relevamientos creados usando ese catálogo base.
+
+  function getBaseProjectsForConcession(concessionId) {
+    const source = (_parametersSnapshot && _parametersSnapshot.projects) || [];
+    return source
+      .filter((p) => Number(p.concession_id || 0) === Number(concessionId || 0))
+      .filter((p) => String(p.project_type || 'base').toLowerCase() === 'base')
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+  }
+
+  function getStationsForBaseProject(baseProjectId) {
+    const source = _parametersSnapshot || {};
+    const baseId = Number(baseProjectId || 0);
+    if (!baseId) return [];
+    const links = (source.projectSites || []).filter((link) => Number(link.project_id || 0) === baseId && Number(link.is_active ?? 1) === 1);
+    const linkedStationIds = new Set(links.map((link) => Number(link.station_id || 0)).filter(Boolean));
+    const stations = (source.stations || [])
+      .filter((station) => linkedStationIds.has(Number(station.id || 0)))
+      .map((station) => Object.assign({}, station, {
+        booths: (source.booths || []).filter((booth) => Number(booth.station_id || 0) === Number(station.id || 0))
+      }))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+    return stations;
+  }
+
+  function ensureOperationalProjectFields() {
+    const projectModal = document.getElementById('modalProject');
+    if (!projectModal) return;
+
+    const title = document.getElementById('modalProjectTitle');
+    if (title && !title.dataset.operationalLabelReady) {
+      title.dataset.operationalLabelReady = '1';
+    }
+
+    const pName = document.getElementById('pName');
+    if (pName) {
+      const nameGroup = pName.closest('.form-group');
+      if (nameGroup) {
+        const label = nameGroup.querySelector('label');
+        if (label) label.textContent = 'Nombre del proyecto operativo *';
+        const hint = nameGroup.querySelector('.select-hint');
+        if (hint) hint.textContent = 'Ejemplo: Relevamiento 2026-T3 — Red Vial 5. Se puede autogenerar desde la concesión, proyecto base y trimestre.';
+      }
+    }
+
+    const pDesc = document.getElementById('pDesc');
+    if (pDesc) {
+      const descGroup = pDesc.closest('.form-group');
+      if (descGroup) {
+        const label = descGroup.querySelector('label');
+        if (label) label.textContent = 'Trimestre / descripción del operativo';
+      }
+    }
+
+    const concessionGroup = document.getElementById('pConcessionSelect')?.closest('.form-group');
+    if (concessionGroup) {
+      const hint = concessionGroup.querySelector('.select-hint');
+      if (hint) hint.textContent = 'Selecciona la concesión desde Parámetros. Luego se habilitan sus proyectos base/red vial.';
+    }
+
+    if (projectModal && !document.getElementById('pBaseProjectSelect')) {
+      const field = document.createElement('div');
+      field.className = 'form-group';
+      field.id = 'pBaseProjectField';
+      field.innerHTML = '<label>Proyecto base / red vial *</label><select id="pBaseProjectSelect"><option value="">— Selecciona una concesión primero —</option></select><div class="select-hint">Este dato viene de Parámetros. No crea un operativo por sí solo.</div>';
+      const nameGroup = document.getElementById('pName')?.closest('.form-group');
+      if (nameGroup && nameGroup.parentNode) nameGroup.parentNode.insertBefore(field, nameGroup);
+    }
+
+    if (projectModal && !document.getElementById('pStationSelectionWrap')) {
+      const field = document.createElement('div');
+      field.className = 'form-group';
+      field.id = 'pStationSelectionWrap';
+      field.innerHTML = '<label>Peajes del operativo</label><div id="pStationSelection" style="border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);max-height:190px;overflow:auto;"><span class="param-mini">Selecciona primero el proyecto base.</span></div><div class="select-hint">Marca los peajes que se trabajarán en este operativo. Si no marcas ninguno, se heredarán todos los peajes del proyecto base.</div>';
+      const descGroup = document.getElementById('pDesc')?.closest('.form-group');
+      if (descGroup && descGroup.parentNode) descGroup.parentNode.insertBefore(field, descGroup);
+    }
+
+    const maxGroup = document.getElementById('pMaxBooths')?.closest('.form-group');
+    if (maxGroup) {
+      const label = maxGroup.querySelector('label');
+      if (label) label.textContent = 'Máximo de casetas por registrador en este operativo';
+    }
+
+    const bindOnce = (id, eventName, handler) => {
+      const el = document.getElementById(id);
+      if (!el || el.dataset.baseOperationalBound) return;
+      el.dataset.baseOperationalBound = '1';
+      el.addEventListener(eventName, handler);
+    };
+
+    bindOnce('pConcessionSelect', 'change', () => {
+      renderBaseProjectOptions();
+      renderProjectStationChecklist();
+      syncOperationalProjectName(false);
+    });
+    bindOnce('pConcessionCustom', 'input', () => {
+      renderBaseProjectOptions();
+      renderProjectStationChecklist();
+      syncOperationalProjectName(false);
+    });
+    bindOnce('pBaseProjectSelect', 'change', () => {
+      renderProjectStationChecklist();
+      syncOperationalProjectName(false);
+    });
+    bindOnce('pDesc', 'input', () => syncOperationalProjectName(false));
+    bindOnce('pStart', 'change', () => {
+      syncProjectDescriptionSuggestion(false);
+      syncOperationalProjectName(false);
+    });
+  }
+
+  function renderBaseProjectOptions(selectedId) {
+    const select = document.getElementById('pBaseProjectSelect');
+    if (!select) return;
+    const payload = getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom');
+    const concessionId = payload.id;
+    const projects = getBaseProjectsForConcession(concessionId);
+    select.innerHTML = '<option value="">— Seleccionar proyecto base / red vial —</option>' +
+      projects.map((p) => `<option value="${esc(p.id)}">${esc(p.name || '')}</option>`).join('');
+    if (selectedId && Array.from(select.options).some((opt) => String(opt.value) === String(selectedId))) {
+      select.value = String(selectedId);
+    }
+  }
+
+  function renderProjectStationChecklist(selectedIds) {
+    const target = document.getElementById('pStationSelection');
+    const baseSelect = document.getElementById('pBaseProjectSelect');
+    if (!target || !baseSelect) return;
+    const selected = new Set((selectedIds || []).map((id) => String(id)));
+    const stations = getStationsForBaseProject(baseSelect.value);
+    if (!baseSelect.value) {
+      target.innerHTML = '<span class="param-mini">Selecciona primero el proyecto base / red vial.</span>';
+      return;
+    }
+    if (!stations.length) {
+      target.innerHTML = '<span class="param-mini">Este proyecto base aún no tiene peajes configurados en Parámetros.</span>';
+      return;
+    }
+    target.innerHTML = stations.map((st) => {
+      const booths = Array.isArray(st.booths) ? st.booths : [];
+      const boothText = booths.length
+        ? booths.map((b) => `C-${esc(b.code || '')}${b.directions ? ' · ' + esc(b.directions) : ''}`).join(' | ')
+        : 'Sin casetas configuradas';
+      const checked = !selectedIds || selected.has(String(st.id)) ? 'checked' : '';
+      return `<label style="display:block;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px;margin-bottom:6px;cursor:pointer;">
+        <input type="checkbox" class="pStationCheck" value="${esc(st.id)}" ${checked} style="width:auto;margin-right:6px;vertical-align:middle;accent-color:var(--accent);" />
+        <strong>${esc(st.name || '')}</strong>
+        <div class="param-mini" style="margin-top:3px;">${boothText}</div>
+      </label>`;
+    }).join('');
+  }
+
+  function getCheckedProjectStationIds() {
+    return Array.from(document.querySelectorAll('#pStationSelection .pStationCheck:checked'))
+      .map((el) => Number(el.value || 0))
+      .filter(Boolean);
+  }
+
+  function getSelectedBaseProject() {
+    const id = Number(document.getElementById('pBaseProjectSelect')?.value || 0);
+    if (!id) return null;
+    return ((_parametersSnapshot && _parametersSnapshot.projects) || []).find((p) => Number(p.id) === id) || null;
+  }
+
+  function syncOperationalProjectName(force) {
+    const pName = document.getElementById('pName');
+    if (!pName) return;
+    if (pName.value && !force) return;
+    const concessionPayload = getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom');
+    const baseProject = getSelectedBaseProject();
+    const desc = String(document.getElementById('pDesc')?.value || '').trim();
+    const label = desc || (() => {
+      const q = getQuarterRange(document.getElementById('pStart')?.value || new Date().toISOString().slice(0, 10));
+      return 'Trimestre ' + q.from + ' al ' + q.to;
+    })();
+    const parts = ['Relevamiento', label, concessionPayload.name, baseProject && baseProject.name].filter(Boolean);
+    pName.placeholder = parts.join(' — ') || 'Ej: Relevamiento 2026-T3 — Red Vial 5';
+  }
+
+  function buildOperationalProjectBody() {
+    const concessionPayload = getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom');
+    const baseProject = getSelectedBaseProject();
+    const operationLabel = String(document.getElementById('pDesc')?.value || '').trim();
+    let projectName = String(document.getElementById('pName')?.value || '').trim();
+    if (!projectName) {
+      const generatedParts = ['Relevamiento', operationLabel, concessionPayload.name, baseProject && baseProject.name].filter(Boolean);
+      projectName = generatedParts.join(' — ');
+    }
+    return {
+      name: projectName,
+      description: operationLabel,
+      operation_label: operationLabel,
+      start_date: document.getElementById('pStart')?.value || '',
+      end_date: document.getElementById('pEnd')?.value || null,
+      concession_id: concessionPayload.id,
+      concession_name: concessionPayload.name,
+      base_project_id: baseProject ? baseProject.id : null,
+      station_ids: getCheckedProjectStationIds(),
+      max_booths_per_operator: document.getElementById('pMaxBooths') ? Math.min(2, Math.max(1, Number(document.getElementById('pMaxBooths').value || 2))) : 2,
+      status: document.getElementById('pStatus')?.value || 'activo',
+      project_type: 'operativo'
+    };
+  }
+
+  function openOperationalProjectModal(project) {
+    editingProjectId = project && project.id ? project.id : null;
+    ensureOperationalProjectFields();
+    renderConcessionOptions('pConcessionSelect', false);
+    document.getElementById('modalProjectTitle').textContent = editingProjectId ? 'Editar Proyecto operativo' : 'Nuevo Proyecto operativo';
+    document.getElementById('pName').value = project?.name || '';
+    document.getElementById('pName').readOnly = false;
+    document.getElementById('pDesc').value = project?.operation_label || project?.description || '';
+    document.getElementById('pStart').value = project?.start_date || new Date().toISOString().slice(0,10);
+    document.getElementById('pEnd').value = project?.end_date || '';
+    document.getElementById('pStatus').value = project?.status || 'activo';
+    if (document.getElementById('pMaxBooths')) document.getElementById('pMaxBooths').value = project?.max_booths_per_operator || 2;
+    setConcessionSelectValue('pConcessionSelect', 'pConcessionCustom', project?.concession_id || '', project?.concession_name || '');
+    renderBaseProjectOptions(project?.base_project_id || '');
+    renderProjectStationChecklist();
+    syncProjectDescriptionSuggestion(false);
+    syncOperationalProjectName(false);
+    openModal('modalProject');
+  }
+
+  function applyBaseOperationalPanelPatch() {
+    ensureOperationalProjectFields();
+
+    const btnNew = document.getElementById('btnNewProject');
+    if (btnNew) {
+      btnNew.textContent = '+ Nuevo operativo';
+      btnNew.onclick = () => openOperationalProjectModal(null);
+    }
+
+    const saveBtn = document.getElementById('btnSaveProject');
+    if (saveBtn && !saveBtn.dataset.operationalSaveBound) {
+      saveBtn.dataset.operationalSaveBound = '1';
+      saveBtn.onclick = () => {
+        withLoading('btnSaveProject', async () => {
+          const body = buildOperationalProjectBody();
+          if (!body.concession_id && !body.concession_name) return alert('Selecciona una concesión de Parámetros.');
+          if (!body.base_project_id && !editingProjectId) return alert('Selecciona el proyecto base / red vial.');
+          if (!body.name) return alert('Indica el nombre del proyecto operativo.');
+          if (!body.start_date) return alert('La fecha de inicio del operativo es obligatoria.');
+          try {
+            if (editingProjectId) {
+              await api('/projects/' + editingProjectId, { method: 'PUT', body });
+            } else {
+              await api('/projects', { method: 'POST', body });
+            }
+            closeModal('modalProject');
+            loadProjectsList();
+            loadDashboard();
+          } catch (e) { alert(e.message); }
+        });
+      };
+    }
+
+    window.editProject = function(id, name, desc, start, end, status, maxBooths, concessionId, concessionName, baseProjectId, operationLabel) {
+      openOperationalProjectModal({
+        id,
+        name,
+        description: desc,
+        operation_label: operationLabel || desc,
+        start_date: start,
+        end_date: end,
+        status,
+        max_booths_per_operator: maxBooths,
+        concession_id: concessionId,
+        concession_name: concessionName,
+        base_project_id: baseProjectId || null
+      });
+    };
+
+    const stationModal = document.getElementById('modalStation');
+    if (stationModal) {
+      const title = document.getElementById('modalStationTitle');
+      if (title) title.textContent = title.textContent.replace('Estación', 'Peaje');
+    }
+  }
+
+  function getParameterHierarchy(data) {
+    const source = data || _parametersSnapshot || {};
+    const concessions = (source.hierarchy || source.concessions || []).filter((c) => c && c.id && !isDefaultConcessionName(c.name));
+    if (source.hierarchy && source.hierarchy.length) {
+      return source.hierarchy
+        .filter((c) => c && c.id && !isDefaultConcessionName(c.name))
+        .map((c) => Object.assign({}, c, {
+          projects: (c.projects || []).filter((p) => String(p.project_type || 'base').toLowerCase() === 'base')
+        }));
+    }
+    const projects = (source.projects || []).filter((p) => String(p.project_type || 'base').toLowerCase() === 'base');
+    const stations = source.stations || [];
+    const booths = source.booths || [];
+    const links = source.projectSites || [];
+    return concessions.map((c) => {
+      const cProjects = projects
+        .filter((p) => Number(p.concession_id || 0) === Number(c.id))
+        .map((p) => {
+          const linkedIds = new Set(links.filter((l) => Number(l.project_id) === Number(p.id) && Number(l.is_active ?? 1) === 1).map((l) => Number(l.station_id)));
+          const pStations = stations
+            .filter((st) => linkedIds.has(Number(st.id)))
+            .map((st) => Object.assign({}, st, { booths: booths.filter((b) => Number(b.station_id) === Number(st.id)) }));
+          return Object.assign({}, p, { stations: pStations });
+        });
+      return Object.assign({}, c, { projects: cProjects });
+    });
+  }
+
+  function renderParameters(data) {
+    const content = document.getElementById('parametersContent');
+    if (!content) return;
+    const hierarchy = getParameterHierarchy(data);
+    content.innerHTML = `
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-header">
+          <div>
+            <h2>Base editable para desplegables</h2>
+            <div class="param-mini">Aquí se mantiene la estructura fija: concesión → proyecto base/red vial → peaje → caseta. No es un operativo trimestral.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="createParameterConcessionPrompt()">+ Concesión</button>
+        </div>
+        <div class="alert alert-info" style="margin-bottom:0;">
+          <span>ℹ️</span>
+          <div>Los operativos se crean luego en Proyectos, usando esta base. Fechas, trimestre, días y horarios pertenecen al operativo, no a Parámetros.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-header"><h2>Resumen editable</h2></div>
+        <div class="hierarchy-list">
+          ${hierarchy.map(renderParameterConcessionBlock).join('') || '<div class="empty-state">No hay parámetros configurados.</div>'}
+        </div>
+      </div>`;
+  }
+
+  function renderParameterConcessionBlock(c) {
+    const projects = (c.projects || []).filter((p) => String(p.project_type || 'base').toLowerCase() === 'base');
+    return `<div class="hierarchy-item">
+      <div class="hierarchy-title">
+        <div>
+          <span style="font-size:1rem;">${esc(c.name || '')}</span>
+          <span class="badge ${c.status === 'inactiva' ? 'badge-cerrado' : 'badge-activo'}" style="margin-left:6px;">${esc(c.status || 'activa')}</span>
+        </div>
+        <div class="param-actions">
+          <button class="btn btn-soft btn-sm" onclick="editParameterConcessionPrompt(${c.id})">Editar</button>
+          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${c.id})">Eliminar</button>
+          <button class="btn btn-primary btn-sm" onclick="createParameterProjectPrompt(${c.id})">+ Proyecto base</button>
+        </div>
+      </div>
+      <div class="hierarchy-children">
+        ${projects.map((p) => renderParameterProjectBlock(c, p)).join('') || '<div class="param-mini">Sin proyectos base.</div>'}
+      </div>
+    </div>`;
+  }
+
+  function renderParameterProjectBlock(c, p) {
+    const stations = p.stations || [];
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+        <div><strong>📌 ${esc(p.name || '')}</strong><div class="param-mini">Proyecto base / red vial</div></div>
+        <div class="param-actions">
+          <button class="btn btn-soft btn-sm" onclick="editParameterProjectPrompt(${p.id})">Editar</button>
+          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterProject(${p.id})">Eliminar</button>
+          <button class="btn btn-primary btn-sm" onclick="createParameterStationPrompt(${p.id},${c.id})">+ Peaje</button>
+        </div>
+      </div>
+      <div style="margin-top:8px;padding-left:12px;border-left:2px solid var(--line);">
+        ${stations.map((st) => renderParameterStationBlock(p, st)).join('') || '<div class="param-mini">Sin peajes.</div>'}
+      </div>
+    </div>`;
+  }
+
+  function renderParameterStationBlock(p, st) {
+    const booths = st && Array.isArray(st.booths) ? st.booths : [];
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:8px;background:var(--card);">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+        <div><strong>🛣️ ${esc(st.name || '')}</strong><div class="param-mini">${booths.length} caseta(s)</div></div>
+        <div class="param-actions">
+          <button class="btn btn-soft btn-sm" onclick="editParameterStationPrompt(${st.id})">Editar</button>
+          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStationFromProject(${p.id},${st.id})">Retirar</button>
+          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id})">Eliminar</button>
+          <button class="btn btn-primary btn-sm" onclick="createParameterBoothPrompt(${st.id})">+ Caseta</button>
+        </div>
+      </div>
+      <div style="margin-top:6px;">
+        ${booths.length ? booths.map((b) => `<span class="badge badge-activo" style="margin:2px 4px 2px 0;">C-${esc(b.code || '')}${b.directions ? ' · ' + esc(b.directions) : ''} <button onclick="editParameterBoothPrompt(${b.id})" style="border:0;background:transparent;cursor:pointer;color:inherit;padding:0 2px;font-size:.72rem;">✎</button><button onclick="deleteParameterBooth(${b.id})" style="border:0;background:transparent;cursor:pointer;color:inherit;padding:0 2px;font-size:.72rem;">×</button></span>`).join('') : '<span class="param-mini">Sin casetas.</span>'}
+      </div>
+    </div>`;
+  }
+
+  window.createParameterProjectPrompt = async function(concessionId) {
+    const name = promptClean('Nombre del proyecto base / red vial:', '');
+    if (!name) return;
+    try {
+      await api('/projects', { method: 'POST', body: {
+        name,
+        description: '',
+        concession_id: concessionId,
+        project_type: 'base',
+        status: 'activo',
+        max_booths_per_operator: 2
+      }});
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.editParameterProjectPrompt = async function(id) {
+    const item = getSnapshotProject(id);
+    if (!item) return alert('Proyecto base no encontrado.');
+    const name = promptClean('Nombre del proyecto base / red vial:', item.name || '');
+    if (!name) return;
+    try {
+      await api('/projects/' + id, { method: 'PUT', body: { name, concession_id: item.concession_id, project_type: 'base' } });
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteParameterProject = async function(id) {
+    const item = getSnapshotProject(id);
+    const name = item ? item.name : 'este proyecto base';
+    if (!confirm('¿Eliminar el proyecto base "' + name + '"? Solo se permite si no fue usado por operativos.')) return;
+    try {
+      await api('/projects/' + id, { method: 'DELETE' });
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.createParameterStationPrompt = async function(projectId, concessionId) {
+    const name = promptClean('Nombre del peaje:', '');
+    if (!name) return;
+    try {
+      await api('/projects/' + projectId + '/stations', { method: 'POST', body: { name, concession_id: concessionId } });
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.editParameterStationPrompt = async function(id) {
+    const item = getSnapshotStation(id);
+    if (!item) return alert('Peaje no encontrado.');
+    const name = promptClean('Nombre del peaje:', item.name || '');
+    if (!name) return;
+    try {
+      await api('/stations/' + id, { method: 'PUT', body: { name, concession_id: item.concession_id } });
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteParameterStationFromProject = async function(projectId, stationId) {
+    const station = getSnapshotStation(stationId);
+    const name = station ? station.name : 'este peaje';
+    if (!confirm('¿Retirar "' + name + '" de este proyecto base? No elimina el peaje del catálogo.')) return;
+    try {
+      await api('/projects/' + projectId + '/stations/' + stationId, { method: 'DELETE' });
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteParameterStation = async function(id) {
+    const item = getSnapshotStation(id);
+    const name = item ? item.name : 'este peaje';
+    if (!confirm('¿Eliminar el peaje "' + name + '" del catálogo? Solo se permite si no está vinculado ni tiene uso operativo.')) return;
+    try {
+      await api('/stations/' + id, { method: 'DELETE' });
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  // Mantener la asignación de registradores como estaba: seleccionar/arrastrar registrador → caseta.
+  // Solo se conserva la pestaña adicional de coordinador para admin/director.
 
   // ── INIT ──────────────────────────────────────────────────────────────────
   init();

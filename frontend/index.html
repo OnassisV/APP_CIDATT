@@ -384,7 +384,7 @@
     <section class="card hidden" id="setupCard">
       <h2 style="margin:0 0 5px 0; font-size:1.05rem;">Configuración del Turno</h2>
       <p class="helper" style="margin-top:0; margin-bottom:12px;">
-        Seleccione la caseta asignada por el coordinador. Si no aparece asignación o no hay señal, configure manualmente.
+        Seleccione la caseta asignada por el coordinador. Si no aparece asignación o no hay señal, configure manualmente usando la base de Parámetros.
       </p>
       <form id="setupForm">
 
@@ -410,6 +410,10 @@
                 <label>Concesión</label>
                 <select id="setupConcession1" required></select>
                 <input id="setupConcessionCustom1" class="hidden" type="text" maxlength="80" placeholder="Nombre de concesión" style="margin-top:8px;" />
+              </div>
+              <div>
+                <label>Proyecto base / red vial</label>
+                <select id="setupBaseProject1"></select>
               </div>
               <div>
                 <label>Peaje</label>
@@ -623,7 +627,7 @@
 
           <p><strong>2. Configurar Turno</strong><br>
           • Selecciona la <em>fecha de operación</em><br>
-          • Completa: nombre del peaje, número de caseta, operador y sentido<br>
+          • Selecciona concesión, proyecto base/red vial, peaje, caseta y sentido<br>
           • Si trabajas en 2 casetas, activa "Multiperfil"<br>
           • Presiona <strong>Iniciar Operación</strong></p>
 
@@ -1154,18 +1158,55 @@
           .filter(function(item) { return item.name; });
       }
 
-      function getRemoteStationsForConcession(concessionName) {
+      function getRemoteBaseProjectsForConcession(concessionName) {
+        var wanted = normalizeText(cleanConcessionDisplayName(concessionName));
+        if (!wanted) return [];
+        return (setupCatalogState.projects || [])
+          .filter(function(project) {
+            if (!project || !project.name) return false;
+            var type = normalizeText(project.project_type || 'base');
+            var isBase = !type || type === 'base';
+            var sameConcession = normalizeText(cleanConcessionDisplayName(project.concession_name || '')) === wanted;
+            return isBase && sameConcession;
+          })
+          .sort(function(a, b) { return String(a.name || '').localeCompare(String(b.name || ''), 'es'); });
+      }
+
+      function getSelectedBaseProjectId() {
+        var select = document.getElementById('setupBaseProject1');
+        var value = select ? Number(select.value || 0) : 0;
+        return Number.isFinite(value) && value > 0 ? value : null;
+      }
+
+      function stationBelongsToBaseProject(station, baseProjectId) {
+        if (!baseProjectId) return true;
+        var linked = String(station.linked_project_ids || station.linkedProjectIds || '')
+          .split(',')
+          .map(function(item) { return Number(item || 0); })
+          .filter(Boolean);
+        if (linked.includes(Number(baseProjectId))) return true;
+
+        // Fallback: revisar la tabla de vínculos si el backend la envía separada.
+        return (setupCatalogState.projectSites || []).some(function(link) {
+          return Number(link.project_id || link.projectId || 0) === Number(baseProjectId) &&
+                 Number(link.station_id || link.stationId || 0) === Number(station.id || 0) &&
+                 Number(link.is_active == null ? 1 : link.is_active) === 1;
+        });
+      }
+
+      function getRemoteStationsForConcession(concessionName, baseProjectId) {
         var wanted = normalizeText(cleanConcessionDisplayName(concessionName));
         if (!wanted) return [];
         return (setupCatalogState.stations || []).filter(function(station) {
-          return normalizeText(cleanConcessionDisplayName(station.concession_name || station.concessionName || '')) === wanted;
+          var sameConcession = normalizeText(cleanConcessionDisplayName(station.concession_name || station.concessionName || '')) === wanted;
+          return sameConcession && stationBelongsToBaseProject(station, baseProjectId || null);
         }).sort(function(a, b) { return String(a.name || '').localeCompare(String(b.name || ''), 'es'); });
       }
 
       function findCatalogStationBySelection(concessionName, stationName) {
         var wantedStation = normalizeText(stationName);
         if (!wantedStation) return null;
-        return getRemoteStationsForConcession(concessionName).find(function(station) {
+        return getRemoteStationsForConcession(concessionName, getSelectedBaseProjectId()).find(function(station) {
           return normalizeText(station.name) === wantedStation;
         }) || null;
       }
@@ -1272,7 +1313,8 @@
       function getCatalogTollsForConcession(concessionName) {
         var norm = normalizeText(cleanConcessionDisplayName(concessionName));
         var tolls = [];
-        getRemoteStationsForConcession(concessionName).forEach(function(station) { if (station && station.name) tolls.push(station.name); });
+        var selectedBaseProjectId = getSelectedBaseProjectId();
+        getRemoteStationsForConcession(concessionName, selectedBaseProjectId).forEach(function(station) { if (station && station.name) tolls.push(station.name); });
         getAssignedBooths().forEach(function(item) {
           if (normalizeText(cleanConcessionDisplayName(item.concessionName)) === norm && item.stationName) tolls.push(item.stationName);
         });
@@ -1324,6 +1366,7 @@
         var isOther = select.value === '__other__';
         custom.classList.toggle('hidden', !isOther);
         if (!isOther) custom.value = '';
+        renderBaseProjectSelect();
         renderPeajeSelect();
       }
 
@@ -1333,6 +1376,30 @@
         if (!select) return '';
         if (select.value === '__other__') return String(custom && custom.value ? custom.value : '').trim();
         return String(select.value || '').trim();
+      }
+
+      function renderBaseProjectSelect(selectedProjectId) {
+        var select = document.getElementById('setupBaseProject1');
+        if (!select) return;
+
+        var concessionName = getSelectedConcessionName();
+        var projects = concessionName ? getRemoteBaseProjectsForConcession(concessionName) : [];
+        var html = '<option value="">Todos / sin proyecto base</option>';
+        html += projects.map(function(project) {
+          return '<option value="' + optionSafe(project.id || '') + '">' + optionSafe(project.name || '') + '</option>';
+        }).join('');
+
+        select.innerHTML = html;
+        select.disabled = !projects.length || document.getElementById('setupConcession1')?.value === '__other__';
+
+        if (selectedProjectId && projects.some(function(project) { return String(project.id) === String(selectedProjectId); })) {
+          select.value = String(selectedProjectId);
+        } else if (projects.length === 1) {
+          // Si la concesión solo tiene un proyecto base, lo elegimos para evitar pasos innecesarios.
+          select.value = String(projects[0].id);
+        } else {
+          select.value = '';
+        }
       }
 
       function renderPeajeSelect(selectedName) {
@@ -1579,6 +1646,7 @@
 
       function setPrimaryProfileFields(profile) {
         renderConcessionSelect(profile.concessionName || '');
+        renderBaseProjectSelect(profile.baseProjectId || profile.base_project_id || '');
         renderPeajeSelect(profile.nombrePeaje || '');
         document.getElementById('setupCaseta1').value = profile.numeroCaseta || '';
         document.getElementById('setupSentido1').value = profile.sentidoCirculacion || '';
@@ -1657,6 +1725,7 @@
         document.getElementById('setupAssigned1').value = '__manual__';
         document.getElementById('setupAssigned2').value = '__manual__';
         renderConcessionSelect('');
+        renderBaseProjectSelect('');
         renderPeajeSelect('');
         document.getElementById('setupCaseta1').value = '';
         document.getElementById('setupSentido1').value = '';
@@ -1689,6 +1758,7 @@
             operador: operatorName,
             sentidoCirculacion: document.getElementById('setupSentido1').value,
             concessionName: concessionName,
+            baseProjectId: assigned1 ? null : getSelectedBaseProjectId(),
             projectId: assigned1 ? assigned1.projectId : null,
             stationId: assigned1 ? assigned1.stationId : (catalogStation1 ? catalogStation1.id : null),
             boothId: assigned1 ? assigned1.boothId : (catalogBooth1 ? catalogBooth1.id : null)
@@ -1708,6 +1778,7 @@
           operador: operatorName,
           sentidoCirculacion: document.getElementById('setupSentido2').value,
           concessionName: concessionName,
+          baseProjectId: assigned2 ? null : getSelectedBaseProjectId(),
           projectId: assigned2 ? assigned2.projectId : null,
           stationId: assigned2 ? assigned2.stationId : (catalogStation2 ? catalogStation2.id : null),
           boothId: assigned2 ? assigned2.boothId : (catalogBooth2 ? catalogBooth2.id : null)
@@ -2056,6 +2127,11 @@
       }
 
       window.addEventListener('online', function() {
+        loadSetupCatalog(true).then(function() {
+          renderConcessionSelect(getSelectedConcessionName());
+          renderBaseProjectSelect(getSelectedBaseProjectId());
+          renderPeajeSelect(getSelectedPeajeName());
+        }).catch(()=>{});
         refreshWarningBanner().catch(()=>{});
         flushOutbox().catch(()=>{});
         sendPresenceHeartbeat().catch(()=>{});
@@ -2837,8 +2913,16 @@
       });
 
       document.getElementById('setupConcessionCustom1').addEventListener('input', function() {
+        renderBaseProjectSelect('');
         renderPeajeSelect('');
         syncSecondaryFromPrimary();
+      });
+
+      document.getElementById('setupBaseProject1').addEventListener('change', function() {
+        renderPeajeSelect('');
+        syncSecondaryFromPrimary();
+        renderCasetaOptionsForPrimary();
+        renderCasetaOptionsForSecondary();
       });
 
       document.getElementById('setupPeaje1').addEventListener('change', function() {
