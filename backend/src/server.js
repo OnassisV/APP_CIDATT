@@ -625,6 +625,106 @@ app.post('/api/concessions', authenticateRequest, requireMinRole('director'), as
   } catch (error) { next(error); }
 });
 
+app.put('/api/concessions/:id', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const id = parseOptionalInt(req.params.id);
+    if (!id) throw badRequest('Concesion invalida.');
+    const name = String(req.body.name || '').trim();
+    const status = String(req.body.status || 'activa').trim() || 'activa';
+    if (!name) throw badRequest('El nombre de la concesion es obligatorio.');
+    if (normalizeText(name) === normalizeText('Concesion General')) throw badRequest('No se puede usar la concesion general como parametro operativo.');
+    const duplicate = await query(
+      `SELECT id FROM ${TABLES.concessions} WHERE id <> ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+      [id, name]
+    );
+    if (duplicate.length) throw badRequest('Ya existe una concesion con ese nombre.');
+    await query(`UPDATE ${TABLES.concessions} SET name = ?, status = ? WHERE id = ?`, [name, status, id]);
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.delete('/api/concessions/:id', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const id = parseOptionalInt(req.params.id);
+    if (!id) throw badRequest('Concesion invalida.');
+    const [usage] = await query(
+      `SELECT
+         (SELECT COUNT(*) FROM ${TABLES.projects} WHERE concession_id = ?) AS projects_count,
+         (SELECT COUNT(*) FROM ${TABLES.stations} WHERE concession_id = ?) AS stations_count`,
+      [id, id]
+    );
+    if (Number(usage?.projects_count || 0) > 0 || Number(usage?.stations_count || 0) > 0) {
+      throw badRequest('No se puede eliminar la concesion porque tiene proyectos o peajes asociados.');
+    }
+    await query(`DELETE FROM ${TABLES.concessions} WHERE id = ?`, [id]);
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/catalog/structure', authenticateRequest, requireMinRole('director'), async (_req, res, next) => {
+  try {
+    const concessions = await query(
+      `SELECT id, name, status
+       FROM ${TABLES.concessions}
+       WHERE LOWER(TRIM(name)) NOT IN ('concesion general', 'concesión general', 'general')
+       ORDER BY name ASC`
+    );
+    const projects = await query(
+      `SELECT p.id, p.name, p.description, p.status, p.start_date, p.end_date,
+              p.concession_id, c.name AS concession_name, COALESCE(p.max_booths_per_operator, 2) AS max_booths_per_operator
+       FROM ${TABLES.projects} p
+       LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+       ORDER BY c.name ASC, p.name ASC`
+    );
+    const stations = await query(
+      `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time,
+              ts.concession_id, c.name AS concession_name,
+              COUNT(DISTINCT ps.project_id) AS linked_projects
+       FROM ${TABLES.stations} ts
+       LEFT JOIN ${TABLES.concessions} c ON c.id = ts.concession_id
+       LEFT JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id AND ps.is_active = 1
+       GROUP BY ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time, ts.concession_id, c.name
+       ORDER BY c.name ASC, ts.name ASC`
+    );
+    const booths = await query(
+      `SELECT tb.id, tb.station_id, tb.code, tb.directions, ts.name AS station_name
+       FROM ${TABLES.booths} tb
+       INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
+       ORDER BY ts.name ASC, tb.code ASC`
+    );
+    const projectSites = await query(
+      `SELECT project_id, station_id FROM ${TABLES.projectSites} WHERE is_active = 1`
+    );
+
+    const concessionsById = new Map();
+    concessions.forEach((c) => concessionsById.set(Number(c.id), { ...c, projects: [], stations: [] }));
+    projects.forEach((project) => {
+      const c = concessionsById.get(Number(project.concession_id));
+      if (c) c.projects.push({ ...project, stations: [] });
+    });
+    const stationsById = new Map();
+    stations.forEach((station) => {
+      const item = { ...station, booths: [] };
+      stationsById.set(Number(station.id), item);
+      const c = concessionsById.get(Number(station.concession_id));
+      if (c) c.stations.push(item);
+    });
+    booths.forEach((booth) => {
+      const station = stationsById.get(Number(booth.station_id));
+      if (station) station.booths.push(booth);
+    });
+    const projectsById = new Map();
+    concessionsById.forEach((c) => c.projects.forEach((project) => projectsById.set(Number(project.id), project)));
+    projectSites.forEach((link) => {
+      const project = projectsById.get(Number(link.project_id));
+      const station = stationsById.get(Number(link.station_id));
+      if (project && station) project.stations.push(station);
+    });
+
+    res.json({ ok: true, concessions, projects, stations, booths, projectSites, hierarchy: Array.from(concessionsById.values()) });
+  } catch (error) { next(error); }
+});
+
 // ─── PROYECTOS ────────────────────────────────────────────────────────────────
 
 app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
@@ -758,8 +858,47 @@ app.get('/api/stations', authenticateRequest, requireMinRole('coordinador'), asy
       params.push(concessionId);
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
-    const stations = await query(`SELECT id, name, location, concession_id FROM ${TABLES.stations} ${where} ORDER BY name ASC`, params);
+    const stations = await query(
+      `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time,
+              ts.concession_id, c.name AS concession_name
+       FROM ${TABLES.stations} ts
+       LEFT JOIN ${TABLES.concessions} c ON c.id = ts.concession_id
+       ${where ? where.replace('concession_id', 'ts.concession_id') : ''}
+       ORDER BY c.name ASC, ts.name ASC`,
+      params
+    );
     res.json({ ok: true, stations });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/stations', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const { name, location, daily_start_time, daily_end_time, concession_id, concession_name } = req.body;
+    const stationName = String(name || '').trim();
+    if (!stationName) throw badRequest('Nombre de peaje requerido.');
+    const resolvedConcessionId = await resolveConcessionId({ concessionId: concession_id, concessionName: concession_name, fallbackToDefault: false });
+    if (!resolvedConcessionId) throw badRequest('La concesion es obligatoria para crear un peaje.');
+    const existing = await query(
+      `SELECT id FROM ${TABLES.stations}
+       WHERE concession_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+       LIMIT 1`,
+      [resolvedConcessionId, stationName]
+    );
+    if (existing.length) {
+      await query(
+        `UPDATE ${TABLES.stations}
+         SET location = COALESCE(?, location), daily_start_time = COALESCE(?, daily_start_time), daily_end_time = COALESCE(?, daily_end_time)
+         WHERE id = ?`,
+        [location || null, daily_start_time || null, daily_end_time || null, existing[0].id]
+      );
+      return res.json({ ok: true, stationId: existing[0].id, reused: true });
+    }
+    const result = await query(
+      `INSERT INTO ${TABLES.stations} (project_id, concession_id, name, location, daily_start_time, daily_end_time)
+       VALUES (NULL, ?, ?, ?, ?, ?)`,
+      [resolvedConcessionId, stationName, location || null, daily_start_time || null, daily_end_time || null]
+    );
+    res.json({ ok: true, stationId: result.insertId, reused: false });
   } catch (error) { next(error); }
 });
 

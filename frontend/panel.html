@@ -328,6 +328,17 @@
       margin-bottom: 10px;
       line-height: 1.35;
     }
+    .param-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; align-items:start; }
+    .param-card h3 { font-size:.95rem; margin-bottom:8px; }
+    .param-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+    .param-mini { font-size:.74rem; color:var(--muted); line-height:1.35; }
+    .param-form { display:grid; gap:8px; margin-bottom:12px; }
+    .param-form.inline { grid-template-columns: 1.1fr 1fr auto; align-items:end; }
+    .hierarchy-list { display:grid; gap:10px; }
+    .hierarchy-item { border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--card); }
+    .hierarchy-title { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; font-weight:700; }
+    .hierarchy-children { margin-top:8px; padding-left:12px; border-left:3px solid var(--line); color:var(--muted); font-size:.82rem; }
+    @media (max-width:900px){ .param-grid{ grid-template-columns:1fr; } .param-form.inline{ grid-template-columns:1fr; } }
     .field-readonly-note {
       font-size: .73rem;
       color: var(--muted);
@@ -457,6 +468,17 @@
       <div class="card">
         <div class="table-wrap" id="usersTable"></div>
       </div>
+    </div>
+
+    <div class="view" id="viewParameters">
+      <div class="topbar">
+        <div>
+          <h1>⚙️ Parámetros operativos</h1>
+          <div class="param-mini">Catálogo base: concesión → proyecto/red vial → peaje → caseta. Lo que configures aquí se reutiliza al crear proyectos nuevos.</div>
+        </div>
+        <button class="btn btn-soft btn-sm" onclick="loadParameters()">↺ Actualizar</button>
+      </div>
+      <div id="parametersContent"></div>
     </div>
 
     <div class="view" id="viewCoordProject">
@@ -755,6 +777,8 @@
   var _presenceInterval = null;
   var _suspendHashSync = false;
   var _openSessionsSnapshot = [];
+  var stationCatalogRows = [];
+  var _parametersSnapshot = null;
 
   // ── AUTH ──────────────────────────────────────────────────────────────────
 
@@ -917,17 +941,21 @@
 
   function buildStationCatalogFromSelect() {
     const stationSelect = document.getElementById('sName');
-    if (!stationSelect || stationSelect.dataset.catalogReady === '1') return;
-
+    if (!stationSelect) return;
+    if (stationCatalogRows.length && stationSelect.dataset.catalogReady === '1') return;
+    stationCatalogRows = [];
     Array.from(stationSelect.querySelectorAll('optgroup')).forEach((group) => {
       const canonicalName = canonicalConcessionName(group.label);
+      const key = concessionKey(canonicalName);
       Array.from(group.querySelectorAll('option')).forEach((option) => {
+        const name = option.value || option.text || '';
+        if (!name || option.value === '__otro__') return;
+        stationCatalogRows.push({ name, concessionName: canonicalName, concessionKey: key, label: group.label });
         option.dataset.concessionLabel = group.label;
         option.dataset.concessionName = canonicalName;
-        option.dataset.concessionKey = concessionKey(canonicalName);
+        option.dataset.concessionKey = key;
       });
     });
-
     stationSelect.dataset.catalogReady = '1';
   }
 
@@ -1233,58 +1261,31 @@
     const concessionSelect = document.getElementById('sConcessionSelect');
     const concessionInput = document.getElementById('sConcessionName');
     const customWrap = document.getElementById('sNameCustomWrap');
-
     if (!stationSelect || !concessionSelect || !concessionInput) return;
 
     const previousValue = stationSelect.value;
     const isOther = concessionSelect.value === '__other__';
     const selectedName = getSelectedConcessionNameFromSelect('sConcessionSelect', 'sConcessionCustom');
     const selectedKey = concessionKey(selectedName);
+    concessionInput.value = isOther ? canonicalConcessionName(document.getElementById('sConcessionCustom')?.value || '') : selectedName;
+    const rows = (!isOther && selectedKey) ? stationCatalogRows.filter((row) => row.concessionKey === selectedKey) : [];
 
-    concessionInput.value = isOther
-      ? canonicalConcessionName(document.getElementById('sConcessionCustom')?.value || '')
-      : selectedName;
+    stationSelect.innerHTML = '<option value="">— Seleccionar peaje —</option>' +
+      rows.map((row) => '<option value="' + esc(row.name) + '" data-concession-name="' + esc(row.concessionName) + '" data-concession-key="' + esc(row.concessionKey) + '">' + esc(row.name) + '</option>').join('') +
+      '<option value="__otro__">✏️ Otro / no listado</option>';
 
-    Array.from(stationSelect.options).forEach((option) => {
-      if (!option.value || option.value === '__otro__') {
-        option.hidden = false;
-        return;
-      }
-
-      if (isOther || !selectedKey) {
-        option.hidden = true;
-        return;
-      }
-
-      const optionKey = option.dataset.concessionKey || concessionKey(option.dataset.concessionName || option.dataset.concessionLabel || option.parentElement?.label || '');
-      option.hidden = optionKey !== selectedKey;
-    });
-
-    const visibleOptions = Array.from(stationSelect.options).filter((option) => option.value && option.value !== '__otro__' && !option.hidden);
-
-    if (isOther) {
-      stationSelect.value = '__otro__';
-      if (customWrap) customWrap.style.display = 'block';
-    } else if (!selectedKey) {
-      stationSelect.value = '';
-      if (customWrap) customWrap.style.display = 'none';
-    } else if (previousValue && Array.from(stationSelect.options).some((option) => option.value === previousValue && !option.hidden)) {
-      stationSelect.value = previousValue;
-    } else if (visibleOptions.length === 1) {
-      stationSelect.value = visibleOptions[0].value;
-      if (customWrap) customWrap.style.display = 'none';
-    } else {
-      stationSelect.value = '';
-      if (customWrap) customWrap.style.display = 'none';
-    }
+    if (isOther) { stationSelect.value = '__otro__'; if (customWrap) customWrap.style.display = 'block'; }
+    else if (!selectedKey) { stationSelect.value = ''; if (customWrap) customWrap.style.display = 'none'; }
+    else if (previousValue && rows.some((row) => row.name === previousValue)) { stationSelect.value = previousValue; if (customWrap) customWrap.style.display = 'none'; }
+    else if (rows.length === 1) { stationSelect.value = rows[0].name; if (customWrap) customWrap.style.display = 'none'; }
+    else { stationSelect.value = ''; if (customWrap) customWrap.style.display = 'none'; }
 
     const hint = document.getElementById('sTemplateHint');
     if (hint) {
       if (isOther) hint.textContent = 'Nueva concesión: registra el peaje manualmente.';
       else if (!selectedKey) hint.textContent = 'Selecciona una concesión para mostrar sus peajes.';
-      else hint.textContent = visibleOptions.length ? `${visibleOptions.length} peaje(s) disponibles para ${selectedName}.` : `No hay peajes precargados para ${selectedName}. Usa “Otros” para registrarlo.`;
+      else hint.textContent = rows.length ? rows.length + ' peaje(s) disponibles para ' + selectedName + '.' : 'No hay peajes precargados para ' + selectedName + '. Usa “Otros” para registrarlo.';
     }
-
     stationSelect.dispatchEvent(new Event('change'));
   }
 
@@ -1551,6 +1552,7 @@
     else if (currentViewId === 'viewAlerts') nextHash = '#alerts';
     else if (currentViewId === 'viewProjects') nextHash = '#projects';
     else if (currentViewId === 'viewUsers') nextHash = '#users';
+    else if (currentViewId === 'viewParameters') nextHash = '#parameters';
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
   }
 
@@ -1572,6 +1574,7 @@
     if (hash === 'alerts') { showView('viewAlerts', true); return true; }
     if (hash === 'projects') { showView('viewProjects', true); return true; }
     if (hash === 'users') { showView('viewUsers', true); return true; }
+    if (hash === 'parameters') { showView('viewParameters', true); return true; }
     if (saved.view === 'viewProjectDetail' && saved.projectId) { openProjectDetail(saved.projectId, true); return true; }
     if (saved.view === 'viewCoordProject') { showView('viewCoordProject', true); if (saved.coordProjectId) loadCoordProject(saved.coordProjectId); else loadCoordView(); return true; }
     if (saved.view && saved.view !== 'viewDashboard') { showView(saved.view, true); return true; }
@@ -1633,6 +1636,9 @@
       <div class="nav-item" onclick="showView('viewUsers')" id="nav-users">
         <span class="icon">👥</span> Usuarios
       </div>
+      <div class="nav-item" onclick="showView('viewParameters')" id="nav-parameters">
+        <span class="icon">⚙️</span> Parámetros
+      </div>
       ` : ''}
       ${isCoord ? `
       <div class="nav-section">Operación</div>
@@ -1666,13 +1672,14 @@
     const navMap = {
       viewDashboard: 'nav-dashboard', viewAlerts: 'nav-alerts',
       viewProjects: 'nav-projects', viewProjectDetail: 'nav-projects',
-      viewUsers: 'nav-users', viewCoordProject: 'nav-coord'
+      viewUsers: 'nav-users', viewParameters: 'nav-parameters', viewCoordProject: 'nav-coord'
     };
     const navId = navMap[id];
     if (navId && document.getElementById(navId)) document.getElementById(navId).classList.add('active');
 
     if (id === 'viewProjects')     loadProjectsList();
     if (id === 'viewUsers')        loadUsers();
+    if (id === 'viewParameters')   loadParameters();
     if (id === 'viewAlerts')       loadAlerts();
     if (id === 'viewCoordProject') loadCoordView();
     if (id !== 'viewCoordProject') stopCoordPresencePolling();
@@ -2038,7 +2045,6 @@
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn btn-assign-primary btn-sm" onclick="openAssignStation(${s.id},${currentProjectId},true)">👥 Casetas</button>
-            <button class="btn btn-soft btn-sm" onclick="openAssignStation(${s.id},${currentProjectId},false)">👤 Personal peaje</button>
             <button class="btn btn-soft btn-sm" onclick="editStation(${s.id},'${esc(s.name)}','${esc(s.location||'')}','${s.daily_start_time||''}','${s.daily_end_time||''}','${esc(s.concession_name||'')}')">Editar</button>
             <button class="btn btn-soft btn-sm" onclick="openAddBooth(${s.id})">+ Caseta</button>
             <button class="btn btn-soft btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteStation(${s.id},'${esc(s.name)}')">Eliminar</button>
@@ -2235,6 +2241,159 @@
     } catch (e) { alert(e.message); }
   }
   window.closeAllOpenSessions = closeAllOpenSessions;
+
+  // ── PARÁMETROS OPERATIVOS ─────────────────────────────────────────────────
+
+  async function loadParameters() {
+    const target = document.getElementById('parametersContent');
+    if (!target) return;
+    target.innerHTML = '<div class="card"><div class="empty-state">Cargando parámetros...</div></div>';
+    try {
+      const data = await api('/catalog/structure');
+      _parametersSnapshot = data;
+      renderParameters(data);
+    } catch (e) {
+      target.innerHTML = '<div class="alert alert-danger"><span>❌</span><div>' + esc(e.message) + '</div></div>';
+    }
+  }
+  window.loadParameters = loadParameters;
+
+  function renderParameters(data) {
+    const concessions = data.concessions || [];
+    const projects = data.projects || [];
+    const stations = data.stations || [];
+    const booths = data.booths || [];
+    const content = document.getElementById('parametersContent');
+    if (!content) return;
+
+    const concessionOptions = concessions.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
+    const stationOptions = stations.map((st) => '<option value="' + esc(st.id) + '">' + esc(st.name) + (st.concession_name ? ' — ' + esc(st.concession_name) : '') + '</option>').join('');
+
+    content.innerHTML = `
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-header">
+          <div>
+            <h2>Catálogo operativo base</h2>
+            <div class="param-mini">Configura primero las concesiones, luego proyectos/redes viales, peajes y casetas. Esta estructura alimenta proyectos nuevos, filtros y asignaciones.</div>
+          </div>
+        </div>
+        <div class="param-grid">
+          <div class="param-card">
+            <h3>1. Concesiones</h3>
+            <div class="param-form inline">
+              <input id="paramConcessionName" placeholder="Ej: Deviandes" />
+              <select id="paramConcessionStatus"><option value="activa">Activa</option><option value="inactiva">Inactiva</option></select>
+              <button class="btn btn-primary btn-sm" onclick="saveParameterConcession()">Guardar</button>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>Concesión</th><th>Estado</th><th></th></tr></thead><tbody>
+              ${concessions.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.status || 'activa')}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterConcession(${c.id},'${esc(c.name)}','${esc(c.status || 'activa')}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${c.id},'${esc(c.name)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="3">Sin concesiones.</td></tr>'}
+            </tbody></table></div>
+          </div>
+          <div class="param-card">
+            <h3>2. Proyectos / red vial</h3>
+            <div class="param-form">
+              <select id="paramProjectConcession"><option value="">Concesión...</option>${concessionOptions}</select>
+              <input id="paramProjectName" placeholder="Ej: Red Vial 4, IIRSA Centro, operativo trimestral" />
+              <div class="form-row"><input id="paramProjectStart" type="date" /><input id="paramProjectEnd" type="date" /></div>
+              <button class="btn btn-primary btn-sm" onclick="saveParameterProject()">Crear proyecto</button>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Concesión</th><th>Estado</th></tr></thead><tbody>
+              ${projects.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.concession_name || '')}</td><td>${esc(p.status || '')}</td></tr>`).join('') || '<tr><td colspan="3">Sin proyectos.</td></tr>'}
+            </tbody></table></div>
+          </div>
+          <div class="param-card">
+            <h3>3. Peajes</h3>
+            <div class="param-form">
+              <select id="paramStationConcession"><option value="">Concesión...</option>${concessionOptions}</select>
+              <input id="paramStationName" placeholder="Nombre del peaje" />
+              <input id="paramStationLocation" placeholder="Ubicación / referencia" />
+              <div class="form-row"><input id="paramStationStart" type="time" /><input id="paramStationEnd" type="time" /></div>
+              <button class="btn btn-primary btn-sm" onclick="saveParameterStation()">Guardar peaje</button>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>Peaje</th><th>Concesión</th><th>Casetas</th></tr></thead><tbody>
+              ${stations.map((st) => `<tr><td>${esc(st.name)}</td><td>${esc(st.concession_name || '')}</td><td>${booths.filter((b) => Number(b.station_id) === Number(st.id)).length}</td></tr>`).join('') || '<tr><td colspan="3">Sin peajes.</td></tr>'}
+            </tbody></table></div>
+          </div>
+          <div class="param-card">
+            <h3>4. Casetas</h3>
+            <div class="param-form">
+              <select id="paramBoothStation"><option value="">Peaje...</option>${stationOptions}</select>
+              <input id="paramBoothCode" placeholder="Número / código de caseta" />
+              <select id="paramBoothDirection"><option value="">Sentido...</option><option value="Norte a Sur">Norte a Sur</option><option value="Sur a Norte">Sur a Norte</option><option value="Este a Oeste">Este a Oeste</option><option value="Oeste a Este">Oeste a Este</option><option value="Ingreso">Ingreso</option><option value="Salida">Salida</option></select>
+              <button class="btn btn-primary btn-sm" onclick="saveParameterBooth()">Agregar caseta</button>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>Peaje</th><th>Caseta</th><th>Sentido</th></tr></thead><tbody>
+              ${booths.map((b) => `<tr><td>${esc(b.station_name || '')}</td><td>${esc(b.code)}</td><td>${esc(b.directions || '')}</td></tr>`).join('') || '<tr><td colspan="3">Sin casetas.</td></tr>'}
+            </tbody></table></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 style="font-size:1rem;margin-bottom:12px;">Vista jerárquica</h2>
+        <div class="hierarchy-list">
+          ${(data.hierarchy || []).map((c) => `<div class="hierarchy-item"><div class="hierarchy-title"><span>🏢 ${esc(c.name)}</span><small>${(c.projects||[]).length} proyecto(s) · ${(c.stations||[]).length} peaje(s)</small></div><div class="hierarchy-children">${(c.projects||[]).map((p) => `📋 ${esc(p.name)}${p.stations && p.stations.length ? ' → ' + p.stations.map((st) => esc(st.name)).join(', ') : ''}`).join('<br>') || 'Sin proyectos registrados'}<br>${(c.stations||[]).map((st) => `⛽ ${esc(st.name)} (${(st.booths||[]).length} caseta(s))`).join('<br>')}</div></div>`).join('') || '<div class="empty-state">Sin parámetros configurados.</div>'}
+        </div>
+      </div>`;
+  }
+
+  window.editParameterConcession = function(id, name, status) {
+    document.getElementById('paramConcessionName').value = name || '';
+    document.getElementById('paramConcessionStatus').value = status || 'activa';
+    document.getElementById('paramConcessionName').dataset.editId = id;
+  };
+
+  window.saveParameterConcession = async function() {
+    const input = document.getElementById('paramConcessionName');
+    const name = String(input.value || '').trim();
+    const status = document.getElementById('paramConcessionStatus').value || 'activa';
+    if (!name) return alert('Indica el nombre de la concesión.');
+    const editId = input.dataset.editId;
+    try {
+      if (editId) await api('/concessions/' + editId, { method: 'PUT', body: { name, status } });
+      else await api('/concessions', { method: 'POST', body: { name } });
+      input.dataset.editId = '';
+      await loadConcessions(true);
+      await loadParameters();
+      await loadDashboard();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteParameterConcession = async function(id, name) {
+    if (!confirm('¿Eliminar la concesión "' + name + '"? Solo se permite si no tiene proyectos ni peajes.')) return;
+    try { await api('/concessions/' + id, { method: 'DELETE' }); await loadConcessions(true); await loadParameters(); await loadDashboard(); }
+    catch (e) { alert(e.message); }
+  };
+
+  window.saveParameterProject = async function() {
+    const concessionId = Number(document.getElementById('paramProjectConcession').value || 0);
+    const name = String(document.getElementById('paramProjectName').value || '').trim();
+    const start = document.getElementById('paramProjectStart').value || new Date().toISOString().slice(0, 10);
+    const end = document.getElementById('paramProjectEnd').value || null;
+    if (!concessionId) return alert('Selecciona una concesión.');
+    if (!name) return alert('Indica el nombre del proyecto o red vial.');
+    try { await api('/projects', { method: 'POST', body: { name, start_date: start, end_date: end, concession_id: concessionId, description: 'Catálogo operativo', max_booths_per_operator: 2 } }); await loadParameters(); await loadDashboard(); }
+    catch (e) { alert(e.message); }
+  };
+
+  window.saveParameterStation = async function() {
+    const concessionId = Number(document.getElementById('paramStationConcession').value || 0);
+    const name = String(document.getElementById('paramStationName').value || '').trim();
+    if (!concessionId) return alert('Selecciona una concesión.');
+    if (!name) return alert('Indica el nombre del peaje.');
+    const body = { concession_id: concessionId, name, location: document.getElementById('paramStationLocation').value.trim(), daily_start_time: document.getElementById('paramStationStart').value || null, daily_end_time: document.getElementById('paramStationEnd').value || null };
+    try { await api('/stations', { method: 'POST', body }); await loadParameters(); await loadDashboard(); }
+    catch (e) { alert(e.message); }
+  };
+
+  window.saveParameterBooth = async function() {
+    const stationId = Number(document.getElementById('paramBoothStation').value || 0);
+    const code = String(document.getElementById('paramBoothCode').value || '').trim();
+    const directions = document.getElementById('paramBoothDirection').value || '';
+    if (!stationId) return alert('Selecciona un peaje.');
+    if (!code) return alert('Indica el número o código de caseta.');
+    try { await api('/stations/' + stationId + '/booths', { method: 'POST', body: { code, directions } }); await loadParameters(); await loadDashboard(); }
+    catch (e) { alert(e.message); }
+  };
 
   // ── MODAL PROYECTO ────────────────────────────────────────────────────────
 
