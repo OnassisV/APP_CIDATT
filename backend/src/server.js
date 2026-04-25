@@ -741,8 +741,17 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
       const allowedStationIds = new Set((access.managedStationIds || []).map((id) => Number(id)));
       stations = stations.filter((station) => allowedStationIds.has(Number(station.id)));
     }
-    const [projectRow] = await query(`SELECT name FROM ${TABLES.projects} WHERE id = ? LIMIT 1`, [req.params.projectId]);
-    res.json({ ok: true, stations, projectName: projectRow?.name || '' });
+    const [projectRow] = await query(
+      `SELECT p.id, p.name, p.status, p.start_date, p.end_date,
+              p.max_booths_per_operator, p.concession_id,
+              c.name AS concession_name
+       FROM ${TABLES.projects} p
+       LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+       WHERE p.id = ?
+       LIMIT 1`,
+      [access.projectId]
+    );
+    res.json({ ok: true, stations, project: projectRow || null, projectName: projectRow?.name || '' });
   } catch (error) { next(error); }
 });
 
@@ -750,7 +759,24 @@ app.post('/api/projects/:projectId/stations', authenticateRequest, requireMinRol
   try {
     const { name, location, daily_start_time, daily_end_time, concession_id, concession_name } = req.body;
     if (!name) throw badRequest('Nombre de estación requerido.');
-    const resolvedConcessionId = await resolveConcessionId({ concessionId: concession_id, concessionName: concession_name });
+    const access = await assertProjectAccess(req.authUser, req.params.projectId);
+    const [projectRow] = await query(
+      `SELECT id, concession_id
+       FROM ${TABLES.projects}
+       WHERE id = ?
+       LIMIT 1`,
+      [access.projectId]
+    );
+    if (!projectRow) throw badRequest('Proyecto no encontrado.');
+    const requestedConcessionId = concession_id || concession_name
+      ? await resolveConcessionId({ concessionId: concession_id, concessionName: concession_name, fallbackToDefault: false })
+      : null;
+    const projectConcessionId = Number(projectRow.concession_id || 0) || null;
+    if (projectConcessionId && requestedConcessionId && Number(requestedConcessionId) !== projectConcessionId) {
+      throw badRequest('El peaje debe pertenecer a la misma concesion del proyecto.');
+    }
+    const resolvedConcessionId = projectConcessionId || requestedConcessionId;
+    if (!resolvedConcessionId) throw badRequest('El proyecto debe tener una concesion asociada antes de agregar peajes.');
 
     const existingStation = await query(
       `SELECT id FROM ${TABLES.stations}
@@ -775,7 +801,7 @@ app.post('/api/projects/:projectId/stations', authenticateRequest, requireMinRol
 
     const existingLink = await query(
       `SELECT id, is_active FROM ${TABLES.projectSites} WHERE project_id = ? AND station_id = ? LIMIT 1`,
-      [req.params.projectId, stationId]
+      [access.projectId, stationId]
     );
     if (existingLink.length && Number(existingLink[0].is_active) === 1) {
       throw badRequest('Ese peaje ya está vinculado al proyecto.');
@@ -785,7 +811,7 @@ app.post('/api/projects/:projectId/stations', authenticateRequest, requireMinRol
     } else {
       await query(
         `INSERT INTO ${TABLES.projectSites} (project_id, station_id, linked_by, is_active) VALUES (?, ?, ?, 1)`,
-        [req.params.projectId, stationId, req.authUser.user_id]
+        [access.projectId, stationId, req.authUser.user_id]
       );
     }
 
