@@ -464,6 +464,107 @@ async function getProjectStations(projectId) {
 
   return stations;
 }
+async function buildCatalogStructure() {
+  const concessions = await query(
+    `SELECT id, name, status
+     FROM ${TABLES.concessions}
+     WHERE LOWER(TRIM(name)) NOT IN ('concesion general', 'concesión general', 'general')
+     ORDER BY name ASC`
+  );
+
+  const projects = await query(
+    `SELECT p.id, p.name, p.description, p.status, p.start_date, p.end_date,
+            p.concession_id, c.name AS concession_name,
+            COALESCE(p.max_booths_per_operator, 2) AS max_booths_per_operator,
+            p.created_at, p.updated_at
+     FROM ${TABLES.projects} p
+     LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+     WHERE c.id IS NULL OR LOWER(TRIM(c.name)) NOT IN ('concesion general', 'concesión general', 'general')
+     ORDER BY c.name ASC, p.name ASC`
+  );
+
+  const stations = await query(
+    `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time,
+            ts.concession_id, c.name AS concession_name,
+            COUNT(DISTINCT ps.project_id) AS linked_projects,
+            GROUP_CONCAT(DISTINCT ps.project_id ORDER BY ps.project_id SEPARATOR ',') AS linked_project_ids
+     FROM ${TABLES.stations} ts
+     LEFT JOIN ${TABLES.concessions} c ON c.id = ts.concession_id
+     LEFT JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id AND ps.is_active = 1
+     WHERE c.id IS NULL OR LOWER(TRIM(c.name)) NOT IN ('concesion general', 'concesión general', 'general')
+     GROUP BY ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time, ts.concession_id, c.name
+     ORDER BY c.name ASC, ts.name ASC`
+  );
+
+  const booths = await query(
+    `SELECT tb.id, tb.station_id, tb.code, tb.directions, ts.name AS station_name,
+            ts.concession_id, c.name AS concession_name
+     FROM ${TABLES.booths} tb
+     INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
+     LEFT JOIN ${TABLES.concessions} c ON c.id = ts.concession_id
+     WHERE c.id IS NULL OR LOWER(TRIM(c.name)) NOT IN ('concesion general', 'concesión general', 'general')
+     ORDER BY c.name ASC, ts.name ASC, tb.code ASC`
+  );
+
+  const projectSites = await query(
+    `SELECT ps.id, ps.project_id, ps.station_id, ps.is_active,
+            p.concession_id AS project_concession_id,
+            ts.concession_id AS station_concession_id
+     FROM ${TABLES.projectSites} ps
+     INNER JOIN ${TABLES.projects} p ON p.id = ps.project_id
+     INNER JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
+     WHERE ps.is_active = 1`
+  );
+
+  const boothsByStation = new Map();
+  booths.forEach((booth) => {
+    const stationId = Number(booth.station_id);
+    if (!boothsByStation.has(stationId)) boothsByStation.set(stationId, []);
+    boothsByStation.get(stationId).push(booth);
+  });
+
+  const concessionsById = new Map();
+  concessions.forEach((concession) => {
+    concessionsById.set(Number(concession.id), { ...concession, projects: [], stations: [] });
+  });
+
+  const projectsById = new Map();
+  projects.forEach((project) => {
+    const item = { ...project, stations: [] };
+    projectsById.set(Number(project.id), item);
+    const concession = concessionsById.get(Number(project.concession_id));
+    if (concession) concession.projects.push(item);
+  });
+
+  const stationsById = new Map();
+  stations.forEach((station) => {
+    const item = { ...station, booths: boothsByStation.get(Number(station.id)) || [] };
+    stationsById.set(Number(station.id), item);
+    const concession = concessionsById.get(Number(station.concession_id));
+    if (concession) concession.stations.push(item);
+  });
+
+  projectSites.forEach((link) => {
+    const project = projectsById.get(Number(link.project_id));
+    const station = stationsById.get(Number(link.station_id));
+    if (!project || !station) return;
+    project.stations.push({
+      ...station,
+      project_site_id: link.id,
+      booths: (station.booths || []).map((booth) => ({ ...booth }))
+    });
+  });
+
+  return {
+    concessions,
+    projects,
+    stations,
+    booths,
+    projectSites,
+    hierarchy: Array.from(concessionsById.values())
+  };
+}
+
 
 // ─── HEALTHCHECK ──────────────────────────────────────────────────────────────
 
@@ -661,89 +762,140 @@ app.delete('/api/concessions/:id', authenticateRequest, requireMinRole('director
   } catch (error) { next(error); }
 });
 
-app.get('/api/catalog/structure', authenticateRequest, requireMinRole('director'), async (_req, res, next) => {
+app.get('/api/catalog/structure', authenticateRequest, async (_req, res, next) => {
   try {
-    const concessions = await query(
-      `SELECT id, name, status
-       FROM ${TABLES.concessions}
-       WHERE LOWER(TRIM(name)) NOT IN ('concesion general', 'concesión general', 'general')
-       ORDER BY name ASC`
-    );
-    const projects = await query(
-      `SELECT p.id, p.name, p.description, p.status, p.start_date, p.end_date,
-              p.concession_id, c.name AS concession_name, COALESCE(p.max_booths_per_operator, 2) AS max_booths_per_operator
-       FROM ${TABLES.projects} p
-       LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
-       ORDER BY c.name ASC, p.name ASC`
-    );
-    const stations = await query(
-      `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time,
-              ts.concession_id, c.name AS concession_name,
-              COUNT(DISTINCT ps.project_id) AS linked_projects
-       FROM ${TABLES.stations} ts
-       LEFT JOIN ${TABLES.concessions} c ON c.id = ts.concession_id
-       LEFT JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id AND ps.is_active = 1
-       GROUP BY ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time, ts.concession_id, c.name
-       ORDER BY c.name ASC, ts.name ASC`
-    );
-    const booths = await query(
-      `SELECT tb.id, tb.station_id, tb.code, tb.directions, ts.name AS station_name
-       FROM ${TABLES.booths} tb
-       INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
-       ORDER BY ts.name ASC, tb.code ASC`
-    );
-    const projectSites = await query(
-      `SELECT project_id, station_id FROM ${TABLES.projectSites} WHERE is_active = 1`
-    );
-
-    const concessionsById = new Map();
-    concessions.forEach((c) => concessionsById.set(Number(c.id), { ...c, projects: [], stations: [] }));
-    projects.forEach((project) => {
-      const c = concessionsById.get(Number(project.concession_id));
-      if (c) c.projects.push({ ...project, stations: [] });
-    });
-    const stationsById = new Map();
-    stations.forEach((station) => {
-      const item = { ...station, booths: [] };
-      stationsById.set(Number(station.id), item);
-      const c = concessionsById.get(Number(station.concession_id));
-      if (c) c.stations.push(item);
-    });
-    booths.forEach((booth) => {
-      const station = stationsById.get(Number(booth.station_id));
-      if (station) station.booths.push(booth);
-    });
-    const projectsById = new Map();
-    concessionsById.forEach((c) => c.projects.forEach((project) => projectsById.set(Number(project.id), project)));
-    projectSites.forEach((link) => {
-      const project = projectsById.get(Number(link.project_id));
-      const station = stationsById.get(Number(link.station_id));
-      if (project && station) project.stations.push(station);
-    });
-
-    res.json({ ok: true, concessions, projects, stations, booths, projectSites, hierarchy: Array.from(concessionsById.values()) });
+    const structure = await buildCatalogStructure();
+    res.json({ ok: true, ...structure });
   } catch (error) { next(error); }
 });
 
+app.post('/api/catalog/import-base', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const catalog = Array.isArray(req.body.catalog) ? req.body.catalog : [];
+    if (!catalog.length) throw badRequest('No se recibio catalogo para importar.');
+
+    const counters = { concessions: 0, stations: 0, booths: 0, reusedConcessions: 0, reusedStations: 0 };
+
+    await withTransaction(async (conn) => {
+      for (const group of catalog) {
+        const concessionName = String(group.concession || group.name || '').trim();
+        if (!concessionName || normalizeText(concessionName) === normalizeText('Concesion General')) continue;
+
+        const [existingConcessions] = await conn.execute(
+          `SELECT id FROM ${TABLES.concessions} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+          [concessionName]
+        );
+
+        let concessionId;
+        if (existingConcessions.length) {
+          concessionId = existingConcessions[0].id;
+          counters.reusedConcessions += 1;
+        } else {
+          const [result] = await conn.execute(
+            `INSERT INTO ${TABLES.concessions} (name, status) VALUES (?, 'activa')`,
+            [concessionName]
+          );
+          concessionId = result.insertId;
+          counters.concessions += 1;
+        }
+
+        const tolls = Array.isArray(group.tolls) ? group.tolls : [];
+        for (const toll of tolls) {
+          const tollName = String(typeof toll === 'string' ? toll : (toll.name || toll.station || '')).trim();
+          if (!tollName) continue;
+
+          const [existingStations] = await conn.execute(
+            `SELECT id FROM ${TABLES.stations}
+             WHERE concession_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+             LIMIT 1`,
+            [concessionId, tollName]
+          );
+
+          let stationId;
+          if (existingStations.length) {
+            stationId = existingStations[0].id;
+            counters.reusedStations += 1;
+          } else {
+            const [stationResult] = await conn.execute(
+              `INSERT INTO ${TABLES.stations}
+               (project_id, concession_id, name, location, daily_start_time, daily_end_time)
+               VALUES (NULL, ?, ?, ?, ?, ?)`,
+              [
+                concessionId,
+                tollName,
+                typeof toll === 'object' ? (toll.location || null) : null,
+                typeof toll === 'object' ? (toll.daily_start_time || null) : null,
+                typeof toll === 'object' ? (toll.daily_end_time || null) : null
+              ]
+            );
+            stationId = stationResult.insertId;
+            counters.stations += 1;
+          }
+
+          const booths = typeof toll === 'object' && Array.isArray(toll.booths) ? toll.booths : [];
+          for (const booth of booths) {
+            const code = String(typeof booth === 'string' ? booth : (booth.code || booth.numero || '')).trim();
+            if (!code) continue;
+            const directions = typeof booth === 'object' ? String(booth.directions || booth.sentido || '') : '';
+            const [existingBooths] = await conn.execute(
+              `SELECT id FROM ${TABLES.booths} WHERE station_id = ? AND LOWER(TRIM(code)) = LOWER(TRIM(?)) LIMIT 1`,
+              [stationId, code]
+            );
+            if (existingBooths.length) continue;
+            await conn.execute(
+              `INSERT INTO ${TABLES.booths} (station_id, code, directions) VALUES (?, ?, ?)`,
+              [stationId, code, directions]
+            );
+            counters.booths += 1;
+          }
+        }
+      }
+    });
+
+    const structure = await buildCatalogStructure();
+    res.json({ ok: true, imported: counters, ...structure });
+  } catch (error) { next(error); }
+});
+
+// ─── PROYECTOS
 // ─── PROYECTOS ────────────────────────────────────────────────────────────────
 
 app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
+    const filters = [];
+    const params = [];
+    const concessionId = parseOptionalInt(req.query.concession_id);
+    const status = String(req.query.status || '').trim();
+
+    if (concessionId) {
+      filters.push('p.concession_id = ?');
+      params.push(concessionId);
+    }
+    if (status) {
+      filters.push('p.status = ?');
+      params.push(status);
+    }
+    filters.push("(c.id IS NULL OR LOWER(TRIM(c.name)) NOT IN ('concesion general', 'concesión general', 'general'))");
+
     let rows;
     if (['admin', 'director'].includes(req.authUser.role)) {
+      const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
       rows = await query(
         `SELECT p.*, c.name AS concession_name
          FROM ${TABLES.projects} p
          LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
-         ORDER BY p.start_date DESC`
+         ${where}
+         ORDER BY p.start_date DESC`,
+        params
       );
     } else {
+      const where = filters.length ? 'AND ' + filters.join(' AND ') : '';
       rows = await query(
         `SELECT DISTINCT p.*, c.name AS concession_name FROM ${TABLES.projects} p
          LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
          INNER JOIN ${TABLES.assignments} a ON a.project_id = p.id
-         WHERE a.user_id = ? AND a.is_active = 1 ORDER BY p.start_date DESC`,
-        [req.authUser.user_id]
+         WHERE a.user_id = ? AND a.is_active = 1 ${where} ORDER BY p.start_date DESC`,
+        [req.authUser.user_id, ...params]
       );
     }
     for (const p of rows) {
@@ -851,19 +1003,36 @@ app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'),
 app.get('/api/stations', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
     const concessionId = parseOptionalInt(req.query.concession_id);
+    const projectId = parseOptionalInt(req.query.project_id);
     const filters = [];
     const params = [];
+
     if (concessionId) {
-      filters.push('concession_id = ?');
+      filters.push('ts.concession_id = ?');
       params.push(concessionId);
     }
+    if (projectId) {
+      filters.push('ps.project_id = ? AND ps.is_active = 1');
+      params.push(projectId);
+      await assertProjectAccess(req.authUser, projectId);
+    }
+
+    const joinProjectSites = projectId
+      ? `INNER JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id`
+      : `LEFT JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id AND ps.is_active = 1`;
+    filters.push("(c.id IS NULL OR LOWER(TRIM(c.name)) NOT IN ('concesion general', 'concesión general', 'general'))");
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+
     const stations = await query(
       `SELECT ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time,
-              ts.concession_id, c.name AS concession_name
+              ts.concession_id, c.name AS concession_name,
+              COUNT(DISTINCT ps.project_id) AS linked_projects,
+              GROUP_CONCAT(DISTINCT ps.project_id ORDER BY ps.project_id SEPARATOR ',') AS linked_project_ids
        FROM ${TABLES.stations} ts
        LEFT JOIN ${TABLES.concessions} c ON c.id = ts.concession_id
-       ${where ? where.replace('concession_id', 'ts.concession_id') : ''}
+       ${joinProjectSites}
+       ${where}
+       GROUP BY ts.id, ts.name, ts.location, ts.daily_start_time, ts.daily_end_time, ts.concession_id, c.name
        ORDER BY c.name ASC, ts.name ASC`,
       params
     );
@@ -988,6 +1157,77 @@ app.post('/api/projects/:projectId/stations', authenticateRequest, requireMinRol
   } catch (error) { next(error); }
 });
 
+app.post('/api/projects/:projectId/stations/:stationId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const access = await assertProjectAccess(req.authUser, req.params.projectId);
+    const stationId = parseOptionalInt(req.params.stationId);
+    if (!stationId) throw badRequest('Peaje invalido.');
+
+    const [projectRow] = await query(
+      `SELECT id, concession_id FROM ${TABLES.projects} WHERE id = ? LIMIT 1`,
+      [access.projectId]
+    );
+    const [stationRow] = await query(
+      `SELECT id, concession_id FROM ${TABLES.stations} WHERE id = ? LIMIT 1`,
+      [stationId]
+    );
+    if (!projectRow) throw badRequest('Proyecto no encontrado.');
+    if (!stationRow) throw badRequest('Peaje no encontrado.');
+    if (Number(projectRow.concession_id || 0) && Number(stationRow.concession_id || 0) && Number(projectRow.concession_id) !== Number(stationRow.concession_id)) {
+      throw badRequest('El peaje debe pertenecer a la misma concesion del proyecto.');
+    }
+
+    const existingLink = await query(
+      `SELECT id, is_active FROM ${TABLES.projectSites} WHERE project_id = ? AND station_id = ? LIMIT 1`,
+      [access.projectId, stationId]
+    );
+    if (existingLink.length) {
+      await query(`UPDATE ${TABLES.projectSites} SET is_active = 1, linked_by = ? WHERE id = ?`, [req.authUser.user_id, existingLink[0].id]);
+    } else {
+      await query(
+        `INSERT INTO ${TABLES.projectSites} (project_id, station_id, linked_by, is_active) VALUES (?, ?, ?, 1)`,
+        [access.projectId, stationId, req.authUser.user_id]
+      );
+    }
+    res.json({ ok: true, projectId: access.projectId, stationId });
+  } catch (error) { next(error); }
+});
+
+app.delete('/api/projects/:projectId/stations/:stationId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const access = await assertProjectAccess(req.authUser, req.params.projectId);
+    const stationId = parseOptionalInt(req.params.stationId);
+    if (!stationId) throw badRequest('Peaje invalido.');
+
+    const [activeAssignments] = await query(
+      `SELECT COUNT(*) AS total
+       FROM ${TABLES.assignments}
+       WHERE project_id = ? AND is_active = 1 AND (station_id = ? OR booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
+      [access.projectId, stationId, stationId]
+    );
+    if (Number(activeAssignments?.total || 0) > 0) {
+      throw badRequest('No se puede retirar el peaje del proyecto porque tiene personal asignado.');
+    }
+
+    const [openSessions] = await query(
+      `SELECT COUNT(*) AS total
+       FROM ${TABLES.sessions} s
+       LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
+       WHERE s.project_id = ? AND s.status = 'open' AND COALESCE(s.station_id, sp.station_id) = ?`,
+      [access.projectId, stationId]
+    );
+    if (Number(openSessions?.total || 0) > 0) {
+      throw badRequest('No se puede retirar el peaje del proyecto porque tiene turnos abiertos.');
+    }
+
+    await query(
+      `UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ? AND station_id = ?`,
+      [access.projectId, stationId]
+    );
+    res.json({ ok: true, projectId: access.projectId, stationId });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/stations/template', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
     const name = String(req.query.name || '').trim();
@@ -1044,6 +1284,21 @@ app.put('/api/stations/:stationId', authenticateRequest, requireMinRole('directo
   } catch (error) { next(error); }
 });
 
+app.get('/api/stations/:stationId/booths', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
+  try {
+    const stationId = parseOptionalInt(req.params.stationId);
+    if (!stationId) throw badRequest('Peaje invalido.');
+    const booths = await query(
+      `SELECT tb.id, tb.station_id, tb.code, tb.directions
+       FROM ${TABLES.booths} tb
+       WHERE tb.station_id = ?
+       ORDER BY tb.code ASC`,
+      [stationId]
+    );
+    res.json({ ok: true, booths });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/stations/:stationId/booths', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
     const { code, directions } = req.body;
@@ -1058,60 +1313,126 @@ app.post('/api/stations/:stationId/booths', authenticateRequest, requireMinRole(
 
 app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
-    const [station] = await query(`SELECT id, name FROM ${TABLES.stations} WHERE id = ? LIMIT 1`, [req.params.stationId]);
+    const stationId = parseOptionalInt(req.params.stationId);
+    if (!stationId) throw badRequest('Peaje invalido.');
+    const [station] = await query(`SELECT id, name FROM ${TABLES.stations} WHERE id = ? LIMIT 1`, [stationId]);
     if (!station) throw badRequest('Peaje no encontrado.');
-    const projectId = Number(req.query.projectId || 0);
+    const projectId = parseOptionalInt(req.query.projectId);
+
     if (projectId) {
-      await closeOpenSessionsForScope({ projectId, stationId: station.id, stationName: station.name });
-      await query(
-        `UPDATE ${TABLES.assignments}
-         SET is_active = 0
-         WHERE project_id = ? AND (station_id = ? OR booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
-        [projectId, req.params.stationId, req.params.stationId]
+      const [activeAssignments] = await query(
+        `SELECT COUNT(*) AS total FROM ${TABLES.assignments}
+         WHERE project_id = ? AND is_active = 1 AND (station_id = ? OR booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
+        [projectId, stationId, stationId]
       );
-      await query(`DELETE FROM ${TABLES.projectSites} WHERE project_id = ? AND station_id = ?`, [projectId, req.params.stationId]);
-      const [remainingLinks] = await query(
-        `SELECT COUNT(*) AS total FROM ${TABLES.projectSites} WHERE station_id = ? AND is_active = 1`,
-        [req.params.stationId]
-      );
-      if (Number(remainingLinks?.total || 0) === 0) {
-        await closeOpenSessionsForScope({ stationId: station.id, stationName: station.name });
-        await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ?`, [req.params.stationId]);
-        await query(`DELETE FROM ${TABLES.stations} WHERE id = ?`, [req.params.stationId]);
+      if (Number(activeAssignments?.total || 0) > 0) {
+        throw badRequest('No se puede retirar el peaje del proyecto porque tiene personal asignado.');
       }
-    } else {
-      await closeOpenSessionsForScope({ stationId: station.id, stationName: station.name });
-      await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE station_id = ?`, [req.params.stationId]);
-      await query(`DELETE FROM ${TABLES.projectSites} WHERE station_id = ?`, [req.params.stationId]);
-      await query(`DELETE FROM ${TABLES.stations} WHERE id = ?`, [req.params.stationId]);
+      const [openSessions] = await query(
+        `SELECT COUNT(*) AS total
+         FROM ${TABLES.sessions} s
+         LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
+         WHERE s.project_id = ? AND s.status = 'open' AND COALESCE(s.station_id, sp.station_id) = ?`,
+        [projectId, stationId]
+      );
+      if (Number(openSessions?.total || 0) > 0) {
+        throw badRequest('No se puede retirar el peaje del proyecto porque tiene turnos abiertos.');
+      }
+      await query(`UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ? AND station_id = ?`, [projectId, stationId]);
+      return res.json({ ok: true, unlinked: true });
     }
+
+    const [linkedProjects] = await query(
+      `SELECT COUNT(*) AS total FROM ${TABLES.projectSites} WHERE station_id = ? AND is_active = 1`,
+      [stationId]
+    );
+    if (Number(linkedProjects?.total || 0) > 0) {
+      throw badRequest('No se puede eliminar el peaje del catalogo porque está vinculado a proyectos. Retíralo primero de esos proyectos.');
+    }
+    const [activeAssignments] = await query(
+      `SELECT COUNT(*) AS total FROM ${TABLES.assignments}
+       WHERE is_active = 1 AND (station_id = ? OR booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
+      [stationId, stationId]
+    );
+    if (Number(activeAssignments?.total || 0) > 0) {
+      throw badRequest('No se puede eliminar el peaje porque tiene personal asignado.');
+    }
+
+    await query(`DELETE FROM ${TABLES.projectSites} WHERE station_id = ?`, [stationId]);
+    await query(`DELETE FROM ${TABLES.stations} WHERE id = ?`, [stationId]);
+    res.json({ ok: true, deleted: true });
+  } catch (error) { next(error); }
+});
+
+app.put('/api/booths/:boothId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const boothId = parseOptionalInt(req.params.boothId);
+    if (!boothId) throw badRequest('Caseta invalida.');
+    const code = String(req.body.code || '').trim();
+    const directions = String(req.body.directions || '').trim();
+    if (!code) throw badRequest('Código de caseta requerido.');
+
+    const [booth] = await query(
+      `SELECT id, station_id FROM ${TABLES.booths} WHERE id = ? LIMIT 1`,
+      [boothId]
+    );
+    if (!booth) throw badRequest('Caseta no encontrada.');
+
+    const duplicate = await query(
+      `SELECT id FROM ${TABLES.booths}
+       WHERE station_id = ? AND id <> ? AND LOWER(TRIM(code)) = LOWER(TRIM(?))
+       LIMIT 1`,
+      [booth.station_id, boothId, code]
+    );
+    if (duplicate.length) throw badRequest('Ya existe una caseta con ese código en el peaje.');
+
+    await query(
+      `UPDATE ${TABLES.booths} SET code = ?, directions = ? WHERE id = ?`,
+      [code, directions, boothId]
+    );
     res.json({ ok: true });
   } catch (error) { next(error); }
 });
 
 app.delete('/api/booths/:boothId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
+    const boothId = parseOptionalInt(req.params.boothId);
+    if (!boothId) throw badRequest('Caseta invalida.');
     const [booth] = await query(
       `SELECT tb.id, tb.code, tb.station_id, ts.name AS station_name
        FROM ${TABLES.booths} tb
        INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
        WHERE tb.id = ?
        LIMIT 1`,
-      [req.params.boothId]
+      [boothId]
     );
     if (!booth) throw badRequest('Caseta no encontrada.');
-    await closeOpenSessionsForScope({
-      boothId: booth.id,
-      stationId: booth.station_id,
-      stationName: booth.station_name,
-      boothCode: booth.code
-    });
-    await query(`UPDATE ${TABLES.assignments} SET is_active = 0 WHERE booth_id = ?`, [req.params.boothId]);
-    await query(`DELETE FROM ${TABLES.booths} WHERE id = ?`, [req.params.boothId]);
+
+    const [activeAssignments] = await query(
+      `SELECT COUNT(*) AS total FROM ${TABLES.assignments} WHERE booth_id = ? AND is_active = 1`,
+      [boothId]
+    );
+    if (Number(activeAssignments?.total || 0) > 0) {
+      throw badRequest('No se puede eliminar la caseta porque tiene personal asignado.');
+    }
+
+    const [openSessions] = await query(
+      `SELECT COUNT(*) AS total
+       FROM ${TABLES.sessions} s
+       LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
+       WHERE s.status = 'open' AND (sp.booth_id = ? OR (sp.booth_id IS NULL AND sp.toll_name = ? AND sp.booth_number = ?))`,
+      [boothId, booth.station_name, booth.code]
+    );
+    if (Number(openSessions?.total || 0) > 0) {
+      throw badRequest('No se puede eliminar la caseta porque tiene turnos abiertos.');
+    }
+
+    await query(`DELETE FROM ${TABLES.booths} WHERE id = ?`, [boothId]);
     res.json({ ok: true });
   } catch (error) { next(error); }
 });
 
+// ─── ASIGNACIONES
 // ─── ASIGNACIONES ─────────────────────────────────────────────────────────────
 
 app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
@@ -2123,6 +2444,16 @@ async function runMigrations() {
       UNIQUE KEY uk_cidatt_presence_user_device (user_id, device_id)
     )
   `);
+
+  try {
+    await query(`ALTER TABLE ${TABLES.booths} ADD UNIQUE KEY uk_cidatt_booths_station_code (station_id, code)`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.stations} ADD INDEX idx_cidatt_stations_concession_name (concession_id, name)`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.projectSites} ADD INDEX idx_cidatt_project_sites_station_active (station_id, is_active)`);
+  } catch (_) {}
 
   // ─── SEED usuarios de prueba ──────────────────────────────────────────────
   try {

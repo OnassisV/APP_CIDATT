@@ -418,7 +418,8 @@
               </div>
             </div>
 
-            <input id="setupCaseta1" type="text" maxlength="20" placeholder="Número de Caseta" style="margin-bottom:8px;" required />
+            <input id="setupCaseta1" type="text" maxlength="20" placeholder="Número de Caseta" style="margin-bottom:8px;" required list="setupCasetaOptions1" />
+            <datalist id="setupCasetaOptions1"></datalist>
             <input id="setupOperador1" class="setup-readonly" type="text" maxlength="60" placeholder="Operador" style="margin-bottom:8px;" required readonly />
             <select id="setupSentido1" required>
               <option value="">Seleccione sentido...</option>
@@ -450,7 +451,8 @@
             <div class="setup-assigned-summary hidden" id="assignedSummary2"></div>
 
             <input id="setupPeaje2" class="setup-readonly" type="text" maxlength="60" placeholder="Peaje principal" style="margin-bottom:8px;" readonly />
-            <input id="setupCaseta2" type="text" maxlength="20" placeholder="Número de Caseta secundaria" style="margin-bottom:8px;" />
+            <input id="setupCaseta2" type="text" maxlength="20" placeholder="Número de Caseta secundaria" style="margin-bottom:8px;" list="setupCasetaOptions2" />
+            <datalist id="setupCasetaOptions2"></datalist>
             <input id="setupOperador2" class="setup-readonly" type="text" maxlength="60" placeholder="Operador" style="margin-bottom:8px;" readonly />
             <select id="setupSentido2">
               <option value="">Seleccione sentido...</option>
@@ -826,6 +828,7 @@
       var AUTH_TOKEN_STORAGE_KEY = 'rlv_cidatt_auth_token';
       var AUTH_USER_STORAGE_KEY = 'rlv_cidatt_auth_user';
       var DEVICE_ID_STORAGE_KEY = 'rlv_cidatt_device_id';
+      var SETUP_CATALOG_STORAGE_KEY = 'rlv_cidatt_setup_catalog_v1';
       
       var HISTORY_LIMIT = 5; var NEWLINE = String.fromCharCode(10); var CSV_BOM = String.fromCharCode(65279);
 
@@ -851,6 +854,7 @@
   var authUser = null;
   var authAssignments = [];
   var authOperationContext = { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+  var setupCatalogState = { loaded: false, concessions: [], projects: [], stations: [], booths: [], hierarchy: [], refreshedAt: null };
   var realtimeTimer = null;
 
   var SETUP_CATALOG = [
@@ -1099,6 +1103,119 @@
       }
 
 
+      function optionSafe(value) {
+        return String(value == null ? '' : value)
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function hasRemoteSetupCatalog() {
+        return Boolean(setupCatalogState && Array.isArray(setupCatalogState.concessions) && setupCatalogState.concessions.length);
+      }
+
+      function normalizeCatalogPayload(payload) {
+        var source = payload || {};
+        return {
+          loaded: true,
+          refreshedAt: Date.now(),
+          concessions: Array.isArray(source.concessions) ? source.concessions : [],
+          projects: Array.isArray(source.projects) ? source.projects : [],
+          stations: Array.isArray(source.stations) ? source.stations : [],
+          booths: Array.isArray(source.booths) ? source.booths : [],
+          projectSites: Array.isArray(source.projectSites) ? source.projectSites : [],
+          hierarchy: Array.isArray(source.hierarchy) ? source.hierarchy : []
+        };
+      }
+
+      async function loadSetupCatalog(forceRefresh) {
+        var cached = await getDB(SETUP_CATALOG_STORAGE_KEY).catch(function() { return null; });
+        if (cached && !forceRefresh) setupCatalogState = cached;
+        if (!authToken || !navigator.onLine) {
+          if (cached) setupCatalogState = cached;
+          return setupCatalogState;
+        }
+        if (hasRemoteSetupCatalog() && !forceRefresh) return setupCatalogState;
+        try {
+          var payload = await apiRequest('/catalog/structure');
+          setupCatalogState = normalizeCatalogPayload(payload);
+          await putDB(SETUP_CATALOG_STORAGE_KEY, setupCatalogState).catch(function(){});
+        } catch (err) {
+          if (cached) setupCatalogState = cached;
+        }
+        return setupCatalogState;
+      }
+
+      function getRemoteConcessions() {
+        return (setupCatalogState.concessions || [])
+          .filter(function(item) { return item && item.name && normalizeText(item.name) !== normalizeText('Concesion General'); })
+          .map(function(item) { return { id: item.id, name: cleanConcessionDisplayName(item.name), rawName: item.name, source: 'remote' }; })
+          .filter(function(item) { return item.name; });
+      }
+
+      function getRemoteStationsForConcession(concessionName) {
+        var wanted = normalizeText(cleanConcessionDisplayName(concessionName));
+        if (!wanted) return [];
+        return (setupCatalogState.stations || []).filter(function(station) {
+          return normalizeText(cleanConcessionDisplayName(station.concession_name || station.concessionName || '')) === wanted;
+        }).sort(function(a, b) { return String(a.name || '').localeCompare(String(b.name || ''), 'es'); });
+      }
+
+      function findCatalogStationBySelection(concessionName, stationName) {
+        var wantedStation = normalizeText(stationName);
+        if (!wantedStation) return null;
+        return getRemoteStationsForConcession(concessionName).find(function(station) {
+          return normalizeText(station.name) === wantedStation;
+        }) || null;
+      }
+
+      function getCatalogBoothsForStation(stationId) {
+        var numericStationId = Number(stationId || 0);
+        if (!numericStationId) return [];
+        return (setupCatalogState.booths || []).filter(function(booth) {
+          return Number(booth.station_id || booth.stationId || 0) === numericStationId;
+        }).sort(function(a, b) { return String(a.code || '').localeCompare(String(b.code || ''), 'es', { numeric: true }); });
+      }
+
+      function getCatalogBoothsForSelection(concessionName, stationName) {
+        var station = findCatalogStationBySelection(concessionName, stationName);
+        return station ? getCatalogBoothsForStation(station.id) : [];
+      }
+
+      function findCatalogBoothByCode(concessionName, stationName, code, direction) {
+        var wantedCode = normalizeText(code);
+        var wantedDirection = normalizeText(direction);
+        if (!wantedCode) return null;
+        var booths = getCatalogBoothsForSelection(concessionName, stationName);
+        return booths.find(function(booth) {
+          var codeOk = normalizeText(booth.code) === wantedCode;
+          if (!codeOk) return false;
+          if (!wantedDirection) return true;
+          return normalizeText(booth.directions || '') === wantedDirection;
+        }) || booths.find(function(booth) { return normalizeText(booth.code) === wantedCode; }) || null;
+      }
+
+      function renderCasetaDatalist(inputId, datalistId, concessionName, stationName) {
+        var input = document.getElementById(inputId);
+        var datalist = document.getElementById(datalistId);
+        if (!input || !datalist) return;
+        var booths = getCatalogBoothsForSelection(concessionName, stationName);
+        datalist.innerHTML = booths.map(function(booth) {
+          var label = booth.directions ? booth.code + ' · ' + booth.directions : booth.code;
+          return '<option value="' + optionSafe(booth.code || '') + '" label="' + optionSafe(label) + '"></option>';
+        }).join('');
+      }
+
+      function renderCasetaOptionsForPrimary() {
+        renderCasetaDatalist('setupCaseta1', 'setupCasetaOptions1', getSelectedConcessionName(), getSelectedPeajeName());
+      }
+
+      function renderCasetaOptionsForSecondary() {
+        renderCasetaDatalist('setupCaseta2', 'setupCasetaOptions2', getSelectedConcessionName(), getSelectedPeajeName());
+      }
+
+
       function getOperatorFullName() {
         return authUser && authUser.fullName ? authUser.fullName : '';
       }
@@ -1135,37 +1252,37 @@
 
       function buildSetupConcessionList() {
         var map = new Map();
-        SETUP_CATALOG.forEach(function(group) {
-          var clean = cleanConcessionDisplayName(group.concession);
-          if (clean && !map.has(normalizeText(clean))) map.set(normalizeText(clean), { name: clean, rawName: group.concession, source: 'catalog' });
+        getRemoteConcessions().forEach(function(item) {
+          var clean = cleanConcessionDisplayName(item.name || item.rawName || '');
+          if (clean && !map.has(normalizeText(clean))) map.set(normalizeText(clean), item);
         });
         getAssignedBooths().forEach(function(item) {
           var clean = cleanConcessionDisplayName(item.concessionName || '');
           if (clean && !map.has(normalizeText(clean))) map.set(normalizeText(clean), { name: clean, rawName: item.concessionName, source: 'assigned' });
         });
+        if (!map.size) {
+          SETUP_CATALOG.forEach(function(group) {
+            var clean = cleanConcessionDisplayName(group.concession);
+            if (clean && !map.has(normalizeText(clean))) map.set(normalizeText(clean), { name: clean, rawName: group.concession, source: 'fallback' });
+          });
+        }
         return Array.from(map.values()).sort(function(a, b) { return a.name.localeCompare(b.name, 'es'); });
       }
 
       function getCatalogTollsForConcession(concessionName) {
         var norm = normalizeText(cleanConcessionDisplayName(concessionName));
         var tolls = [];
-        SETUP_CATALOG.forEach(function(group) {
-          if (normalizeText(cleanConcessionDisplayName(group.concession)) === norm) {
-            tolls = tolls.concat(group.tolls || []);
-          }
-        });
+        getRemoteStationsForConcession(concessionName).forEach(function(station) { if (station && station.name) tolls.push(station.name); });
         getAssignedBooths().forEach(function(item) {
-          if (normalizeText(cleanConcessionDisplayName(item.concessionName)) === norm && item.stationName) {
-            tolls.push(item.stationName);
-          }
+          if (normalizeText(cleanConcessionDisplayName(item.concessionName)) === norm && item.stationName) tolls.push(item.stationName);
         });
+        if (!tolls.length) {
+          SETUP_CATALOG.forEach(function(group) {
+            if (normalizeText(cleanConcessionDisplayName(group.concession)) === norm) tolls = tolls.concat(group.tolls || []);
+          });
+        }
         var seen = new Set();
-        return tolls.filter(function(name) {
-          var key = normalizeText(name);
-          if (!name || seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        }).sort(function(a, b) { return a.localeCompare(b, 'es'); });
+        return tolls.filter(function(name) { var key = normalizeText(name); if (!name || seen.has(key)) return false; seen.add(key); return true; }).sort(function(a, b) { return a.localeCompare(b, 'es'); });
       }
 
       function setSelectValueOrFirst(select, value) {
@@ -1184,7 +1301,7 @@
         var list = buildSetupConcessionList();
         var html = '<option value="">Seleccione concesión...</option>';
         html += list.map(function(item) {
-          return '<option value="' + item.name.replace(/"/g, '&quot;') + '">' + item.name + '</option>';
+          return '<option value="' + optionSafe(item.name) + '" data-source="' + optionSafe(item.source || '') + '">' + optionSafe(item.name) + '</option>';
         }).join('');
         html += '<option value="__other__">Otros / no listado</option>';
         select.innerHTML = html;
@@ -1225,7 +1342,7 @@
         var tolls = concessionName ? getCatalogTollsForConcession(concessionName) : [];
         var html = '<option value="">Seleccione peaje...</option>';
         html += tolls.map(function(name) {
-          return '<option value="' + name.replace(/"/g, '&quot;') + '">' + name + '</option>';
+          return '<option value="' + optionSafe(name) + '">' + optionSafe(name) + '</option>';
         }).join('');
         html += '<option value="__other__">Otros / no listado</option>';
         select.innerHTML = html;
@@ -1240,6 +1357,8 @@
         }
         togglePeajeCustom();
         syncSecondaryFromPrimary();
+        renderCasetaOptionsForPrimary();
+        renderCasetaOptionsForSecondary();
       }
 
       function togglePeajeCustom() {
@@ -1474,6 +1593,7 @@
 
         var operador2 = document.getElementById('setupOperador2');
         if (operador2) operador2.value = getOperatorFullName();
+        renderCasetaOptionsForSecondary();
       }
 
       function fillSetupFormFromProfiles(meta) {
@@ -1561,6 +1681,8 @@
           if (!document.getElementById('setupCaseta1').value) throw new Error('Ingrese el número de caseta principal.');
           if (!document.getElementById('setupSentido1').value) throw new Error('Seleccione el sentido de la caseta principal.');
           var assigned1 = findAssignmentByBoothId(document.getElementById('setupAssigned1').value);
+          var catalogStation1 = assigned1 ? null : findCatalogStationBySelection(concessionName, tollName);
+          var catalogBooth1 = assigned1 ? null : findCatalogBoothByCode(concessionName, tollName, document.getElementById('setupCaseta1').value, document.getElementById('setupSentido1').value);
           return {
             nombrePeaje: tollName,
             numeroCaseta: document.getElementById('setupCaseta1').value,
@@ -1568,8 +1690,8 @@
             sentidoCirculacion: document.getElementById('setupSentido1').value,
             concessionName: concessionName,
             projectId: assigned1 ? assigned1.projectId : null,
-            stationId: assigned1 ? assigned1.stationId : null,
-            boothId: assigned1 ? assigned1.boothId : null
+            stationId: assigned1 ? assigned1.stationId : (catalogStation1 ? catalogStation1.id : null),
+            boothId: assigned1 ? assigned1.boothId : (catalogBooth1 ? catalogBooth1.id : null)
           };
         }
 
@@ -1578,6 +1700,8 @@
         if (!document.getElementById('setupCaseta2').value) throw new Error('Ingrese el número de caseta secundaria.');
         if (!document.getElementById('setupSentido2').value) throw new Error('Seleccione el sentido de la caseta secundaria.');
         var assigned2 = findAssignmentByBoothId(document.getElementById('setupAssigned2').value);
+        var catalogStation2 = assigned2 ? null : findCatalogStationBySelection(concessionName, tollName);
+        var catalogBooth2 = assigned2 ? null : findCatalogBoothByCode(concessionName, tollName, document.getElementById('setupCaseta2').value, document.getElementById('setupSentido2').value);
         return {
           nombrePeaje: tollName,
           numeroCaseta: document.getElementById('setupCaseta2').value,
@@ -1585,8 +1709,8 @@
           sentidoCirculacion: document.getElementById('setupSentido2').value,
           concessionName: concessionName,
           projectId: assigned2 ? assigned2.projectId : null,
-          stationId: assigned2 ? assigned2.stationId : null,
-          boothId: assigned2 ? assigned2.boothId : null
+          stationId: assigned2 ? assigned2.stationId : (catalogStation2 ? catalogStation2.id : null),
+          boothId: assigned2 ? assigned2.boothId : (catalogBooth2 ? catalogBooth2.id : null)
         };
       }
 
@@ -1734,6 +1858,7 @@
           operationContext: authOperationContext
         });
         hasValidLicense = true;
+        await loadSetupCatalog(true).catch(function(){});
         showPanelButtons();
         populateSetupFromAssignments();
         if (siteInfo && Array.isArray(siteInfo.profiles) && siteInfo.profiles.length) await syncSiteInfoWithAssignments();
@@ -1911,6 +2036,7 @@
             authAssignments = cachedContext && cachedContext.assignments ? cachedContext.assignments : [];
             authOperationContext = cachedContext && cachedContext.operationContext ? cachedContext.operationContext : { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
             hasValidLicense = true;
+            await loadSetupCatalog(false).catch(function(){});
             populateSetupFromAssignments();
             if (siteInfo && Array.isArray(siteInfo.profiles) && siteInfo.profiles.length) await syncSiteInfoWithAssignments();
             applyAuthenticatedUserDefaults();
@@ -2718,10 +2844,30 @@
       document.getElementById('setupPeaje1').addEventListener('change', function() {
         togglePeajeCustom();
         syncSecondaryFromPrimary();
+        renderCasetaOptionsForPrimary();
+        renderCasetaOptionsForSecondary();
       });
 
       document.getElementById('setupPeajeCustom1').addEventListener('input', function() {
         syncSecondaryFromPrimary();
+        renderCasetaOptionsForPrimary();
+        renderCasetaOptionsForSecondary();
+      });
+
+      function autoFillDirectionFromCatalog(casetaInputId, sentidoSelectId) {
+        var casetaEl = document.getElementById(casetaInputId);
+        var sentidoEl = document.getElementById(sentidoSelectId);
+        if (!casetaEl || !sentidoEl || sentidoEl.value) return;
+        var booth = findCatalogBoothByCode(getSelectedConcessionName(), getSelectedPeajeName(), casetaEl.value, '');
+        if (booth && booth.directions) sentidoEl.value = booth.directions;
+      }
+
+      document.getElementById('setupCaseta1').addEventListener('change', function() {
+        autoFillDirectionFromCatalog('setupCaseta1', 'setupSentido1');
+      });
+
+      document.getElementById('setupCaseta2').addEventListener('change', function() {
+        autoFillDirectionFromCatalog('setupCaseta2', 'setupSentido2');
       });
 
       document.getElementById('setupAssigned1').addEventListener('change', function(e) {
@@ -2872,6 +3018,7 @@
         let cachedContext = await getDB(OPERATION_CONTEXT_KEY);
         if (cachedContext && cachedContext.assignments) authAssignments = cachedContext.assignments;
         if (cachedContext && cachedContext.operationContext) authOperationContext = cachedContext.operationContext;
+        await loadSetupCatalog(false).catch(function(){});
         if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
         if (siteInfo && Array.isArray(siteInfo.profiles) && siteInfo.profiles.length) await syncSiteInfoWithAssignments();
         await restoreAuthenticatedSession();

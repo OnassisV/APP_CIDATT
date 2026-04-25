@@ -524,100 +524,9 @@
     <div class="modal-title" id="modalStationTitle">Agregar Peaje / Estación</div>
     <div class="form-group">
       <label>Nombre del peaje *</label>
-      <select id="sName" onchange="document.getElementById('sNameCustomWrap').style.display=this.value==='__otro__'?'block':'none'">
+      <select id="sName">
         <option value="">— Seleccionar peaje —</option>
-        <optgroup label="Norvial (Red Vial 5 — Ancón / Huacho / Pativilca)">
-          <option>Peaje Serpêntín de Pasamayo</option>
-          <option>Peaje Huacho</option>
-          <option>Peaje Pativilca</option>
-        </optgroup>
-        <optgroup label="Red Vial 4 (Pativilca — Trujillo)">
-          <option>Peaje Vesique</option>
-          <option>Peaje Virú</option>
-          <option>Peaje Chicama</option>
-          <option>Peaje Chao</option>
-          <option>Peaje Menocucho</option>
-        </optgroup>
-        <optgroup label="Autopista del Sol (Trujillo — Sullana)">
-          <option>Peaje Salaverry</option>
-          <option>Peaje Ascope</option>
-          <option>Peaje Chocope</option>
-          <option>Peaje Lambayeque</option>
-          <option>Peaje Piura (Autopista del Sol)</option>
-          <option>Peaje Sullana</option>
-        </optgroup>
-        <optgroup label="IIRSA Norte (Paita — Yurimaguas)">
-          <option>Peaje Piura (IIRSA Norte)</option>
-          <option>Peaje Olmos</option>
-          <option>Peaje Chamaya</option>
-          <option>Peaje Pedro Ruiz</option>
-          <option>Peaje Bagua Grande</option>
-          <option>Peaje Rioja</option>
-          <option>Peaje Moyobamba</option>
-          <option>Peaje Tarapoto</option>
-          <option>Peaje Picota</option>
-          <option>Peaje Tocache</option>
-        </optgroup>
-        <optgroup label="IIRSA Centro T1 (Lima — La Oroya — Huancayo)">
-          <option>Peaje Casapalca</option>
-          <option>Peaje La Oroya</option>
-          <option>Peaje Tarma</option>
-          <option>Peaje Huancayo</option>
-        </optgroup>
-        <optgroup label="IIRSA Centro T2 (La Oroya — Pucallpa)">
-          <option>Peaje San Ramón</option>
-          <option>Peaje La Merced</option>
-          <option>Peaje Pucallpa</option>
-        </optgroup>
-        <optgroup label="IIRSA Sur T1 (Marcona — Urcos)">
-          <option>Peaje Dv. Quilca</option>
-          <option>Peaje Camaná</option>
-          <option>Peaje La Yesera</option>
-          <option>Peaje Ilo (Pampa Cuellar)</option>
-        </optgroup>
-        <optgroup label="IIRSA Sur T2 (Urcos — Inambari)">
-          <option>Peaje Urcos</option>
-          <option>Peaje Marcapata</option>
-          <option>Peaje Quincemil</option>
-        </optgroup>
-        <optgroup label="IIRSA Sur T3 (Inambari — Iñapari)">
-          <option>Peaje Puerto Maldonado</option>
-          <option>Peaje Iberia</option>
-        </optgroup>
-        <optgroup label="IIRSA Sur T4 (Inambari — Azángaro)">
-          <option>Peaje Macusani</option>
-          <option>Peaje Azángaro</option>
-        </optgroup>
-        <optgroup label="IIRSA Sur T5 (Matarani — Ilo — Dv. Quilca)">
-          <option>Peaje Matarani</option>
-          <option>Peaje Moquegua</option>
-          <option>Peaje Tomasiri</option>
-        </optgroup>
-        <optgroup label="Red Vial 6 / Survial (Ica — Dv. Quilca)">
-          <option>Peaje Chincha Alta</option>
-          <option>Peaje Ica</option>
-          <option>Peaje Dv. Los Libertadores</option>
-          <option>Peaje Nasca</option>
-        </optgroup>
-        <optgroup label="Covinca (Lima — Canta — La Viuda)">
-          <option>Peaje Canta</option>
-          <option>Peaje La Viuda</option>
-        </optgroup>
-        <optgroup label="Autopista Arequipa — La Joya">
-          <option>Peaje La Joya</option>
-          <option>Peaje Uchumayo</option>
-        </optgroup>
-        <optgroup label="Rutas de Lima / Línea Amarilla">
-          <option>Peaje Gambetta</option>
-          <option>Peaje Canta Callao</option>
-          <option>Peaje Ramiro Priale</option>
-          <option>Peaje Javier Prado</option>
-        </optgroup>
-        <optgroup label="Empalme 1B (Buenos Aires — Canchaque)">
-          <option>Peaje Buenos Aires</option>
-          <option>Peaje Canchaque</option>
-        </optgroup>
-        <option value="__otro__">✏️ Otro (escribir manualmente)</option>
+        <option value="__otro__">✏️ Otro / no listado</option>
       </select>
       <div id="sNameCustomWrap" style="display:none;margin-top:8px;">
         <input id="sNameCustom" placeholder="Escribir nombre del peaje"/>
@@ -779,6 +688,324 @@
   var _openSessionsSnapshot = [];
   var stationCatalogRows = [];
   var _parametersSnapshot = null;
+  var BASE_STATION_CATALOG = [
+  {
+    "concession": "Norvial (Red Vial 5 — Ancón / Huacho / Pativilca)",
+    "tolls": [
+      {
+        "name": "Peaje Serpêntín de Pasamayo",
+        "booths": []
+      },
+      {
+        "name": "Peaje Huacho",
+        "booths": []
+      },
+      {
+        "name": "Peaje Pativilca",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "Red Vial 4 (Pativilca — Trujillo)",
+    "tolls": [
+      {
+        "name": "Peaje Vesique",
+        "booths": []
+      },
+      {
+        "name": "Peaje Virú",
+        "booths": []
+      },
+      {
+        "name": "Peaje Chicama",
+        "booths": []
+      },
+      {
+        "name": "Peaje Chao",
+        "booths": []
+      },
+      {
+        "name": "Peaje Menocucho",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "Autopista del Sol (Trujillo — Sullana)",
+    "tolls": [
+      {
+        "name": "Peaje Salaverry",
+        "booths": []
+      },
+      {
+        "name": "Peaje Ascope",
+        "booths": []
+      },
+      {
+        "name": "Peaje Chocope",
+        "booths": []
+      },
+      {
+        "name": "Peaje Lambayeque",
+        "booths": []
+      },
+      {
+        "name": "Peaje Piura (Autopista del Sol)",
+        "booths": []
+      },
+      {
+        "name": "Peaje Sullana",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "IIRSA Norte (Paita — Yurimaguas)",
+    "tolls": [
+      {
+        "name": "Peaje Piura (IIRSA Norte)",
+        "booths": []
+      },
+      {
+        "name": "Peaje Olmos",
+        "booths": []
+      },
+      {
+        "name": "Peaje Chamaya",
+        "booths": []
+      },
+      {
+        "name": "Peaje Pedro Ruiz",
+        "booths": []
+      },
+      {
+        "name": "Peaje Bagua Grande",
+        "booths": []
+      },
+      {
+        "name": "Peaje Rioja",
+        "booths": []
+      },
+      {
+        "name": "Peaje Moyobamba",
+        "booths": []
+      },
+      {
+        "name": "Peaje Tarapoto",
+        "booths": []
+      },
+      {
+        "name": "Peaje Picota",
+        "booths": []
+      },
+      {
+        "name": "Peaje Tocache",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "IIRSA Centro T1 (Lima — La Oroya — Huancayo)",
+    "tolls": [
+      {
+        "name": "Peaje Casapalca",
+        "booths": []
+      },
+      {
+        "name": "Peaje La Oroya",
+        "booths": []
+      },
+      {
+        "name": "Peaje Tarma",
+        "booths": []
+      },
+      {
+        "name": "Peaje Huancayo",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "IIRSA Centro T2 (La Oroya — Pucallpa)",
+    "tolls": [
+      {
+        "name": "Peaje San Ramón",
+        "booths": []
+      },
+      {
+        "name": "Peaje La Merced",
+        "booths": []
+      },
+      {
+        "name": "Peaje Pucallpa",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "IIRSA Sur T1 (Marcona — Urcos)",
+    "tolls": [
+      {
+        "name": "Peaje Dv. Quilca",
+        "booths": []
+      },
+      {
+        "name": "Peaje Camaná",
+        "booths": []
+      },
+      {
+        "name": "Peaje La Yesera",
+        "booths": []
+      },
+      {
+        "name": "Peaje Ilo (Pampa Cuellar)",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "IIRSA Sur T2 (Urcos — Inambari)",
+    "tolls": [
+      {
+        "name": "Peaje Urcos",
+        "booths": []
+      },
+      {
+        "name": "Peaje Marcapata",
+        "booths": []
+      },
+      {
+        "name": "Peaje Quincemil",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "IIRSA Sur T3 (Inambari — Iñapari)",
+    "tolls": [
+      {
+        "name": "Peaje Puerto Maldonado",
+        "booths": []
+      },
+      {
+        "name": "Peaje Iberia",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "IIRSA Sur T4 (Inambari — Azángaro)",
+    "tolls": [
+      {
+        "name": "Peaje Macusani",
+        "booths": []
+      },
+      {
+        "name": "Peaje Azángaro",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "IIRSA Sur T5 (Matarani — Ilo — Dv. Quilca)",
+    "tolls": [
+      {
+        "name": "Peaje Matarani",
+        "booths": []
+      },
+      {
+        "name": "Peaje Moquegua",
+        "booths": []
+      },
+      {
+        "name": "Peaje Tomasiri",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "Red Vial 6 / Survial (Ica — Dv. Quilca)",
+    "tolls": [
+      {
+        "name": "Peaje Chincha Alta",
+        "booths": []
+      },
+      {
+        "name": "Peaje Ica",
+        "booths": []
+      },
+      {
+        "name": "Peaje Dv. Los Libertadores",
+        "booths": []
+      },
+      {
+        "name": "Peaje Nasca",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "Covinca (Lima — Canta — La Viuda)",
+    "tolls": [
+      {
+        "name": "Peaje Canta",
+        "booths": []
+      },
+      {
+        "name": "Peaje La Viuda",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "Autopista Arequipa — La Joya",
+    "tolls": [
+      {
+        "name": "Peaje La Joya",
+        "booths": []
+      },
+      {
+        "name": "Peaje Uchumayo",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "Rutas de Lima / Línea Amarilla",
+    "tolls": [
+      {
+        "name": "Peaje Gambetta",
+        "booths": []
+      },
+      {
+        "name": "Peaje Canta Callao",
+        "booths": []
+      },
+      {
+        "name": "Peaje Ramiro Priale",
+        "booths": []
+      },
+      {
+        "name": "Peaje Javier Prado",
+        "booths": []
+      }
+    ]
+  },
+  {
+    "concession": "Empalme 1B (Buenos Aires — Canchaque)",
+    "tolls": [
+      {
+        "name": "Peaje Buenos Aires",
+        "booths": []
+      },
+      {
+        "name": "Peaje Canchaque",
+        "booths": []
+      }
+    ]
+  }
+];
 
   // ── AUTH ──────────────────────────────────────────────────────────────────
 
@@ -838,16 +1065,24 @@
     });
     localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(nextState));
   }
-
   async function loadConcessions(forceRefresh) {
     if (concessionsCache.length && !forceRefresh) return concessionsCache;
     try {
-      const data = await api('/concessions');
+      const data = await api('/catalog/structure');
+      _parametersSnapshot = data;
       concessionsCache = (data.concessions || [])
         .map((item) => Object.assign({}, item, { name: canonicalConcessionName(item.name) }))
         .filter((item) => item.name && !isDefaultConcessionName(item.name));
+      buildStationCatalogFromStructure(data);
     } catch (_err) {
-      concessionsCache = [];
+      try {
+        const data = await api('/concessions');
+        concessionsCache = (data.concessions || [])
+          .map((item) => Object.assign({}, item, { name: canonicalConcessionName(item.name) }))
+          .filter((item) => item.name && !isDefaultConcessionName(item.name));
+      } catch (_err2) {
+        concessionsCache = [];
+      }
     }
     return concessionsCache;
   }
@@ -938,25 +1173,33 @@
     const label = canonicalConcessionName(selectedOption.dataset.concessionName || (parent && parent.tagName === 'OPTGROUP' ? parent.label : ''));
     if (label) concessionInput.value = label;
   }
-
+  function buildStationCatalogFromStructure(data) {
+    const structure = data || _parametersSnapshot || {};
+    stationCatalogRows = (structure.stations || [])
+      .filter((station) => station && station.id && station.name)
+      .map((station) => ({
+        id: Number(station.id),
+        name: station.name,
+        location: station.location || '',
+        daily_start_time: station.daily_start_time || '',
+        daily_end_time: station.daily_end_time || '',
+        concessionId: station.concession_id ? Number(station.concession_id) : null,
+        concessionName: canonicalConcessionName(station.concession_name || ''),
+        concessionKey: concessionKey(station.concession_name || ''),
+        linkedProjectIds: String(station.linked_project_ids || '')
+          .split(',')
+          .map((item) => Number(item || 0))
+          .filter(Boolean),
+        booths: (structure.booths || []).filter((booth) => Number(booth.station_id) === Number(station.id))
+      }))
+      .sort((a, b) => String(a.concessionName + a.name).localeCompare(String(b.concessionName + b.name), 'es'));
+  }
   function buildStationCatalogFromSelect() {
-    const stationSelect = document.getElementById('sName');
-    if (!stationSelect) return;
-    if (stationCatalogRows.length && stationSelect.dataset.catalogReady === '1') return;
+    if (_parametersSnapshot) {
+      buildStationCatalogFromStructure(_parametersSnapshot);
+      return;
+    }
     stationCatalogRows = [];
-    Array.from(stationSelect.querySelectorAll('optgroup')).forEach((group) => {
-      const canonicalName = canonicalConcessionName(group.label);
-      const key = concessionKey(canonicalName);
-      Array.from(group.querySelectorAll('option')).forEach((option) => {
-        const name = option.value || option.text || '';
-        if (!name || option.value === '__otro__') return;
-        stationCatalogRows.push({ name, concessionName: canonicalName, concessionKey: key, label: group.label });
-        option.dataset.concessionLabel = group.label;
-        option.dataset.concessionName = canonicalName;
-        option.dataset.concessionKey = key;
-      });
-    });
-    stationSelect.dataset.catalogReady = '1';
   }
 
 
@@ -1115,7 +1358,6 @@
         : 'Al elegir una concesion, el listado de peajes se filtra automaticamente.';
     }
   }
-
   function selectStationOptionByName(stationName) {
     const select = document.getElementById('sName');
     const customInput = document.getElementById('sNameCustom');
@@ -1124,12 +1366,12 @@
 
     const normalizedName = normalizeForFilter(stationName);
     const matched = Array.from(select.options).find((option) => {
-      if (!option.value || option.value === '__otro__' || option.hidden) return false;
-      return normalizeForFilter(option.value || option.text || '') === normalizedName;
+      if (!option.value || option.value === '__otro__') return false;
+      return normalizeForFilter(option.dataset.name || option.text || '') === normalizedName;
     });
 
     if (matched) {
-      select.value = matched.value || matched.text || '';
+      select.value = matched.value || '';
       if (customInput) customInput.value = '';
       if (customWrap) customWrap.style.display = 'none';
     } else {
@@ -1140,36 +1382,26 @@
 
     select.dispatchEvent(new Event('change'));
   }
-
   function getCatalogConcessions() {
-    const stationSelect = document.getElementById('sName');
-    if (!stationSelect) return [];
+    const source = (_parametersSnapshot && _parametersSnapshot.concessions) || concessionsCache || [];
     const map = new Map();
-    Array.from(stationSelect.querySelectorAll('optgroup')).forEach((group) => {
-      const label = canonicalConcessionName(group.label);
-      if (!label || isDefaultConcessionName(label)) return;
-      const key = concessionKey(label);
-      if (!map.has(key)) map.set(key, { id: 'catalog:' + key.replace(/[^a-z0-9]+/g, '-'), name: label, isCatalog: true, key });
+    source.forEach((item) => {
+      const name = canonicalConcessionName(item.name);
+      if (!name || isDefaultConcessionName(name)) return;
+      const key = concessionKey(name);
+      if (!map.has(key)) map.set(key, { id: item.id, name, isCatalog: false, key });
     });
     return Array.from(map.values());
   }
-
   function getMergedConcessions() {
     const merged = new Map();
-
-    // Primero van las concesiones registradas en la BD.
-    (concessionsCache || []).forEach((item) => {
+    const source = (_parametersSnapshot && _parametersSnapshot.concessions) || concessionsCache || [];
+    source.forEach((item) => {
       const displayName = canonicalConcessionName(item && item.name);
       if (!item || !displayName || isDefaultConcessionName(displayName)) return;
       const key = concessionKey(displayName);
       merged.set(key, { id: item.id, name: displayName, isCatalog: false, key });
     });
-
-    // Luego completamos con el catálogo estático de peajes, sin duplicar nombres equivalentes.
-    getCatalogConcessions().forEach((item) => {
-      if (!merged.has(item.key)) merged.set(item.key, item);
-    });
-
     return Array.from(merged.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
   }
 
@@ -1253,7 +1485,18 @@
     const payload = getSelectedConcessionPayload(selectId, customInputId);
     return canonicalConcessionName(payload.name);
   }
-
+  function getSelectedStationOptionPayload() {
+    const select = document.getElementById('sName');
+    if (!select) return { id: null, name: '' };
+    if (select.value === '__otro__') {
+      return { id: null, name: String(document.getElementById('sNameCustom')?.value || '').trim() };
+    }
+    const selected = select.options[select.selectedIndex];
+    return {
+      id: selected && selected.dataset.stationId ? Number(selected.dataset.stationId) : parseInt(select.value || '0', 10) || null,
+      name: selected ? String(selected.dataset.name || selected.text || '').trim() : ''
+    };
+  }
   function filterStationOptionsByConcession() {
     buildStationCatalogFromSelect();
 
@@ -1266,42 +1509,69 @@
     const previousValue = stationSelect.value;
     const isOther = concessionSelect.value === '__other__';
     const selectedName = getSelectedConcessionNameFromSelect('sConcessionSelect', 'sConcessionCustom');
+    const selectedPayload = getSelectedConcessionPayload('sConcessionSelect', 'sConcessionCustom');
+    const selectedId = selectedPayload.id ? Number(selectedPayload.id) : null;
     const selectedKey = concessionKey(selectedName);
     concessionInput.value = isOther ? canonicalConcessionName(document.getElementById('sConcessionCustom')?.value || '') : selectedName;
-    const rows = (!isOther && selectedKey) ? stationCatalogRows.filter((row) => row.concessionKey === selectedKey) : [];
+
+    const rows = (!isOther && (selectedId || selectedKey))
+      ? stationCatalogRows.filter((row) => {
+          if (selectedId && Number(row.concessionId) === selectedId) return true;
+          return selectedKey && row.concessionKey === selectedKey;
+        })
+      : [];
 
     stationSelect.innerHTML = '<option value="">— Seleccionar peaje —</option>' +
-      rows.map((row) => '<option value="' + esc(row.name) + '" data-concession-name="' + esc(row.concessionName) + '" data-concession-key="' + esc(row.concessionKey) + '">' + esc(row.name) + '</option>').join('') +
+      rows.map((row) => '<option value="' + esc(row.id) + '" data-station-id="' + esc(row.id) + '" data-name="' + esc(row.name) + '" data-concession-id="' + esc(row.concessionId || '') + '" data-concession-name="' + esc(row.concessionName) + '" data-concession-key="' + esc(row.concessionKey) + '">' + esc(row.name) + '</option>').join('') +
       '<option value="__otro__">✏️ Otro / no listado</option>';
 
-    if (isOther) { stationSelect.value = '__otro__'; if (customWrap) customWrap.style.display = 'block'; }
-    else if (!selectedKey) { stationSelect.value = ''; if (customWrap) customWrap.style.display = 'none'; }
-    else if (previousValue && rows.some((row) => row.name === previousValue)) { stationSelect.value = previousValue; if (customWrap) customWrap.style.display = 'none'; }
-    else if (rows.length === 1) { stationSelect.value = rows[0].name; if (customWrap) customWrap.style.display = 'none'; }
-    else { stationSelect.value = ''; if (customWrap) customWrap.style.display = 'none'; }
+    if (isOther) {
+      stationSelect.value = '__otro__';
+      if (customWrap) customWrap.style.display = 'block';
+    } else if (!selectedKey && !selectedId) {
+      stationSelect.value = '';
+      if (customWrap) customWrap.style.display = 'none';
+    } else if (previousValue && rows.some((row) => String(row.id) === String(previousValue))) {
+      stationSelect.value = previousValue;
+      if (customWrap) customWrap.style.display = 'none';
+    } else if (rows.length === 1) {
+      stationSelect.value = String(rows[0].id);
+      if (customWrap) customWrap.style.display = 'none';
+    } else {
+      stationSelect.value = '';
+      if (customWrap) customWrap.style.display = 'none';
+    }
 
     const hint = document.getElementById('sTemplateHint');
     if (hint) {
       if (isOther) hint.textContent = 'Nueva concesión: registra el peaje manualmente.';
-      else if (!selectedKey) hint.textContent = 'Selecciona una concesión para mostrar sus peajes.';
-      else hint.textContent = rows.length ? rows.length + ' peaje(s) disponibles para ' + selectedName + '.' : 'No hay peajes precargados para ' + selectedName + '. Usa “Otros” para registrarlo.';
+      else if (!selectedKey && !selectedId) hint.textContent = 'Selecciona una concesión para mostrar sus peajes.';
+      else hint.textContent = rows.length ? rows.length + ' peaje(s) configurado(s) para ' + selectedName + '.' : 'No hay peajes configurados para ' + selectedName + '. Usa “Otros” para registrarlo.';
     }
     stationSelect.dispatchEvent(new Event('change'));
   }
-
   async function applyStationTemplate() {
     const stationSelect = document.getElementById('sName');
-    const concessionSelect = document.getElementById('sConcessionSelect');
     const concessionInput = document.getElementById('sConcessionName');
     const hint = document.getElementById('sTemplateHint');
     if (!stationSelect || !concessionInput) return;
-    const stationName = stationSelect.value === '__otro__'
-      ? document.getElementById('sNameCustom')?.value.trim()
-      : stationSelect.value.trim();
+
+    const payload = getSelectedStationOptionPayload();
+    const stationName = payload.name;
     if (!stationName || stationSelect.value === '__otro__') {
-      if (hint) hint.textContent = '';
+      if (hint) hint.textContent = stationSelect.value === '__otro__' ? 'Nuevo peaje: completa ubicación y horarios si corresponde.' : '';
       return;
     }
+
+    const row = stationCatalogRows.find((item) => Number(item.id) === Number(payload.id));
+    if (row) {
+      if (!document.getElementById('sLocation').value) document.getElementById('sLocation').value = row.location || '';
+      if (!document.getElementById('sTimeStart').value) document.getElementById('sTimeStart').value = row.daily_start_time || '';
+      if (!document.getElementById('sTimeEnd').value) document.getElementById('sTimeEnd').value = row.daily_end_time || '';
+      if (hint) hint.textContent = 'Configuración del catálogo: ' + (row.booths || []).length + ' caseta(s) registrada(s).';
+      return;
+    }
+
     try {
       const selectedConcession = getSelectedConcessionPayload('sConcessionSelect', 'sConcessionCustom');
       const data = await api('/stations/template?' + new URLSearchParams({
@@ -1317,7 +1587,7 @@
       if (!document.getElementById('sLocation').value) document.getElementById('sLocation').value = template.location || '';
       if (!document.getElementById('sTimeStart').value) document.getElementById('sTimeStart').value = template.daily_start_time || '';
       if (!document.getElementById('sTimeEnd').value) document.getElementById('sTimeEnd').value = template.daily_end_time || '';
-      if (hint) hint.textContent = `Configuracion heredada: ${template.booths.length} caseta(s) registrada(s) previamente.`;
+      if (hint) hint.textContent = `Configuración heredada: ${template.booths.length} caseta(s) registrada(s) previamente.`;
     } catch (_err) {
       if (hint) hint.textContent = '';
     }
@@ -2243,7 +2513,6 @@
   window.closeAllOpenSessions = closeAllOpenSessions;
 
   // ── PARÁMETROS OPERATIVOS ─────────────────────────────────────────────────
-
   async function loadParameters() {
     const target = document.getElementById('parametersContent');
     if (!target) return;
@@ -2251,31 +2520,46 @@
     try {
       const data = await api('/catalog/structure');
       _parametersSnapshot = data;
+      concessionsCache = (data.concessions || [])
+        .map((item) => Object.assign({}, item, { name: canonicalConcessionName(item.name) }))
+        .filter((item) => item.name && !isDefaultConcessionName(item.name));
+      buildStationCatalogFromStructure(data);
       renderParameters(data);
+      renderConcessionOptions('pConcessionSelect', true);
+      renderConcessionOptions('sConcessionSelect', true);
+      renderConcessionOptions('dashFilterConcession', false);
     } catch (e) {
       target.innerHTML = '<div class="alert alert-danger"><span>❌</span><div>' + esc(e.message) + '</div></div>';
     }
   }
   window.loadParameters = loadParameters;
-
   function renderParameters(data) {
     const concessions = data.concessions || [];
     const projects = data.projects || [];
     const stations = data.stations || [];
     const booths = data.booths || [];
+    const projectSites = data.projectSites || [];
     const content = document.getElementById('parametersContent');
     if (!content) return;
 
     const concessionOptions = concessions.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
-    const stationOptions = stations.map((st) => '<option value="' + esc(st.id) + '">' + esc(st.name) + (st.concession_name ? ' — ' + esc(st.concession_name) : '') + '</option>').join('');
+    const projectOptions = projects.map((p) => '<option value="' + esc(p.id) + '" data-concession-id="' + esc(p.concession_id || '') + '">' + esc(p.name) + (p.concession_name ? ' — ' + esc(p.concession_name) : '') + '</option>').join('');
+    const stationOptions = stations.map((st) => '<option value="' + esc(st.id) + '" data-concession-id="' + esc(st.concession_id || '') + '">' + esc(st.name) + (st.concession_name ? ' — ' + esc(st.concession_name) : '') + '</option>').join('');
+    const stationById = new Map(stations.map((st) => [Number(st.id), st]));
+    const projectById = new Map(projects.map((p) => [Number(p.id), p]));
 
     content.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
         <div class="section-header">
           <div>
-            <h2>Catálogo operativo base</h2>
-            <div class="param-mini">Configura primero las concesiones, luego proyectos/redes viales, peajes y casetas. Esta estructura alimenta proyectos nuevos, filtros y asignaciones.</div>
+            <h2>Catálogo operativo real</h2>
+            <div class="param-mini">Esta es la fuente oficial de los desplegables, filtros, proyectos, peajes, casetas y asignaciones. Aquí no se duplica información: se edita la base real.</div>
           </div>
+          <button class="btn btn-soft btn-sm" onclick="importBaseCatalog()">Importar lista base</button>
+        </div>
+        <div class="alert alert-info" style="margin-bottom:14px;">
+          <span>ℹ️</span>
+          <div>Flujo oficial: <strong>Concesión → Proyecto/Red vial → Peaje → Caseta</strong>. Si cambias algo aquí, se reflejará en los desplegables y en el dashboard.</div>
         </div>
         <div class="param-grid">
           <div class="param-card">
@@ -2289,18 +2573,21 @@
               ${concessions.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.status || 'activa')}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterConcession(${c.id},'${esc(c.name)}','${esc(c.status || 'activa')}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${c.id},'${esc(c.name)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="3">Sin concesiones.</td></tr>'}
             </tbody></table></div>
           </div>
+
           <div class="param-card">
             <h3>2. Proyectos / red vial</h3>
             <div class="param-form">
               <select id="paramProjectConcession"><option value="">Concesión...</option>${concessionOptions}</select>
               <input id="paramProjectName" placeholder="Ej: Red Vial 4, IIRSA Centro, operativo trimestral" />
               <div class="form-row"><input id="paramProjectStart" type="date" /><input id="paramProjectEnd" type="date" /></div>
-              <button class="btn btn-primary btn-sm" onclick="saveParameterProject()">Crear proyecto</button>
+              <select id="paramProjectStatus"><option value="activo">Activo</option><option value="pausado">Pausado</option><option value="cerrado">Cerrado</option></select>
+              <button class="btn btn-primary btn-sm" onclick="saveParameterProject()">Guardar proyecto</button>
             </div>
-            <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Concesión</th><th>Estado</th></tr></thead><tbody>
-              ${projects.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.concession_name || '')}</td><td>${esc(p.status || '')}</td></tr>`).join('') || '<tr><td colspan="3">Sin proyectos.</td></tr>'}
+            <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Concesión</th><th>Estado</th><th></th></tr></thead><tbody>
+              ${projects.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.concession_name || '')}</td><td>${esc(p.status || '')}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterProject(${p.id},${p.concession_id||0},'${esc(p.name)}','${p.start_date||''}','${p.end_date||''}','${esc(p.status || 'activo')}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProject(${p.id},'${esc(p.name)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="4">Sin proyectos.</td></tr>'}
             </tbody></table></div>
           </div>
+
           <div class="param-card">
             <h3>3. Peajes</h3>
             <div class="param-form">
@@ -2310,31 +2597,83 @@
               <div class="form-row"><input id="paramStationStart" type="time" /><input id="paramStationEnd" type="time" /></div>
               <button class="btn btn-primary btn-sm" onclick="saveParameterStation()">Guardar peaje</button>
             </div>
-            <div class="table-wrap"><table><thead><tr><th>Peaje</th><th>Concesión</th><th>Casetas</th></tr></thead><tbody>
-              ${stations.map((st) => `<tr><td>${esc(st.name)}</td><td>${esc(st.concession_name || '')}</td><td>${booths.filter((b) => Number(b.station_id) === Number(st.id)).length}</td></tr>`).join('') || '<tr><td colspan="3">Sin peajes.</td></tr>'}
+            <div class="table-wrap"><table><thead><tr><th>Peaje</th><th>Concesión</th><th>Casetas</th><th></th></tr></thead><tbody>
+              ${stations.map((st) => `<tr><td>${esc(st.name)}</td><td>${esc(st.concession_name || '')}</td><td>${booths.filter((b) => Number(b.station_id) === Number(st.id)).length}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterStation(${st.id},${st.concession_id||0},'${esc(st.name)}','${esc(st.location||'')}','${st.daily_start_time||''}','${st.daily_end_time||''}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id},'${esc(st.name)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="4">Sin peajes.</td></tr>'}
             </tbody></table></div>
           </div>
+
           <div class="param-card">
             <h3>4. Casetas</h3>
             <div class="param-form">
               <select id="paramBoothStation"><option value="">Peaje...</option>${stationOptions}</select>
               <input id="paramBoothCode" placeholder="Número / código de caseta" />
               <select id="paramBoothDirection"><option value="">Sentido...</option><option value="Norte a Sur">Norte a Sur</option><option value="Sur a Norte">Sur a Norte</option><option value="Este a Oeste">Este a Oeste</option><option value="Oeste a Este">Oeste a Este</option><option value="Ingreso">Ingreso</option><option value="Salida">Salida</option></select>
-              <button class="btn btn-primary btn-sm" onclick="saveParameterBooth()">Agregar caseta</button>
+              <button class="btn btn-primary btn-sm" onclick="saveParameterBooth()">Guardar caseta</button>
             </div>
-            <div class="table-wrap"><table><thead><tr><th>Peaje</th><th>Caseta</th><th>Sentido</th></tr></thead><tbody>
-              ${booths.map((b) => `<tr><td>${esc(b.station_name || '')}</td><td>${esc(b.code)}</td><td>${esc(b.directions || '')}</td></tr>`).join('') || '<tr><td colspan="3">Sin casetas.</td></tr>'}
+            <div class="table-wrap"><table><thead><tr><th>Peaje</th><th>Caseta</th><th>Sentido</th><th></th></tr></thead><tbody>
+              ${booths.map((b) => `<tr><td>${esc(b.station_name || '')}</td><td>${esc(b.code)}</td><td>${esc(b.directions || '')}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterBooth(${b.id},${b.station_id},'${esc(b.code)}','${esc(b.directions||'')}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterBooth(${b.id},'${esc(b.code)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="4">Sin casetas.</td></tr>'}
             </tbody></table></div>
           </div>
         </div>
       </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-header">
+          <div>
+            <h2>Vincular peajes a proyectos</h2>
+            <div class="param-mini">Un peaje puede existir en el catálogo de la concesión y vincularse a uno o más proyectos/redes viales de la misma concesión.</div>
+          </div>
+        </div>
+        <div class="param-form inline">
+          <select id="paramLinkProject"><option value="">Proyecto...</option>${projectOptions}</select>
+          <select id="paramLinkStation"><option value="">Peaje...</option>${stationOptions}</select>
+          <button class="btn btn-primary btn-sm" onclick="saveProjectStationLink()">Vincular</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Concesión</th><th>Peaje vinculado</th><th></th></tr></thead><tbody>
+          ${projectSites.map((link) => {
+            const p = projectById.get(Number(link.project_id));
+            const st = stationById.get(Number(link.station_id));
+            if (!p || !st) return '';
+            return `<tr><td>${esc(p.name)}</td><td>${esc(p.concession_name || st.concession_name || '')}</td><td>${esc(st.name)}</td><td class="param-actions"><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProjectStationLink(${link.project_id},${link.station_id},'${esc(st.name)}')">Retirar</button></td></tr>`;
+          }).join('') || '<tr><td colspan="4">Sin peajes vinculados a proyectos.</td></tr>'}
+        </tbody></table></div>
+      </div>
+
       <div class="card">
-        <h2 style="font-size:1rem;margin-bottom:12px;">Vista jerárquica</h2>
+        <h2 style="font-size:1rem;margin-bottom:12px;">Vista jerárquica real</h2>
         <div class="hierarchy-list">
-          ${(data.hierarchy || []).map((c) => `<div class="hierarchy-item"><div class="hierarchy-title"><span>🏢 ${esc(c.name)}</span><small>${(c.projects||[]).length} proyecto(s) · ${(c.stations||[]).length} peaje(s)</small></div><div class="hierarchy-children">${(c.projects||[]).map((p) => `📋 ${esc(p.name)}${p.stations && p.stations.length ? ' → ' + p.stations.map((st) => esc(st.name)).join(', ') : ''}`).join('<br>') || 'Sin proyectos registrados'}<br>${(c.stations||[]).map((st) => `⛽ ${esc(st.name)} (${(st.booths||[]).length} caseta(s))`).join('<br>')}</div></div>`).join('') || '<div class="empty-state">Sin parámetros configurados.</div>'}
+          ${(data.hierarchy || []).map((c) => `<div class="hierarchy-item"><div class="hierarchy-title"><span>🏢 ${esc(c.name)}</span><small>${(c.projects||[]).length} proyecto(s) · ${(c.stations||[]).length} peaje(s)</small></div><div class="hierarchy-children">${(c.projects||[]).map((p) => `📋 ${esc(p.name)}${p.stations && p.stations.length ? '<br>&nbsp;&nbsp;→ ' + p.stations.map((st) => `⛽ ${esc(st.name)} (${(st.booths||[]).length} caseta(s))`).join('<br>&nbsp;&nbsp;→ ') : '<br>&nbsp;&nbsp;<span style="color:var(--muted)">Sin peajes vinculados</span>'}`).join('<br><br>') || 'Sin proyectos registrados'}</div></div>`).join('') || '<div class="empty-state">Sin parámetros configurados.</div>'}
         </div>
       </div>`;
+
+    const linkProject = document.getElementById('paramLinkProject');
+    const linkStation = document.getElementById('paramLinkStation');
+    if (linkProject && linkStation && !linkProject.dataset.bound) {
+      linkProject.dataset.bound = '1';
+      linkProject.addEventListener('change', () => {
+        const selected = linkProject.options[linkProject.selectedIndex];
+        const concessionId = selected ? selected.dataset.concessionId : '';
+        Array.from(linkStation.options).forEach((option) => {
+          if (!option.value) { option.hidden = false; return; }
+          option.hidden = concessionId && option.dataset.concessionId && option.dataset.concessionId !== concessionId;
+        });
+        if (linkStation.selectedOptions[0]?.hidden) linkStation.value = '';
+      });
+    }
   }
+
+  
+  window.importBaseCatalog = async function() {
+    if (!BASE_STATION_CATALOG.length) return alert('No hay catálogo base para importar.');
+    if (!confirm('¿Importar la lista base actual de concesiones y peajes al catálogo real? No duplicará elementos existentes.')) return;
+    try {
+      const data = await api('/catalog/import-base', { method: 'POST', body: { catalog: BASE_STATION_CATALOG } });
+      alert('Importación completada. Concesiones nuevas: ' + (data.imported?.concessions || 0) + ', peajes nuevos: ' + (data.imported?.stations || 0) + '.');
+      await loadConcessions(true);
+      await loadParameters();
+      await loadDashboard();
+    } catch (e) { alert(e.message); }
+  };
 
   window.editParameterConcession = function(id, name, status) {
     document.getElementById('paramConcessionName').value = name || '';
@@ -2364,35 +2703,122 @@
     catch (e) { alert(e.message); }
   };
 
+  window.editParameterProject = function(id, concessionId, name, start, end, status) {
+    document.getElementById('paramProjectConcession').value = concessionId || '';
+    document.getElementById('paramProjectName').value = name || '';
+    document.getElementById('paramProjectStart').value = start || '';
+    document.getElementById('paramProjectEnd').value = end || '';
+    document.getElementById('paramProjectStatus').value = status || 'activo';
+    document.getElementById('paramProjectName').dataset.editId = id;
+  };
+
   window.saveParameterProject = async function() {
     const concessionId = Number(document.getElementById('paramProjectConcession').value || 0);
-    const name = String(document.getElementById('paramProjectName').value || '').trim();
+    const input = document.getElementById('paramProjectName');
+    const name = String(input.value || '').trim();
     const start = document.getElementById('paramProjectStart').value || new Date().toISOString().slice(0, 10);
     const end = document.getElementById('paramProjectEnd').value || null;
+    const status = document.getElementById('paramProjectStatus').value || 'activo';
+    const editId = input.dataset.editId;
     if (!concessionId) return alert('Selecciona una concesión.');
     if (!name) return alert('Indica el nombre del proyecto o red vial.');
-    try { await api('/projects', { method: 'POST', body: { name, start_date: start, end_date: end, concession_id: concessionId, description: 'Catálogo operativo', max_booths_per_operator: 2 } }); await loadParameters(); await loadDashboard(); }
-    catch (e) { alert(e.message); }
+    const body = { name, start_date: start, end_date: end, concession_id: concessionId, status, description: 'Catálogo operativo', max_booths_per_operator: 2 };
+    try {
+      if (editId) await api('/projects/' + editId, { method: 'PUT', body });
+      else await api('/projects', { method: 'POST', body });
+      input.dataset.editId = '';
+      await loadParameters();
+      await loadDashboard();
+      await loadProjectsList();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.editParameterStation = function(id, concessionId, name, location, start, end) {
+    document.getElementById('paramStationConcession').value = concessionId || '';
+    document.getElementById('paramStationName').value = name || '';
+    document.getElementById('paramStationLocation').value = location || '';
+    document.getElementById('paramStationStart').value = start || '';
+    document.getElementById('paramStationEnd').value = end || '';
+    document.getElementById('paramStationName').dataset.editId = id;
   };
 
   window.saveParameterStation = async function() {
     const concessionId = Number(document.getElementById('paramStationConcession').value || 0);
-    const name = String(document.getElementById('paramStationName').value || '').trim();
+    const input = document.getElementById('paramStationName');
+    const name = String(input.value || '').trim();
     if (!concessionId) return alert('Selecciona una concesión.');
     if (!name) return alert('Indica el nombre del peaje.');
     const body = { concession_id: concessionId, name, location: document.getElementById('paramStationLocation').value.trim(), daily_start_time: document.getElementById('paramStationStart').value || null, daily_end_time: document.getElementById('paramStationEnd').value || null };
-    try { await api('/stations', { method: 'POST', body }); await loadParameters(); await loadDashboard(); }
+    const editId = input.dataset.editId;
+    try {
+      if (editId) await api('/stations/' + editId, { method: 'PUT', body });
+      else await api('/stations', { method: 'POST', body });
+      input.dataset.editId = '';
+      await loadConcessions(true);
+      await loadParameters();
+      await loadDashboard();
+      if (currentProjectId) await openProjectDetail(currentProjectId, true);
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteParameterStation = async function(id, name) {
+    if (!confirm('¿Eliminar el peaje "' + name + '" del catálogo? Solo se permite si no está vinculado ni tiene actividad.')) return;
+    try { await api('/stations/' + id, { method: 'DELETE' }); await loadConcessions(true); await loadParameters(); await loadDashboard(); }
     catch (e) { alert(e.message); }
+  };
+
+  window.editParameterBooth = function(id, stationId, code, directions) {
+    document.getElementById('paramBoothStation').value = stationId || '';
+    document.getElementById('paramBoothCode').value = code || '';
+    document.getElementById('paramBoothDirection').value = directions || '';
+    document.getElementById('paramBoothCode').dataset.editId = id;
   };
 
   window.saveParameterBooth = async function() {
     const stationId = Number(document.getElementById('paramBoothStation').value || 0);
-    const code = String(document.getElementById('paramBoothCode').value || '').trim();
+    const input = document.getElementById('paramBoothCode');
+    const code = String(input.value || '').trim();
     const directions = document.getElementById('paramBoothDirection').value || '';
+    const editId = input.dataset.editId;
     if (!stationId) return alert('Selecciona un peaje.');
     if (!code) return alert('Indica el número o código de caseta.');
-    try { await api('/stations/' + stationId + '/booths', { method: 'POST', body: { code, directions } }); await loadParameters(); await loadDashboard(); }
+    try {
+      if (editId) await api('/booths/' + editId, { method: 'PUT', body: { code, directions } });
+      else await api('/stations/' + stationId + '/booths', { method: 'POST', body: { code, directions } });
+      input.dataset.editId = '';
+      await loadParameters();
+      await loadDashboard();
+      if (currentProjectId) await openProjectDetail(currentProjectId, true);
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteParameterBooth = async function(id, code) {
+    if (!confirm('¿Eliminar la caseta "' + code + '" del catálogo?')) return;
+    try { await api('/booths/' + id, { method: 'DELETE' }); await loadParameters(); await loadDashboard(); if (currentProjectId) await openProjectDetail(currentProjectId, true); }
     catch (e) { alert(e.message); }
+  };
+
+  window.saveProjectStationLink = async function() {
+    const projectId = Number(document.getElementById('paramLinkProject').value || 0);
+    const stationId = Number(document.getElementById('paramLinkStation').value || 0);
+    if (!projectId) return alert('Selecciona un proyecto.');
+    if (!stationId) return alert('Selecciona un peaje.');
+    try {
+      await api('/projects/' + projectId + '/stations/' + stationId, { method: 'POST' });
+      await loadParameters();
+      await loadDashboard();
+      await loadProjectsList();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteProjectStationLink = async function(projectId, stationId, stationName) {
+    if (!confirm('¿Retirar el peaje "' + stationName + '" de este proyecto? No se eliminará del catálogo.')) return;
+    try {
+      await api('/projects/' + projectId + '/stations/' + stationId, { method: 'DELETE' });
+      await loadParameters();
+      await loadDashboard();
+      await loadProjectsList();
+    } catch (e) { alert(e.message); }
   };
 
   // ── MODAL PROYECTO ────────────────────────────────────────────────────────
@@ -2502,15 +2928,15 @@
 
   document.getElementById('btnSaveStation').onclick = () => {
     withLoading('btnSaveStation', async () => {
-      const sel = document.getElementById('sName');
-      const name = sel.value === '__otro__'
-        ? document.getElementById('sNameCustom').value.trim()
-        : sel.value.trim();
+      const selectedStation = getSelectedStationOptionPayload();
+      const name = selectedStation.name;
       if (!name) return alert('El nombre es obligatorio.');
+
       const inheritedConcession = getProjectConcessionContext(currentProjectId);
       const selectedConcession = inheritedConcession.locked
         ? { id: inheritedConcession.id, name: inheritedConcession.name }
         : getSelectedConcessionPayload('sConcessionSelect', 'sConcessionCustom');
+
       const body = {
         name,
         concession_id: selectedConcession.id,
@@ -2520,14 +2946,19 @@
         daily_end_time: document.getElementById('sTimeEnd').value || null
       };
       if (!body.concession_id && !body.concession_name) return alert('La concesion es obligatoria.');
+
       try {
         if (editingStationId) {
           await api('/stations/' + editingStationId, { method: 'PUT', body });
+        } else if (selectedStation.id) {
+          await api('/projects/' + currentProjectId + '/stations/' + selectedStation.id, { method: 'POST' });
         } else {
           await api('/projects/' + currentProjectId + '/stations', { method: 'POST', body });
         }
         closeModal('modalStation');
+        await loadConcessions(true);
         openProjectDetail(currentProjectId);
+        loadDashboard();
       } catch (e) { alert(e.message); }
     });
   };
@@ -2555,10 +2986,12 @@
   };
 
   window.deleteStation = async function(id, name) {
-    if (!confirm(`¿Eliminar el peaje "${name}" y todas sus casetas? Esta acción no se puede deshacer.`)) return;
+    if (!confirm(`¿Retirar el peaje "${name}" de este proyecto? El peaje quedará en Parámetros para reutilizarlo.`)) return;
     try {
-      await api('/stations/' + id + '?projectId=' + currentProjectId, { method: 'DELETE' });
+      await api('/projects/' + currentProjectId + '/stations/' + id, { method: 'DELETE' });
       openProjectDetail(currentProjectId);
+      loadDashboard();
+      if (currentViewId === 'viewParameters') loadParameters();
     } catch (e) { alert(e.message); }
   };
 
