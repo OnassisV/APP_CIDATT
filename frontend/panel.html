@@ -602,7 +602,7 @@
   <div class="modal modal-wide">
     <div class="modal-title" id="modalAssignTitle">Asignar Personal</div>
     <div class="assign-tab-bar" id="assignTabBar">
-      <button id="tabBtnCoord" class="assign-tab-btn active" onclick="switchAssignTab('coord')">👤 Coordinador</button>
+      <button id="tabBtnCoord" class="assign-tab-btn active" onclick="switchAssignTab('coord')">👤 Coordinador del peaje</button>
       <button id="tabBtnRegs"  class="assign-tab-btn"        onclick="switchAssignTab('regs')">👥 Registradores por caseta</button>
     </div>
     <div id="assignTabCoord">
@@ -2533,50 +2533,52 @@
     }
   }
   window.loadParameters = loadParameters;
-  function getParameterSelection() {
-    try { return JSON.parse(localStorage.getItem('rlv_cidatt_parameter_selection_v1') || '{}'); }
-    catch (_err) { return {}; }
-  }
 
-  function setParameterSelection(next) {
-    const current = getParameterSelection();
-    const merged = Object.assign({}, current, next || {});
-    localStorage.setItem('rlv_cidatt_parameter_selection_v1', JSON.stringify(merged));
-    if (_parametersSnapshot) renderParameters(_parametersSnapshot);
-  }
+  function getParameterHierarchy(data) {
+    const source = data || _parametersSnapshot || {};
+    const hierarchy = (source.hierarchy || []).filter((c) => c && c.id && !isDefaultConcessionName(c.name));
+    if (hierarchy.length) return hierarchy;
 
-  function optionHtml(value, label, selected, attrs) {
-    return '<option value="' + esc(value) + '" ' + (selected ? 'selected' : '') + ' ' + (attrs || '') + '>' + esc(label) + '</option>';
-  }
-
-  function findById(list, id) {
-    const numericId = Number(id || 0);
-    return (list || []).find((item) => Number(item.id || 0) === numericId) || null;
-  }
-
-  function getProjectLinkedStations(projectId, data) {
-    const numericProjectId = Number(projectId || 0);
-    const stations = data.stations || [];
-    const links = data.projectSites || [];
-    const linkedIds = new Set(links.filter((link) => Number(link.project_id) === numericProjectId).map((link) => Number(link.station_id)));
-    return stations.filter((station) => linkedIds.has(Number(station.id)));
+    const concessions = (source.concessions || []).filter((c) => c && c.id && !isDefaultConcessionName(c.name));
+    const projects = source.projects || [];
+    const stations = source.stations || [];
+    const booths = source.booths || [];
+    const links = source.projectSites || [];
+    return concessions.map((c) => {
+      const cProjects = projects
+        .filter((p) => Number(p.concession_id || 0) === Number(c.id))
+        .map((p) => {
+          const linkedIds = new Set(links.filter((l) => Number(l.project_id) === Number(p.id)).map((l) => Number(l.station_id)));
+          const pStations = stations
+            .filter((st) => linkedIds.has(Number(st.id)))
+            .map((st) => Object.assign({}, st, { booths: booths.filter((b) => Number(b.station_id) === Number(st.id)) }));
+          return Object.assign({}, p, { stations: pStations });
+        });
+      return Object.assign({}, c, { projects: cProjects });
+    });
   }
 
   function renderParameters(data) {
-    const concessions = (data.concessions || []).filter((c) => c && c.id && !isDefaultConcessionName(c.name));
     const content = document.getElementById('parametersContent');
     if (!content) return;
+    const hierarchy = getParameterHierarchy(data);
+    const rows = [];
 
-    const hierarchy = (data.hierarchy || []).filter((c) => c && c.id && !isDefaultConcessionName(c.name));
-    const fallbackHierarchy = hierarchy.length
-      ? hierarchy
-      : concessions.map((c) => Object.assign({}, c, {
-          projects: (data.projects || []).filter((p) => Number(p.concession_id || 0) === Number(c.id)).map((p) => Object.assign({}, p, {
-            stations: getProjectLinkedStations(p.id, data).map((st) => Object.assign({}, st, {
-              booths: (data.booths || []).filter((b) => Number(b.station_id || 0) === Number(st.id))
-            }))
-          }))
-        }));
+    hierarchy.forEach((c) => {
+      const projects = c.projects || [];
+      if (!projects.length) {
+        rows.push(renderParameterRow({ concession: c, project: null, station: null }));
+        return;
+      }
+      projects.forEach((p) => {
+        const stations = p.stations || [];
+        if (!stations.length) {
+          rows.push(renderParameterRow({ concession: c, project: p, station: null }));
+          return;
+        }
+        stations.forEach((st) => rows.push(renderParameterRow({ concession: c, project: p, station: st })));
+      });
+    });
 
     content.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
@@ -2584,29 +2586,15 @@
           <div>
             <h2>Resumen editable de parámetros</h2>
             <div class="param-mini">
-              Edita aquí la fuente única que alimenta desplegables, dashboard, proyectos, peajes, casetas y asignaciones.
-              Flujo operativo: <strong>Concesión → Proyecto → Peaje → Caseta</strong>.
+              Esta es la fuente única para los desplegables: <strong>concesión, estado, proyecto, peaje, caseta y sentido</strong>.
+              Las fechas, horarios y condiciones del operativo se configuran al crear cada proyecto de relevamiento.
             </div>
           </div>
-          <button class="btn btn-soft btn-sm" onclick="importBaseCatalog()">Importar/actualizar lista base</button>
+          <button class="btn btn-primary btn-sm" onclick="createParameterConcessionPrompt()">+ Concesión</button>
         </div>
         <div class="alert alert-info" style="margin-bottom:0;">
           <span>ℹ️</span>
-          <div>La lista base inicial sale de los desplegables actuales. Después de importarla, corrige nombres, proyectos, peajes y casetas desde este resumen.</div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-bottom:16px;">
-        <div class="section-header">
-          <div>
-            <h2>Agregar nueva concesión</h2>
-            <div class="param-mini">Úsalo solo si no existe en el resumen.</div>
-          </div>
-        </div>
-        <div class="param-form inline">
-          <input id="paramNewConcessionName" placeholder="Nombre de concesión"/>
-          <select id="paramNewConcessionStatus"><option value="activa">Activa</option><option value="inactiva">Inactiva</option></select>
-          <button class="btn btn-primary btn-sm" onclick="createConcessionFromSummary()">Agregar</button>
+          <div>La lista base ya debe estar cargada. Desde aquí solo corriges, agregas o eliminas datos estáticos que luego usarán el panel y el registrador.</div>
         </div>
       </div>
 
@@ -2614,419 +2602,233 @@
         <div class="section-header">
           <div>
             <h2>Lista disponible</h2>
-            <div class="param-mini">Todo lo que ves aquí es editable y es lo que debe jalar la aplicación.</div>
+            <div class="param-mini">Resumen corto. Usa los botones de cada fila para editar o eliminar.</div>
           </div>
         </div>
-        <div class="hierarchy-list param-summary-list">
-          ${fallbackHierarchy.map((c) => renderParameterConcessionSummary(c)).join('') || '<div class="empty-state">Sin parámetros configurados. Usa “Importar/actualizar lista base”.</div>'}
-        </div>
-      </div>`;
-  }
-
-  function formatDateForInput(value) {
-    if (!value) return '';
-    return String(value).slice(0, 10);
-  }
-
-  function renderParameterConcessionSummary(c) {
-    const projects = c.projects || [];
-    return `
-      <div class="hierarchy-item param-summary-concession">
-        <div class="hierarchy-title">
-          <span>🏢 Concesión</span>
-          <small>${projects.length} proyecto(s)</small>
-        </div>
-        <div class="param-form inline" style="margin-top:10px;">
-          <input id="paramConcessionName_${c.id}" value="${esc(c.name || '')}" placeholder="Nombre de concesión"/>
-          <select id="paramConcessionStatus_${c.id}">
-            <option value="activa" ${c.status === 'activa' ? 'selected' : ''}>Activa</option>
-            <option value="inactiva" ${c.status === 'inactiva' ? 'selected' : ''}>Inactiva</option>
-          </select>
-          <div class="param-actions">
-            <button class="btn btn-primary btn-sm" onclick="saveConcessionFromSummary(${c.id})">Guardar</button>
-            <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${c.id},'${esc(c.name || '')}')">Eliminar</button>
-          </div>
-        </div>
-
-        <div class="hierarchy-children">
-          ${projects.map((p) => renderParameterProjectSummary(c, p)).join('') || '<div class="param-mini">Sin proyectos registrados.</div>'}
-          <div class="param-form inline" style="margin-top:12px;">
-            <input id="paramProjectName_new_${c.id}" placeholder="Nuevo proyecto / red vial"/>
-            <input id="paramProjectStart_new_${c.id}" type="date" value="${new Date().toISOString().slice(0,10)}"/>
-            <button class="btn btn-primary btn-sm" onclick="createProjectFromSummary(${c.id})">Agregar proyecto</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  function renderParameterProjectSummary(c, p) {
-    const stations = p.stations || [];
-    return `
-      <div class="hierarchy-item" style="background:var(--bg);margin:10px 0;">
-        <div class="hierarchy-title">
-          <span>📋 Proyecto / red vial</span>
-          <small>${stations.length} peaje(s)</small>
-        </div>
-        <div class="param-form" style="margin-top:10px;">
-          <input id="paramProjectName_${p.id}" value="${esc(p.name || '')}" placeholder="Nombre del proyecto"/>
-          <div class="form-row">
-            <input id="paramProjectStart_${p.id}" type="date" value="${esc(formatDateForInput(p.start_date))}"/>
-            <input id="paramProjectEnd_${p.id}" type="date" value="${esc(formatDateForInput(p.end_date))}"/>
-          </div>
-          <div class="form-row">
-            <select id="paramProjectStatus_${p.id}">
-              <option value="activo" ${p.status === 'activo' ? 'selected' : ''}>Activo</option>
-              <option value="pausado" ${p.status === 'pausado' ? 'selected' : ''}>Pausado</option>
-              <option value="cerrado" ${p.status === 'cerrado' ? 'selected' : ''}>Cerrado</option>
-            </select>
-            <input id="paramProjectMax_${p.id}" type="number" min="1" max="2" value="${esc(p.max_booths_per_operator || 2)}" title="Máximo de casetas por registrador"/>
-          </div>
-          <div class="param-actions">
-            <button class="btn btn-primary btn-sm" onclick="saveProjectFromSummary(${p.id},${c.id})">Guardar proyecto</button>
-            <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProject(${p.id},'${esc(p.name || '')}')">Eliminar proyecto</button>
-          </div>
-        </div>
-
-        <div style="margin-top:10px;">
-          ${stations.map((st) => renderParameterStationSummary(p, st)).join('') || '<div class="param-mini">Sin peajes vinculados.</div>'}
-          <div class="param-form inline" style="margin-top:10px;">
-            <input id="paramStationName_new_${p.id}" placeholder="Nuevo peaje"/>
-            <input id="paramStationLocation_new_${p.id}" placeholder="Ubicación / referencia"/>
-            <button class="btn btn-primary btn-sm" onclick="createStationFromSummary(${p.id},${c.id})">Agregar peaje</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  function renderParameterStationSummary(p, st) {
-    const booths = st.booths || [];
-    const directionOptions = ['', 'Norte a Sur', 'Sur a Norte', 'Este a Oeste', 'Oeste a Este', 'Ingreso', 'Salida'];
-    return `
-      <div class="hierarchy-item" style="background:var(--card);margin:8px 0;border-style:dashed;">
-        <div class="hierarchy-title">
-          <span>⛽ Peaje</span>
-          <small>${booths.length} caseta(s)</small>
-        </div>
-        <div class="param-form" style="margin-top:10px;">
-          <input id="paramStationName_${st.id}" value="${esc(st.name || '')}" placeholder="Nombre del peaje"/>
-          <input id="paramStationLocation_${st.id}" value="${esc(st.location || '')}" placeholder="Ubicación / referencia"/>
-          <div class="form-row">
-            <input id="paramStationStart_${st.id}" type="time" value="${esc(st.daily_start_time || '')}"/>
-            <input id="paramStationEnd_${st.id}" type="time" value="${esc(st.daily_end_time || '')}"/>
-          </div>
-          <div class="param-actions">
-            <button class="btn btn-primary btn-sm" onclick="saveStationFromSummary(${st.id})">Guardar peaje</button>
-            <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProjectStationLink(${p.id},${st.id},'${esc(st.name || '')}')">Retirar del proyecto</button>
-            <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id},'${esc(st.name || '')}')">Eliminar peaje</button>
-          </div>
-        </div>
-
-        <div class="table-wrap" style="margin-top:10px;">
+        <div class="table-wrap">
           <table>
-            <thead><tr><th>Caseta</th><th>Sentido</th><th>Acción</th></tr></thead>
-            <tbody>
-              ${booths.map((b) => `
-                <tr>
-                  <td><input id="paramBoothCode_${b.id}" value="${esc(b.code || '')}" placeholder="Caseta"/></td>
-                  <td><select id="paramBoothDirection_${b.id}">
-                    ${directionOptions.map((d) => `<option value="${esc(d)}" ${String(b.directions || '') === d ? 'selected' : ''}>${d || 'Sin especificar'}</option>`).join('')}
-                  </select></td>
-                  <td class="param-actions">
-                    <button class="btn btn-primary btn-sm" onclick="saveBoothFromSummary(${b.id},${st.id})">Guardar</button>
-                    <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterBooth(${b.id},'${esc(b.code || '')}')">Eliminar</button>
-                  </td>
-                </tr>`).join('') || '<tr><td colspan="3">Sin casetas registradas.</td></tr>'}
+            <thead>
               <tr>
-                <td><input id="paramBoothCode_new_${st.id}" placeholder="Nueva caseta"/></td>
-                <td><select id="paramBoothDirection_new_${st.id}">
-                  ${directionOptions.map((d) => `<option value="${esc(d)}">${d || 'Sin especificar'}</option>`).join('')}
-                </select></td>
-                <td><button class="btn btn-primary btn-sm" onclick="createBoothFromSummary(${st.id})">Agregar</button></td>
+                <th>Concesión</th>
+                <th>Proyecto</th>
+                <th>Peaje</th>
+                <th>Casetas</th>
+                <th>Acciones</th>
               </tr>
+            </thead>
+            <tbody>
+              ${rows.join('') || '<tr><td colspan="5"><div class="empty-state">No hay parámetros configurados.</div></td></tr>'}
             </tbody>
           </table>
         </div>
       </div>`;
   }
 
+  function renderParameterRow(ctx) {
+    const c = ctx.concession;
+    const p = ctx.project;
+    const st = ctx.station;
+    const booths = st && Array.isArray(st.booths) ? st.booths : [];
+    return `
+      <tr>
+        <td>
+          <strong>${esc(c.name || '')}</strong><br>
+          <span class="badge ${c.status === 'inactiva' ? 'badge-cerrado' : 'badge-activo'}">${esc(c.status || 'activa')}</span>
+          <div class="param-actions" style="justify-content:flex-start;margin-top:6px;">
+            <button class="btn btn-soft btn-sm" onclick="editParameterConcessionPrompt(${c.id})">Editar</button>
+            <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${c.id})">Eliminar</button>
+          </div>
+        </td>
+        <td>
+          ${p ? `<strong>${esc(p.name || '')}</strong>
+            <div class="param-actions" style="justify-content:flex-start;margin-top:6px;">
+              <button class="btn btn-soft btn-sm" onclick="editParameterProjectPrompt(${p.id})">Editar</button>
+              <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProject(${p.id},'${esc(p.name || '')}')">Eliminar</button>
+            </div>` : '<span class="param-mini">Sin proyecto</span>'}
+          <button class="btn btn-primary btn-sm" style="margin-top:6px;" onclick="createParameterProjectPrompt(${c.id})">+ Proyecto</button>
+        </td>
+        <td>
+          ${st ? `<strong>${esc(st.name || '')}</strong>
+            <div class="param-actions" style="justify-content:flex-start;margin-top:6px;">
+              <button class="btn btn-soft btn-sm" onclick="editParameterStationPrompt(${st.id})">Editar</button>
+              ${p ? `<button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProjectStationLink(${p.id},${st.id},'${esc(st.name || '')}')">Retirar</button>` : ''}
+              <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id})">Eliminar</button>
+            </div>` : '<span class="param-mini">Sin peaje</span>'}
+          ${p ? `<button class="btn btn-primary btn-sm" style="margin-top:6px;" onclick="createParameterStationPrompt(${p.id},${c.id})">+ Peaje</button>` : ''}
+        </td>
+        <td>
+          ${st ? renderParameterBoothChips(st, booths) : '<span class="param-mini">—</span>'}
+        </td>
+        <td>
+          ${st ? `<button class="btn btn-primary btn-sm" onclick="createParameterBoothPrompt(${st.id})">+ Caseta</button>` : '<span class="param-mini">Agrega un peaje para registrar casetas.</span>'}
+        </td>
+      </tr>`;
+  }
 
-  window.createConcessionFromSummary = async function() {
-    const name = String(document.getElementById('paramNewConcessionName')?.value || '').trim();
-    const status = document.getElementById('paramNewConcessionStatus')?.value || 'activa';
-    if (!name) return alert('Indica el nombre de la concesión.');
+  function renderParameterBoothChips(st, booths) {
+    if (!booths.length) return '<span class="param-mini">Sin casetas.</span>';
+    return booths.map((b) => `
+      <div style="border:1px solid var(--line);border-radius:10px;padding:6px 8px;margin-bottom:5px;background:var(--bg);">
+        <strong>C-${esc(b.code || '')}</strong>
+        <span class="param-mini">${esc(b.directions || 'Sin sentido')}</span>
+        <div class="param-actions" style="justify-content:flex-start;margin-top:4px;">
+          <button class="btn btn-soft btn-sm" onclick="editParameterBoothPrompt(${b.id})">Editar</button>
+          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterBooth(${b.id})">Eliminar</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function getSnapshotConcession(id) {
+    return ((_parametersSnapshot && _parametersSnapshot.concessions) || []).find((x) => Number(x.id) === Number(id)) || null;
+  }
+  function getSnapshotProject(id) {
+    return ((_parametersSnapshot && _parametersSnapshot.projects) || []).find((x) => Number(x.id) === Number(id)) || null;
+  }
+  function getSnapshotStation(id) {
+    return ((_parametersSnapshot && _parametersSnapshot.stations) || []).find((x) => Number(x.id) === Number(id)) || null;
+  }
+  function getSnapshotBooth(id) {
+    return ((_parametersSnapshot && _parametersSnapshot.booths) || []).find((x) => Number(x.id) === Number(id)) || null;
+  }
+  function promptClean(message, current) {
+    const value = window.prompt(message, current || '');
+    if (value === null) return null;
+    return String(value || '').trim();
+  }
+  function promptDirection(current) {
+    const value = window.prompt('Sentido de caseta: Norte a Sur, Sur a Norte, Este a Oeste, Oeste a Este, Ingreso o Salida.', current || '');
+    if (value === null) return null;
+    return String(value || '').trim();
+  }
+
+  async function refreshParametersEverywhere() {
+    await loadParameters();
+    await loadConcessions(true);
+    await loadDashboard();
+    if (currentProjectId) await openProjectDetail(currentProjectId);
+    else await loadProjectsList().catch(() => {});
+  }
+
+  window.createParameterConcessionPrompt = async function() {
+    const name = promptClean('Nombre de la concesión:', '');
+    if (!name) return;
+    const status = promptClean('Estado de concesión: activa o inactiva.', 'activa') || 'activa';
     try {
       const data = await api('/concessions', { method: 'POST', body: { name } });
-      if (data.concessionId && status !== 'activa') {
-        await api('/concessions/' + data.concessionId, { method: 'PUT', body: { name, status } });
-      }
-      await loadConcessions(true);
-      await loadParameters();
-      await loadDashboard();
+      if (data.concessionId) await api('/concessions/' + data.concessionId, { method: 'PUT', body: { name, status } });
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
-  window.saveConcessionFromSummary = async function(id) {
-    const name = String(document.getElementById('paramConcessionName_' + id)?.value || '').trim();
-    const status = document.getElementById('paramConcessionStatus_' + id)?.value || 'activa';
-    if (!name) return alert('Indica el nombre de la concesión.');
+  window.editParameterConcessionPrompt = async function(id) {
+    const item = getSnapshotConcession(id);
+    if (!item) return alert('Concesión no encontrada.');
+    const name = promptClean('Nombre de la concesión:', item.name || '');
+    if (!name) return;
+    const status = promptClean('Estado de concesión: activa o inactiva.', item.status || 'activa') || 'activa';
     try {
       await api('/concessions/' + id, { method: 'PUT', body: { name, status } });
-      await loadConcessions(true);
-      await loadParameters();
-      await loadDashboard();
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
-  window.createProjectFromSummary = async function(concessionId) {
-    const name = String(document.getElementById('paramProjectName_new_' + concessionId)?.value || '').trim();
-    const start = document.getElementById('paramProjectStart_new_' + concessionId)?.value || new Date().toISOString().slice(0, 10);
-    if (!name) return alert('Indica el nombre del proyecto o red vial.');
+  window.deleteParameterConcession = async function(id) {
+    const item = getSnapshotConcession(id);
+    const name = item ? item.name : 'esta concesión';
+    if (!confirm('¿Eliminar la concesión "' + name + '"? Solo se permite si no tiene proyectos ni peajes.')) return;
+    try {
+      await api('/concessions/' + id, { method: 'DELETE' });
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.createParameterProjectPrompt = async function(concessionId) {
+    const name = promptClean('Nombre del proyecto / red vial:', '');
+    if (!name) return;
     try {
       await api('/projects', { method: 'POST', body: {
         name,
         description: '',
-        start_date: start,
+        start_date: new Date().toISOString().slice(0, 10),
         end_date: null,
         concession_id: concessionId,
         max_booths_per_operator: 2
       }});
-      await loadParameters();
-      await loadDashboard();
-      await loadProjectsList();
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
-  window.saveProjectFromSummary = async function(id, concessionId) {
-    const name = String(document.getElementById('paramProjectName_' + id)?.value || '').trim();
-    const start = document.getElementById('paramProjectStart_' + id)?.value || null;
-    const end = document.getElementById('paramProjectEnd_' + id)?.value || null;
-    const status = document.getElementById('paramProjectStatus_' + id)?.value || 'activo';
-    const maxBooths = Number(document.getElementById('paramProjectMax_' + id)?.value || 2);
-    if (!name) return alert('Indica el nombre del proyecto.');
+  window.editParameterProjectPrompt = async function(id) {
+    const item = getSnapshotProject(id);
+    if (!item) return alert('Proyecto no encontrado.');
+    const name = promptClean('Nombre del proyecto / red vial:', item.name || '');
+    if (!name) return;
     try {
-      await api('/projects/' + id, { method: 'PUT', body: {
-        name,
-        start_date: start,
-        end_date: end,
-        status,
-        concession_id: concessionId,
-        max_booths_per_operator: maxBooths
-      }});
-      await loadParameters();
-      await loadDashboard();
-      await loadProjectsList();
+      await api('/projects/' + id, { method: 'PUT', body: { name, concession_id: item.concession_id } });
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
-  window.createStationFromSummary = async function(projectId, concessionId) {
-    const name = String(document.getElementById('paramStationName_new_' + projectId)?.value || '').trim();
-    const location = String(document.getElementById('paramStationLocation_new_' + projectId)?.value || '').trim();
-    if (!name) return alert('Indica el nombre del peaje.');
+  window.createParameterStationPrompt = async function(projectId, concessionId) {
+    const name = promptClean('Nombre del peaje:', '');
+    if (!name) return;
     try {
-      await api('/projects/' + projectId + '/stations', { method: 'POST', body: {
-        name,
-        location,
-        concession_id: concessionId
-      }});
-      await loadParameters();
-      await loadDashboard();
-      if (currentProjectId && Number(currentProjectId) === Number(projectId)) await openProjectDetail(projectId);
+      await api('/projects/' + projectId + '/stations', { method: 'POST', body: { name, concession_id: concessionId } });
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
-  window.saveStationFromSummary = async function(id) {
-    const name = String(document.getElementById('paramStationName_' + id)?.value || '').trim();
-    const location = String(document.getElementById('paramStationLocation_' + id)?.value || '').trim();
-    const daily_start_time = document.getElementById('paramStationStart_' + id)?.value || null;
-    const daily_end_time = document.getElementById('paramStationEnd_' + id)?.value || null;
-    if (!name) return alert('Indica el nombre del peaje.');
+  window.editParameterStationPrompt = async function(id) {
+    const item = getSnapshotStation(id);
+    if (!item) return alert('Peaje no encontrado.');
+    const name = promptClean('Nombre del peaje:', item.name || '');
+    if (!name) return;
     try {
-      await api('/stations/' + id, { method: 'PUT', body: { name, location, daily_start_time, daily_end_time } });
-      await loadParameters();
-      await loadDashboard();
-      if (currentProjectId) await openProjectDetail(currentProjectId);
+      await api('/stations/' + id, { method: 'PUT', body: { name, concession_id: item.concession_id } });
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
-  window.createBoothFromSummary = async function(stationId) {
-    const code = String(document.getElementById('paramBoothCode_new_' + stationId)?.value || '').trim();
-    const directions = document.getElementById('paramBoothDirection_new_' + stationId)?.value || '';
-    if (!code) return alert('Indica el número o código de caseta.');
+  window.deleteParameterStation = async function(id) {
+    const item = getSnapshotStation(id);
+    const name = item ? item.name : 'este peaje';
+    if (!confirm('¿Eliminar el peaje "' + name + '"? Solo se permite si no está vinculado a proyectos ni tiene casetas activas.')) return;
+    try {
+      await api('/stations/' + id, { method: 'DELETE' });
+      await refreshParametersEverywhere();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.createParameterBoothPrompt = async function(stationId) {
+    const code = promptClean('Código o número de caseta:', '');
+    if (!code) return;
+    const directions = promptDirection('') || '';
     try {
       await api('/stations/' + stationId + '/booths', { method: 'POST', body: { code, directions } });
-      await loadParameters();
-      await loadDashboard();
-      if (currentProjectId) await openProjectDetail(currentProjectId);
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
-  window.saveBoothFromSummary = async function(id, stationId) {
-    const code = String(document.getElementById('paramBoothCode_' + id)?.value || '').trim();
-    const directions = document.getElementById('paramBoothDirection_' + id)?.value || '';
-    if (!code) return alert('Indica el número o código de caseta.');
+  window.editParameterBoothPrompt = async function(id) {
+    const item = getSnapshotBooth(id);
+    if (!item) return alert('Caseta no encontrada.');
+    const code = promptClean('Código o número de caseta:', item.code || '');
+    if (!code) return;
+    const directions = promptDirection(item.directions || '');
+    if (directions === null) return;
     try {
-      await api('/booths/' + id, { method: 'PUT', body: { code, directions, station_id: stationId } });
-      await loadParameters();
-      await loadDashboard();
-      if (currentProjectId) await openProjectDetail(currentProjectId);
+      await api('/booths/' + id, { method: 'PUT', body: { code, directions, station_id: item.station_id } });
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
-  window.importBaseCatalog = async function() {
-    if (!BASE_STATION_CATALOG.length) return alert('No hay catálogo base para importar.');
-    if (!confirm('¿Importar la lista base actual de concesiones y peajes al catálogo real? No duplicará elementos existentes.')) return;
+  window.deleteParameterBooth = async function(id) {
+    const item = getSnapshotBooth(id);
+    const name = item ? item.code : 'esta caseta';
+    if (!confirm('¿Eliminar la caseta "' + name + '"?')) return;
     try {
-      const data = await api('/catalog/import-base', { method: 'POST', body: { catalog: BASE_STATION_CATALOG } });
-      alert('Importación completada desde la lista base de desplegables. Concesiones nuevas: ' + (data.imported?.concessions || 0) + ', proyectos nuevos: ' + (data.imported?.projects || 0) + ', peajes nuevos: ' + (data.imported?.stations || 0) + ', vínculos: ' + (data.imported?.links || 0) + '.');
-      await loadConcessions(true);
-      await loadParameters();
-      await loadDashboard();
-    } catch (e) { alert(e.message); }
-  };
-
-  window.editParameterConcession = function(id, name, status) {
-    document.getElementById('paramConcessionName').value = name || '';
-    document.getElementById('paramConcessionStatus').value = status || 'activa';
-    document.getElementById('paramConcessionName').dataset.editId = id;
-  };
-
-  window.saveParameterConcession = async function() {
-    const input = document.getElementById('paramConcessionName');
-    const name = String(input.value || '').trim();
-    const status = document.getElementById('paramConcessionStatus').value || 'activa';
-    if (!name) return alert('Indica el nombre de la concesión.');
-    const editId = input.dataset.editId;
-    try {
-      if (editId) await api('/concessions/' + editId, { method: 'PUT', body: { name, status } });
-      else await api('/concessions', { method: 'POST', body: { name } });
-      input.dataset.editId = '';
-      await loadConcessions(true);
-      await loadParameters();
-      await loadDashboard();
-    } catch (e) { alert(e.message); }
-  };
-
-  window.deleteParameterConcession = async function(id, name) {
-    if (!confirm('¿Eliminar la concesión "' + name + '"? Solo se permite si no tiene proyectos ni peajes.')) return;
-    try { await api('/concessions/' + id, { method: 'DELETE' }); await loadConcessions(true); await loadParameters(); await loadDashboard(); }
-    catch (e) { alert(e.message); }
-  };
-
-  window.editParameterProject = function(id, concessionId, name, start, end, status) {
-    document.getElementById('paramProjectConcession').value = concessionId || '';
-    document.getElementById('paramProjectName').value = name || '';
-    document.getElementById('paramProjectStart').value = start || '';
-    document.getElementById('paramProjectEnd').value = end || '';
-    document.getElementById('paramProjectStatus').value = status || 'activo';
-    document.getElementById('paramProjectName').dataset.editId = id;
-  };
-
-  window.saveParameterProject = async function() {
-    const concessionId = Number(document.getElementById('paramProjectConcession').value || 0);
-    const input = document.getElementById('paramProjectName');
-    const name = String(input.value || '').trim();
-    const start = document.getElementById('paramProjectStart').value || new Date().toISOString().slice(0, 10);
-    const end = document.getElementById('paramProjectEnd').value || null;
-    const status = document.getElementById('paramProjectStatus').value || 'activo';
-    const editId = input.dataset.editId;
-    if (!concessionId) return alert('Selecciona una concesión.');
-    if (!name) return alert('Indica el nombre del proyecto o red vial.');
-    const body = { name, start_date: start, end_date: end, concession_id: concessionId, status, description: 'Catálogo operativo', max_booths_per_operator: 2 };
-    try {
-      if (editId) await api('/projects/' + editId, { method: 'PUT', body });
-      else await api('/projects', { method: 'POST', body });
-      input.dataset.editId = '';
-      await loadParameters();
-      await loadDashboard();
-      await loadProjectsList();
-    } catch (e) { alert(e.message); }
-  };
-
-  window.editParameterStation = function(id, concessionId, name, location, start, end) {
-    document.getElementById('paramStationConcession').value = concessionId || '';
-    document.getElementById('paramStationName').value = name || '';
-    document.getElementById('paramStationLocation').value = location || '';
-    document.getElementById('paramStationStart').value = start || '';
-    document.getElementById('paramStationEnd').value = end || '';
-    document.getElementById('paramStationName').dataset.editId = id;
-  };
-
-  window.saveParameterStation = async function() {
-    const concessionId = Number(document.getElementById('paramStationConcession').value || 0);
-    const input = document.getElementById('paramStationName');
-    const name = String(input.value || '').trim();
-    if (!concessionId) return alert('Selecciona una concesión.');
-    if (!name) return alert('Indica el nombre del peaje.');
-    const body = { concession_id: concessionId, name, location: document.getElementById('paramStationLocation').value.trim(), daily_start_time: document.getElementById('paramStationStart').value || null, daily_end_time: document.getElementById('paramStationEnd').value || null };
-    const editId = input.dataset.editId;
-    try {
-      if (editId) await api('/stations/' + editId, { method: 'PUT', body });
-      else await api('/stations', { method: 'POST', body });
-      input.dataset.editId = '';
-      await loadConcessions(true);
-      await loadParameters();
-      await loadDashboard();
-      if (currentProjectId) await openProjectDetail(currentProjectId, true);
-    } catch (e) { alert(e.message); }
-  };
-
-  window.deleteParameterStation = async function(id, name) {
-    if (!confirm('¿Eliminar el peaje "' + name + '" del catálogo? Solo se permite si no está vinculado ni tiene actividad.')) return;
-    try { await api('/stations/' + id, { method: 'DELETE' }); await loadConcessions(true); await loadParameters(); await loadDashboard(); }
-    catch (e) { alert(e.message); }
-  };
-
-  window.editParameterBooth = function(id, stationId, code, directions) {
-    document.getElementById('paramBoothStation').value = stationId || '';
-    document.getElementById('paramBoothCode').value = code || '';
-    document.getElementById('paramBoothDirection').value = directions || '';
-    document.getElementById('paramBoothCode').dataset.editId = id;
-  };
-
-  window.saveParameterBooth = async function() {
-    const stationId = Number(document.getElementById('paramBoothStation').value || 0);
-    const input = document.getElementById('paramBoothCode');
-    const code = String(input.value || '').trim();
-    const directions = document.getElementById('paramBoothDirection').value || '';
-    const editId = input.dataset.editId;
-    if (!stationId) return alert('Selecciona un peaje.');
-    if (!code) return alert('Indica el número o código de caseta.');
-    try {
-      if (editId) await api('/booths/' + editId, { method: 'PUT', body: { code, directions } });
-      else await api('/stations/' + stationId + '/booths', { method: 'POST', body: { code, directions } });
-      input.dataset.editId = '';
-      await loadParameters();
-      await loadDashboard();
-      if (currentProjectId) await openProjectDetail(currentProjectId, true);
-    } catch (e) { alert(e.message); }
-  };
-
-  window.deleteParameterBooth = async function(id, code) {
-    if (!confirm('¿Eliminar la caseta "' + code + '" del catálogo?')) return;
-    try { await api('/booths/' + id, { method: 'DELETE' }); await loadParameters(); await loadDashboard(); if (currentProjectId) await openProjectDetail(currentProjectId, true); }
-    catch (e) { alert(e.message); }
-  };
-
-  window.saveProjectStationLink = async function() {
-    const projectId = Number(document.getElementById('paramLinkProject').value || 0);
-    const stationId = Number(document.getElementById('paramLinkStation').value || 0);
-    if (!projectId) return alert('Selecciona un proyecto.');
-    if (!stationId) return alert('Selecciona un peaje.');
-    try {
-      await api('/projects/' + projectId + '/stations/' + stationId, { method: 'POST' });
-      await loadParameters();
-      await loadDashboard();
-      await loadProjectsList();
-    } catch (e) { alert(e.message); }
-  };
-
-  window.deleteProjectStationLink = async function(projectId, stationId, stationName) {
-    if (!confirm('¿Retirar el peaje "' + stationName + '" de este proyecto? No se eliminará del catálogo.')) return;
-    try {
-      await api('/projects/' + projectId + '/stations/' + stationId, { method: 'DELETE' });
-      await loadParameters();
-      await loadDashboard();
-      await loadProjectsList();
+      await api('/booths/' + id, { method: 'DELETE' });
+      await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
 
@@ -3491,7 +3293,7 @@
     document.getElementById('assignTabRegs').style.display  = tab === 'regs'  ? '' : 'none';
     document.getElementById('tabBtnCoord').classList.toggle('active', tab === 'coord');
     document.getElementById('tabBtnRegs').classList.toggle('active',  tab === 'regs');
-    if (tab === 'regs')  { _renderRegsAvailable(); _isDirectorAssign ? _renderDirectorPool() : _renderBoothSlots(); }
+    if (tab === 'regs')  { _renderRegsAvailable(); _renderBoothSlots(); }
     if (tab === 'coord') { _renderCoordAvailable(); _renderCoordSlot(); }
   }
   window.switchAssignTab = switchAssignTab;
@@ -3536,39 +3338,22 @@
   window._coordClear = function() { _assignSelectedUserId = null; _renderCoordAvailable(); _renderCoordSlot(); };
 
   function _renderRegsAvailable() {
-    let html;
-    if (_isDirectorAssign) {
-      const available = _allAvailRegs.filter(u => !_poolMembers[u.id]);
-      const totalAvail = available.length;
-      const totalPool  = Object.keys(_poolMembers).length;
-      document.getElementById('assignRegsAvailLabel').textContent =
-        `Registradores disponibles (${totalAvail})`;
-      document.getElementById('assignBoothSlotsLabel').textContent =
-        `Personal del peaje (${totalPool})`;
-      html = available.map(u => {
-        const warn = u.station_id ? `<span class="tag-warn">ya en otro peaje</span>` : '';
-        return `<div class="assign-drag-item" draggable="true"
-          ondragstart="window._poolDragStart(event,${u.id})"
-          onclick="window._poolAdd(${u.id},'${esc(u.full_name).replace(/'/g,'&#39;')}')">\u{1F464} ${esc(u.full_name)}${warn}</div>`;
-      }).join('');
-      if (!html) html = '<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:18px 0;">Sin registradores disponibles</div>';
-    } else {
-      const maxBooths = getCurrentStationMaxBooths();
-      const boothLoad = getCurrentBoothLoadMap();
-      const available = _regAvailUsers.filter(u => (boothLoad[u.id] || 0) < maxBooths);
-      const inSlotCount = Object.values(_boothAssignments).filter(v => v.userId).length;
-      document.getElementById('assignRegsAvailLabel').textContent =
-        `Pool del peaje (${available.length} disponibles)`;
-      document.getElementById('assignBoothSlotsLabel').textContent =
-        `Casetas del peaje (${inSlotCount}/${Object.keys(_boothAssignments).length} asignadas)`;
-      html = available.map(u => {
-        const load = boothLoad[u.id] || 0;
-        return `<div class="assign-drag-item ${_dragRegUserId === u.id && _dragRegFromBooth === null ? 'selected' : ''}" draggable="true"
-          ondragstart="window._regDragStart(event,${u.id},null)"
-          onclick="window._regClickSelect(${u.id})">\u{1F464} ${esc(u.full_name)} <span class="tag-warn">${load}/${maxBooths} casetas</span></div>`;
-      }).join('');
-      if (!html) html = '<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:14px 0;">Sin registradores en el pool.<br><small style="color:var(--muted);">El director debe asignarlos al peaje primero.</small></div>';
-    }
+    const maxBooths = getCurrentStationMaxBooths();
+    const boothLoad = getCurrentBoothLoadMap();
+    const available = (_regAvailUsers || []).filter(u => (boothLoad[u.id] || 0) < maxBooths);
+    const inSlotCount = Object.values(_boothAssignments).filter(v => v.userId).length;
+    document.getElementById('assignRegsAvailLabel').textContent =
+      `Registradores disponibles (${available.length})`;
+    document.getElementById('assignBoothSlotsLabel').textContent =
+      `Casetas del peaje (${inSlotCount}/${Object.keys(_boothAssignments).length} asignadas)`;
+    let html = available.map(u => {
+      const load = boothLoad[u.id] || 0;
+      const presence = u.presence_state ? `<span class="tag-warn">${esc(u.presence_state)}</span>` : '';
+      return `<div class="assign-drag-item ${_dragRegUserId === u.id && _dragRegFromBooth === null ? 'selected' : ''}" draggable="true"
+        ondragstart="window._regDragStart(event,${u.id},null)"
+        onclick="window._regClickSelect(${u.id})">👤 ${esc(u.full_name)} <span class="tag-warn">${load}/${maxBooths} casetas</span>${presence}</div>`;
+    }).join('');
+    if (!html) html = '<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:14px 0;">Sin registradores disponibles para asignar.</div>';
     document.getElementById('assignRegsAvailableList').innerHTML = html;
   }
   function _renderBoothSlots() {
@@ -3702,56 +3487,46 @@
   };
 
   async function openAssignStation(stationId, projectId, isCoord) {
-    // En el panel de administrador/director, este mismo flujo permite asignar coordinador y registradores.
-    // En el panel de coordinador, solo corresponde asignar registradores a casetas.
-    isCoord = currentUser && currentUser.role === 'coordinador';
     _assignStationId = stationId;
     _assignProjectId = projectId;
-    _isDirectorAssign = !isCoord;
+    _isDirectorAssign = ['admin', 'director'].includes(currentUser && currentUser.role);
     const s = _stationsCache[stationId];
-    document.getElementById('modalAssignTitle').textContent = 'Asignar Personal — ' + (s ? esc(s.name) : '');
+    document.getElementById('modalAssignTitle').textContent = 'Asignar personal — ' + (s ? esc(s.name) : '');
     const tipTarget = document.getElementById('assignTabRegs');
     if (tipTarget && !document.getElementById('assignClickTip')) {
       tipTarget.insertAdjacentHTML('afterbegin', '<div id="assignClickTip" class="assignment-tip">Selecciona un registrador y luego haz clic en la caseta correspondiente. También puedes arrastrar y soltar. Un registrador puede tener máximo 2 casetas.</div>');
     }
     document.getElementById('assignTabBar').style.display = _isDirectorAssign ? '' : 'none';
-    try {
-      if (isCoord) {
-        const booths = (s || {}).booths || [];
-        _boothAssignments = {}; _boothOriginal = {};
-        booths.forEach(b => {
-          const entry = { userId: b.assigned_user_id || null, name: b.assigned_user_name || null, assignmentId: b.assignment_id || null };
-          _boothAssignments[b.id] = { ...entry }; _boothOriginal[b.id] = { ...entry };
-        });
 
-        let poolUsers = (s || {}).station_regs || [];
-        if (['admin','director'].includes(currentUser.role)) {
-          const allRegsData = await api('/projects/' + projectId + '/available-users?role=registrador').catch(() => ({ users: [] }));
-          const merged = new Map();
-          poolUsers.forEach((u) => merged.set(Number(u.id), u));
-          (allRegsData.users || []).forEach((u) => merged.set(Number(u.id), u));
-          _regAvailUsers = Array.from(merged.values());
-        } else {
-          _regAvailUsers = poolUsers.filter((user) => {
-            const presence = _projectPresenceIndex[user.id];
-            return presence && presence.presence_state !== 'offline';
-          });
-        }
-      } else {
-        const poolData = (s || {}).station_regs || [];
-        _poolMembers = {}; _poolOriginal = {};
-        poolData.forEach(u => {
-          _poolMembers[u.id] = { name: u.full_name, assignmentId: u.assignment_id };
-          _poolOriginal[u.id] = { name: u.full_name, assignmentId: u.assignment_id };
-        });
-        const allRegsData = await api('/projects/' + projectId + '/available-users?role=registrador');
-        _allAvailRegs = allRegsData.users;
+    try {
+      const booths = (s || {}).booths || [];
+      _boothAssignments = {}; _boothOriginal = {};
+      booths.forEach(b => {
+        const entry = { userId: b.assigned_user_id || null, name: b.assigned_user_name || null, assignmentId: b.assignment_id || null };
+        _boothAssignments[b.id] = { ...entry };
+        _boothOriginal[b.id] = { ...entry };
+      });
+
+      if (_isDirectorAssign) {
+        const allRegsData = await api('/projects/' + projectId + '/available-users?role=registrador').catch(() => ({ users: [] }));
+        const mergedRegs = new Map();
+        ((s || {}).station_regs || []).forEach((u) => mergedRegs.set(Number(u.id), u));
+        (allRegsData.users || []).forEach((u) => mergedRegs.set(Number(u.id), u));
+        _regAvailUsers = Array.from(mergedRegs.values());
+
         const coordData = await api('/projects/' + projectId + '/available-users?role=coordinador');
-        _coordUsers = coordData.users;
+        _coordUsers = coordData.users || [];
         _assignSelectedUserId  = s ? (s.coord_user_id || null) : null;
         _assignCurrentAssignId = s ? (s.coord_assignment_id || null) : null;
+        switchAssignTab('coord');
+      } else {
+        const poolUsers = (s || {}).station_regs || [];
+        _regAvailUsers = poolUsers.filter((user) => {
+          const presence = _projectPresenceIndex[user.id];
+          return presence && presence.presence_state !== 'offline';
+        });
+        switchAssignTab('regs');
       }
-      switchAssignTab(_isDirectorAssign ? 'coord' : 'regs');
     } catch (e) { alert(e.message); return; }
     openModal('modalAssign');
   }
@@ -3761,7 +3536,6 @@
     return openAssignStation(stationId, projectId, currentUser && currentUser.role === 'coordinador');
   }
   window.openAssignPersonnel = openAssignPersonnel;
-
 
   async function openAssign(boothId, projectId) {
     const stationId = Object.keys(_stationsCache).find(sid => (_stationsCache[sid].booths || []).some(b => b.id === boothId));
@@ -3778,21 +3552,8 @@
           } else {
             await api('/assignments', { method: 'POST', body: { user_id: _assignSelectedUserId, project_id: _assignProjectId, station_id: _assignStationId } });
           }
-        } else if (_isDirectorAssign) {
-          // Director: guarda cambios en el pool del peaje
-          for (const uid of Object.keys(_poolOriginal)) {
-            if (!_poolMembers[uid] && !_poolMembers[Number(uid)]) {
-              const orig = _poolOriginal[uid];
-              if (orig.assignmentId) await api('/assignments/' + orig.assignmentId, { method: 'DELETE' });
-            }
-          }
-          for (const uid of Object.keys(_poolMembers)) {
-            if (!_poolOriginal[uid] && !_poolOriginal[Number(uid)]) {
-              await api('/assignments', { method: 'POST', body: { user_id: Number(uid), project_id: _assignProjectId, station_id: _assignStationId } });
-            }
-          }
         } else {
-          // Coordinador: asigna registradores del pool a casetas
+          // Asignación de registradores a casetas. Se mantiene el flujo operativo original.
           for (const bid of Object.keys(_boothAssignments)) {
             const cur = _boothAssignments[bid]; const orig = _boothOriginal[bid];
             if (cur.userId === (orig ? orig.userId : null)) continue;
