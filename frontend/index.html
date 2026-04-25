@@ -1075,6 +1075,15 @@
           .trim();
       }
 
+      function normalizeText(value) {
+        return String(value || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      }
+
+
       function getOperatorFullName() {
         return authUser && authUser.fullName ? authUser.fullName : '';
       }
