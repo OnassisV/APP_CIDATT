@@ -600,6 +600,158 @@ async function buildCatalogStructure() {
   };
 }
 
+async function getConcessionOperationalBlockers(concessionId) {
+  const id = parseOptionalInt(concessionId);
+  if (!id) throw badRequest('Concesion invalida.');
+
+  const operativeProjects = await query(
+    `SELECT id, name, status
+     FROM ${TABLES.projects}
+     WHERE concession_id = ? AND COALESCE(project_type, 'operativo') <> 'base'
+     ORDER BY name ASC`,
+    [id]
+  );
+
+  const activeAssignments = await query(
+    `SELECT a.id AS assignment_id, a.user_id, u.full_name, u.username, u.role,
+            a.project_id, p.name AS project_name,
+            COALESCE(a.station_id, tb.station_id) AS station_id,
+            ts.name AS station_name, a.booth_id, tb.code AS booth_code,
+            a.created_at
+     FROM ${TABLES.assignments} a
+     LEFT JOIN ${TABLES.users} u ON u.id = a.user_id
+     LEFT JOIN ${TABLES.projects} p ON p.id = a.project_id
+     LEFT JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
+     LEFT JOIN ${TABLES.stations} ts ON ts.id = COALESCE(a.station_id, tb.station_id)
+     WHERE a.is_active = 1
+       AND (p.concession_id = ? OR ts.concession_id = ?)
+     ORDER BY p.name ASC, ts.name ASC, tb.code ASC, u.full_name ASC`,
+    [id, id]
+  );
+
+  const relatedSessions = await query(
+    `SELECT s.id AS session_id, s.status, s.operation_date, s.owner_user_id,
+            COALESCE(u.full_name, sp.operator_name) AS operator_name,
+            COALESCE(s.project_id, sp.project_id) AS project_id,
+            p.name AS project_name,
+            COALESCE(s.station_id, sp.station_id, tb.station_id) AS station_id,
+            COALESCE(ts.name, sp.toll_name) AS station_name,
+            COALESCE(sp.booth_id, tb.id) AS booth_id,
+            COALESCE(tb.code, sp.booth_number) AS booth_code,
+            COUNT(DISTINCT r.id) AS records_count
+     FROM ${TABLES.sessions} s
+     LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
+     LEFT JOIN ${TABLES.users} u ON u.id = s.owner_user_id
+     LEFT JOIN ${TABLES.projects} p ON p.id = COALESCE(s.project_id, sp.project_id)
+     LEFT JOIN ${TABLES.booths} tb ON tb.id = sp.booth_id
+     LEFT JOIN ${TABLES.stations} ts ON ts.id = COALESCE(s.station_id, sp.station_id, tb.station_id)
+     LEFT JOIN ${TABLES.records} r ON r.session_id = s.id
+     WHERE p.concession_id = ? OR ts.concession_id = ?
+     GROUP BY s.id, s.status, s.operation_date, s.owner_user_id,
+              COALESCE(u.full_name, sp.operator_name),
+              COALESCE(s.project_id, sp.project_id), p.name,
+              COALESCE(s.station_id, sp.station_id, tb.station_id),
+              COALESCE(ts.name, sp.toll_name),
+              COALESCE(sp.booth_id, tb.id),
+              COALESCE(tb.code, sp.booth_number)
+     ORDER BY s.operation_date DESC, operator_name ASC`,
+    [id, id]
+  );
+
+  const [recordSummary] = await query(
+    `SELECT COUNT(DISTINCT r.id) AS total_records,
+            COUNT(DISTINCT r.session_id) AS sessions_with_records,
+            MIN(r.operation_date) AS first_date,
+            MAX(r.operation_date) AS last_date
+     FROM ${TABLES.records} r
+     LEFT JOIN ${TABLES.sessions} s ON s.id = r.session_id
+     LEFT JOIN ${TABLES.projects} rp ON rp.id = r.project_id
+     LEFT JOIN ${TABLES.projects} spj ON spj.id = s.project_id
+     LEFT JOIN ${TABLES.booths} rb ON rb.id = r.booth_id
+     LEFT JOIN ${TABLES.stations} rs ON rs.id = COALESCE(r.station_id, rb.station_id)
+     WHERE rp.concession_id = ?
+        OR spj.concession_id = ?
+        OR rs.concession_id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM ${TABLES.profiles} px
+          LEFT JOIN ${TABLES.projects} pp ON pp.id = px.project_id
+          LEFT JOIN ${TABLES.booths} pb ON pb.id = px.booth_id
+          LEFT JOIN ${TABLES.stations} ps ON ps.id = COALESCE(px.station_id, pb.station_id)
+          WHERE px.session_id = r.session_id
+            AND (pp.concession_id = ? OR ps.concession_id = ?)
+        )`,
+    [id, id, id, id, id]
+  );
+
+  const openSessions = relatedSessions.filter((session) => String(session.status || '').toLowerCase() === 'open');
+  return {
+    operativeProjects,
+    activeAssignments,
+    relatedSessions,
+    openSessions,
+    recordSummary: {
+      totalRecords: Number(recordSummary?.total_records || 0),
+      sessionsWithRecords: Number(recordSummary?.sessions_with_records || 0),
+      firstDate: recordSummary?.first_date || null,
+      lastDate: recordSummary?.last_date || null
+    }
+  };
+}
+
+async function cleanupConcessionOperationalBlockers(concessionId, options = {}) {
+  const blockers = await getConcessionOperationalBlockers(concessionId);
+  const assignmentIds = blockers.activeAssignments.map((item) => Number(item.assignment_id)).filter(Boolean);
+  const openSessionIds = blockers.openSessions.map((item) => String(item.session_id || '').trim()).filter(Boolean);
+  const emptySessionIds = blockers.relatedSessions
+    .filter((item) => Number(item.records_count || 0) === 0)
+    .map((item) => String(item.session_id || '').trim())
+    .filter(Boolean);
+
+  const shouldDeactivateAssignments = options.deactivateAssignments !== false;
+  const shouldCloseSessions = options.closeSessions !== false;
+  const shouldDeleteEmptySessions = options.deleteEmptySessions !== false;
+  let assignmentsDeactivated = 0;
+  let sessionsClosed = 0;
+  let emptySessionsDeleted = 0;
+
+  await withTransaction(async (conn) => {
+    if (shouldDeactivateAssignments && assignmentIds.length) {
+      const placeholders = assignmentIds.map(() => '?').join(',');
+      const [result] = await conn.execute(
+        `UPDATE ${TABLES.assignments} SET is_active = 0 WHERE id IN (${placeholders})`,
+        assignmentIds
+      );
+      assignmentsDeactivated = Number(result.affectedRows || 0);
+    }
+
+    if (shouldCloseSessions && openSessionIds.length) {
+      const placeholders = openSessionIds.map(() => '?').join(',');
+      const [result] = await conn.execute(
+        `UPDATE ${TABLES.sessions} SET status = 'closed' WHERE id IN (${placeholders}) AND status <> 'closed'`,
+        openSessionIds
+      );
+      sessionsClosed = Number(result.affectedRows || 0);
+    }
+
+    if (shouldDeleteEmptySessions && emptySessionIds.length) {
+      const placeholders = emptySessionIds.map(() => '?').join(',');
+      await conn.execute(`DELETE FROM ${TABLES.profiles} WHERE session_id IN (${placeholders})`, emptySessionIds);
+      const [result] = await conn.execute(`DELETE FROM ${TABLES.sessions} WHERE id IN (${placeholders})`, emptySessionIds);
+      emptySessionsDeleted = Number(result.affectedRows || 0);
+    }
+  });
+
+  return {
+    ok: true,
+    assignmentsDeactivated,
+    sessionsClosed,
+    emptySessionsDeleted,
+    remainingRecords: blockers.recordSummary.totalRecords,
+    operativeProjects: blockers.operativeProjects.length
+  };
+}
+
 
 // ─── HEALTHCHECK ──────────────────────────────────────────────────────────────
 
@@ -789,52 +941,30 @@ app.delete('/api/concessions/:id', authenticateRequest, requireMinRole('director
       throw badRequest('No se puede eliminar la concesion general.');
     }
 
-    const [usage] = await query(
-      `SELECT
-         (SELECT COUNT(*)
-          FROM ${TABLES.projects}
-          WHERE concession_id = ? AND COALESCE(project_type, 'operativo') <> 'base') AS operative_projects,
-         (SELECT COUNT(*)
-          FROM ${TABLES.sessions} s
-          LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
-          LEFT JOIN ${TABLES.booths} pb ON pb.id = sp.booth_id
-          WHERE (
-              s.project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
-              OR s.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
-              OR sp.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
-              OR pb.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
-            )) AS related_sessions,
-         (SELECT COUNT(*)
-          FROM ${TABLES.assignments} a
-          LEFT JOIN ${TABLES.booths} ab ON ab.id = a.booth_id
-          WHERE a.is_active = 1
-            AND (
-              a.project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
-              OR a.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
-              OR ab.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
-            )) AS active_assignments,
-         (SELECT COUNT(*)
-          FROM ${TABLES.records} r
-          LEFT JOIN ${TABLES.booths} rb ON rb.id = r.booth_id
-          WHERE r.project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
-             OR r.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
-             OR rb.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)) AS records_count`,
-      [id, id, id, id, id, id, id, id, id, id, id]
-    );
-    if (Number(usage?.operative_projects || 0) > 0) {
+    const blockers = await getConcessionOperationalBlockers(id);
+    if (blockers.operativeProjects.length > 0) {
       throw badRequest('No se puede eliminar la concesion porque tiene proyectos operativos asociados. Elimina o cierra esos proyectos primero.');
     }
-    if (Number(usage?.related_sessions || 0) > 0) {
-      throw badRequest('No se puede eliminar la concesion porque tiene turnos operativos asociados.');
+    if (blockers.openSessions.length > 0) {
+      throw badRequest('No se puede eliminar la concesion porque tiene turnos abiertos. Cierra o limpia esos turnos primero.');
     }
-    if (Number(usage?.active_assignments || 0) > 0) {
-      throw badRequest('No se puede eliminar la concesion porque tiene personal asignado activo.');
+    if (blockers.activeAssignments.length > 0) {
+      throw badRequest('No se puede eliminar la concesion porque tiene personal asignado activo. Quita esas asignaciones primero.');
     }
-    if (Number(usage?.records_count || 0) > 0) {
+    if (blockers.recordSummary.totalRecords > 0) {
       throw badRequest('No se puede eliminar la concesion porque ya tiene registros operativos asociados.');
     }
 
     await withTransaction(async (conn) => {
+      const emptySessionIds = blockers.relatedSessions
+        .filter((item) => Number(item.records_count || 0) === 0)
+        .map((item) => String(item.session_id || '').trim())
+        .filter(Boolean);
+      if (emptySessionIds.length) {
+        const placeholders = emptySessionIds.map(() => '?').join(',');
+        await conn.execute(`DELETE FROM ${TABLES.profiles} WHERE session_id IN (${placeholders})`, emptySessionIds);
+        await conn.execute(`DELETE FROM ${TABLES.sessions} WHERE id IN (${placeholders})`, emptySessionIds);
+      }
       await conn.execute(
         `DELETE FROM ${TABLES.assignments}
          WHERE project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
@@ -863,6 +993,33 @@ app.delete('/api/concessions/:id', authenticateRequest, requireMinRole('director
       await conn.execute(`DELETE FROM ${TABLES.concessions} WHERE id = ?`, [id]);
     });
     res.json({ ok: true, deletedCatalog: true });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/concessions/:id/blockers', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const id = parseOptionalInt(req.params.id);
+    const [concession] = await query(`SELECT id, name FROM ${TABLES.concessions} WHERE id = ? LIMIT 1`, [id]);
+    if (!concession) throw badRequest('Concesion no encontrada.');
+    const blockers = await getConcessionOperationalBlockers(id);
+    res.json({ ok: true, concession, blockers });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/concessions/:id/cleanup-blockers', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const id = parseOptionalInt(req.params.id);
+    const [concession] = await query(`SELECT id, name FROM ${TABLES.concessions} WHERE id = ? LIMIT 1`, [id]);
+    if (!concession) throw badRequest('Concesion no encontrada.');
+    if (normalizeText(concession.name) === normalizeText('Concesion General')) {
+      throw badRequest('No se puede limpiar la concesion general.');
+    }
+    const result = await cleanupConcessionOperationalBlockers(id, {
+      deactivateAssignments: req.body.deactivate_assignments !== false,
+      closeSessions: req.body.close_sessions !== false,
+      deleteEmptySessions: req.body.delete_empty_sessions !== false
+    });
+    res.json(result);
   } catch (error) { next(error); }
 });
 
@@ -1997,9 +2154,10 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
 app.delete('/api/assignments/:id', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
     const rows = await query(
-      `SELECT id, project_id, station_id
-       FROM ${TABLES.assignments}
-       WHERE id = ?
+      `SELECT a.id, a.project_id, COALESCE(a.station_id, tb.station_id) AS station_id
+       FROM ${TABLES.assignments} a
+       LEFT JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
+       WHERE a.id = ?
        LIMIT 1`,
       [req.params.id]
     );
@@ -2126,6 +2284,7 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('coordinador'
   const emptyAlerts = {
     overloadedOperators: [],
     doubleAssigned: [],
+    activeAssignments: [],
     staleSessions: [],
     consecutiveShifts: [],
     todayActivity: []
@@ -2179,13 +2338,31 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('coordinador'
               GROUP_CONCAT(CONCAT(ts.name,' C',tb.code) SEPARATOR ', ') AS booths_detail
        FROM ${TABLES.assignments} a
        INNER JOIN ${TABLES.users} u ON u.id = a.user_id
-       INNER JOIN ${TABLES.projects} p ON p.id = a.project_id
+       LEFT JOIN ${TABLES.projects} p ON p.id = a.project_id
        INNER JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
        INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
        WHERE a.is_active = 1 AND a.booth_id IS NOT NULL
        ${assignmentScope}
        GROUP BY u.id, p.id
        HAVING active_booths > max_allowed`,
+      assignmentParams
+    );
+
+    const activeAssignments = await query(
+      `SELECT a.id AS assignment_id, u.id AS user_id, u.full_name, u.username, u.role,
+              p.id AS project_id, p.name AS project_name, c.name AS concession_name,
+              COALESCE(a.station_id, tb.station_id) AS station_id,
+              ts.name AS station_name, a.booth_id, tb.code AS booth_code,
+              a.created_at
+       FROM ${TABLES.assignments} a
+       INNER JOIN ${TABLES.users} u ON u.id = a.user_id
+       LEFT JOIN ${TABLES.projects} p ON p.id = a.project_id
+       LEFT JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
+       LEFT JOIN ${TABLES.stations} ts ON ts.id = COALESCE(a.station_id, tb.station_id)
+       LEFT JOIN ${TABLES.concessions} c ON c.id = COALESCE(p.concession_id, ts.concession_id)
+       WHERE a.is_active = 1
+       ${assignmentScope}
+       ORDER BY c.name ASC, p.name ASC, ts.name ASC, tb.code ASC, u.full_name ASC`,
       assignmentParams
     );
 
@@ -2243,6 +2420,7 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('coordinador'
       alerts: {
         overloadedOperators,
         doubleAssigned,
+        activeAssignments,
         staleSessions,
         consecutiveShifts,
         todayActivity

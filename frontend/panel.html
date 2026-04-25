@@ -712,6 +712,7 @@
   var _presenceInterval = null;
   var _suspendHashSync = false;
   var _openSessionsSnapshot = [];
+  var _activeAssignmentsSnapshot = [];
   var stationCatalogRows = [];
   var _parametersSnapshot = null;
   var parameterSearchTerm = '';
@@ -2414,6 +2415,8 @@
       const a = data.alerts;
       const sessions = sessionsData.sessions || [];
       _openSessionsSnapshot = sessions.slice();
+      const activeAssignments = (a && a.activeAssignments) || [];
+      _activeAssignmentsSnapshot = activeAssignments.slice();
       const projects = projectsData.projects || [];
       let html = '';
 
@@ -2474,9 +2477,11 @@
         html += '</tbody></table></div></div>';
       }
 
+      const assignmentsTable = renderActiveAssignmentsTable(activeAssignments);
       const sessionsTable = renderOpenSessionsTable(sessions);
       const assignablePanel = await renderAssignableUsersPanel(projects);
-      if (!html && !sessionsTable && !assignablePanel) html = '<div class="empty-state"><div class="icon">✅</div>Sin alertas activas.</div>';
+      if (!html && !assignmentsTable && !sessionsTable && !assignablePanel) html = '<div class="empty-state"><div class="icon">OK</div>Sin alertas activas.</div>';
+      if (assignmentsTable) html += assignmentsTable;
       if (sessionsTable) html += sessionsTable;
       if (assignablePanel) html += assignablePanel;
       document.getElementById('alertsContent').innerHTML = html;
@@ -2530,7 +2535,65 @@
     return blocks.join('');
   }
 
-    function renderOpenSessionsTable(sessions) {
+  function renderActiveAssignmentsTable(assignments) {
+    if (!assignments || !assignments.length) return '';
+    return `
+      <div class="card card-sm" style="margin-top:12px;">
+        <div class="section-header">
+          <div>
+            <h3 style="margin-bottom:0;font-size:.9rem;">Asignaciones activas</h3>
+            <div class="soft-note">Usa esta tabla para liberar registradores antes de borrar una concesión o un catálogo base.</div>
+          </div>
+          ${assignments.length > 1 ? '<button class="btn btn-soft btn-sm danger-link-btn" onclick="removeVisibleAssignments()">Quitar visibles</button>' : ''}
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Usuario</th><th>Concesión</th><th>Proyecto</th><th>Peaje</th><th>Caseta</th><th></th></tr></thead>
+            <tbody>${assignments.map((item) => `
+              <tr>
+                <td>${esc(item.full_name || '')}<br><small>@${esc(item.username || '')} · ${esc(item.role || '')}</small></td>
+                <td>${esc(item.concession_name || '-')}</td>
+                <td>${esc(item.project_name || '-')}</td>
+                <td>${esc(item.station_name || '-')}</td>
+                <td>${item.booth_id ? 'C-' + esc(item.booth_code || '') : '<span class="badge badge-soft">Pool peaje</span>'}</td>
+                <td><button class="btn btn-soft btn-sm danger-link-btn" onclick="removeSingleAssignment(${Number(item.assignment_id || 0)})">Quitar asignación</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  async function removeSingleAssignment(assignmentId) {
+    if (!assignmentId) return;
+    if (!confirm('¿Quitar esta asignación activa? El usuario ya no quedará asignado a esa caseta o peaje.')) return;
+    try {
+      await api('/assignments/' + assignmentId, { method: 'DELETE' });
+      await loadAlerts();
+    } catch (e) { alert(e.message); }
+  }
+  window.removeSingleAssignment = removeSingleAssignment;
+
+  async function removeVisibleAssignments() {
+    const ids = (_activeAssignmentsSnapshot || []).map((item) => Number(item.assignment_id || 0)).filter(Boolean);
+    if (!ids.length) return;
+    if (!confirm('¿Quitar todas las asignaciones visibles? Esta acción libera esos registradores de las casetas/peajes listados.')) return;
+    let ok = 0;
+    let fail = 0;
+    for (const id of ids) {
+      try {
+        await api('/assignments/' + id, { method: 'DELETE' });
+        ok += 1;
+      } catch (_err) {
+        fail += 1;
+      }
+    }
+    alert('Asignaciones quitadas: ' + ok + (fail ? ' · Fallidas: ' + fail : ''));
+    await loadAlerts();
+  }
+  window.removeVisibleAssignments = removeVisibleAssignments;
+
+  function renderOpenSessionsTable(sessions) {
     if (!sessions || !sessions.length) return '';
     return `
       <div class="card card-sm" style="margin-top:12px;">
@@ -2806,6 +2869,63 @@
     try {
       await api('/concessions/' + id, { method: 'DELETE' });
       await refreshParametersEverywhere();
+    } catch (e) {
+      const wantsCleanup = confirm(e.message + '\n\n¿Quieres intentar liberar turnos vacíos y asignaciones activas de esta concesión ahora?');
+      if (wantsCleanup) await window.cleanupParameterConcessionBlockers(id);
+    }
+  };
+
+  function summarizeConcessionBlockers(blockers) {
+    const summary = blockers || {};
+    const lines = [
+      'Proyectos operativos: ' + ((summary.operativeProjects || []).length),
+      'Asignaciones activas: ' + ((summary.activeAssignments || []).length),
+      'Turnos abiertos: ' + ((summary.openSessions || []).length),
+      'Turnos relacionados: ' + ((summary.relatedSessions || []).length),
+      'Registros operativos: ' + Number((summary.recordSummary && summary.recordSummary.totalRecords) || 0)
+    ];
+    if (summary.recordSummary && summary.recordSummary.totalRecords) {
+      lines.push('Rango de registros: ' + (summary.recordSummary.firstDate || '-') + ' a ' + (summary.recordSummary.lastDate || '-'));
+    }
+    return lines.join('\n');
+  }
+
+  window.cleanupParameterConcessionBlockers = async function(id) {
+    const item = getSnapshotConcession(id);
+    const name = item ? item.name : 'esta concesión';
+    try {
+      const details = await api('/concessions/' + id + '/blockers');
+      const blockers = details.blockers || {};
+      const summary = summarizeConcessionBlockers(blockers);
+      const hasWork =
+        (blockers.activeAssignments || []).length ||
+        (blockers.openSessions || []).length ||
+        (blockers.relatedSessions || []).some((session) => Number(session.records_count || 0) === 0);
+      if (!hasWork) {
+        alert('No hay asignaciones activas ni turnos vacíos para liberar en "' + name + '".\n\n' + summary);
+        return;
+      }
+      if (!confirm('Se liberarán asignaciones activas, se cerrarán turnos abiertos y se eliminarán turnos vacíos sin registros de "' + name + '".\n\n' + summary + '\n\nNo se borrarán registros operativos. ¿Continuar?')) return;
+      const result = await api('/concessions/' + id + '/cleanup-blockers', {
+        method: 'POST',
+        body: {
+          deactivate_assignments: true,
+          close_sessions: true,
+          delete_empty_sessions: true
+        }
+      });
+      let message = 'Limpieza aplicada.\nAsignaciones desactivadas: ' + Number(result.assignmentsDeactivated || 0);
+      message += '\nTurnos cerrados: ' + Number(result.sessionsClosed || 0);
+      message += '\nTurnos vacíos eliminados: ' + Number(result.emptySessionsDeleted || 0);
+      if (Number(result.remainingRecords || 0) > 0) {
+        message += '\n\nAún existen ' + Number(result.remainingRecords || 0) + ' registro(s) operativo(s). Esos no se borran automáticamente y seguirán protegiendo la concesión.';
+      }
+      if (Number(result.operativeProjects || 0) > 0) {
+        message += '\nTambién existen proyectos operativos asociados; elimínalos/cierra su operación antes de borrar la concesión.';
+      }
+      alert(message);
+      await refreshParametersEverywhere();
+      await loadAlerts().catch(() => {});
     } catch (e) { alert(e.message); }
   };
 
@@ -4187,6 +4307,7 @@
         </div>
         <div class="param-actions">
           <button class="btn btn-soft btn-sm" onclick="editParameterConcessionPrompt(${c.id})">Editar</button>
+          <button class="btn btn-soft btn-sm" onclick="cleanupParameterConcessionBlockers(${c.id})">Liberar bloqueos</button>
           <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${c.id})">Eliminar</button>
           <button class="btn btn-primary btn-sm" onclick="createParameterProjectPrompt(${c.id})">+ Proyecto base</button>
         </div>
