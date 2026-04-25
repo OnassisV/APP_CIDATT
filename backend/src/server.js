@@ -160,6 +160,18 @@ function parseCsvIds(value) {
     .filter(Boolean);
 }
 
+function uniquePositiveIds(values) {
+  const seen = new Set();
+  const ids = [];
+  for (const value of values || []) {
+    const id = parseOptionalInt(value);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 function sanitizeMaxBoothsPerOperator(value) {
   const parsed = Number(value || 2);
   if (!Number.isFinite(parsed)) return 2;
@@ -527,7 +539,6 @@ app.get('/api/my/operation-context', authenticateRequest, async (req, res, next)
 app.get('/api/users', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
     const myLevel = ROLE_LEVEL[req.authUser.role] || 0;
-    // Solo puede ver usuarios de rol inferior al suyo
     const rows = await query(
       `SELECT u.id, u.username, u.full_name, u.role, u.is_active, u.created_at,
               (SELECT p.name FROM ${TABLES.assignments} a
@@ -627,7 +638,6 @@ app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), asy
          ORDER BY p.start_date DESC`
       );
     } else {
-      // Coordinador: solo sus proyectos asignados
       rows = await query(
         `SELECT DISTINCT p.*, c.name AS concession_name FROM ${TABLES.projects} p
          LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
@@ -636,7 +646,6 @@ app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), asy
         [req.authUser.user_id]
       );
     }
-    // Agregar contadores y progreso por proyecto
     for (const p of rows) {
       const [counts] = await query(
         `SELECT COUNT(*) AS total_records,
@@ -711,7 +720,6 @@ app.put('/api/projects/:id', authenticateRequest, requireMinRole('director'), as
   } catch (error) { next(error); }
 });
 
-
 app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
     const projectId = Number(req.params.id || 0);
@@ -723,6 +731,13 @@ app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'),
     if (Number(activeAssignments?.total || 0) > 0) {
       throw badRequest('No se puede eliminar el proyecto porque tiene personal asignado. Retira las asignaciones primero.');
     }
+    const [openSessions] = await query(
+      `SELECT COUNT(*) AS total FROM ${TABLES.sessions} WHERE project_id = ? AND status = 'open'`,
+      [projectId]
+    );
+    if (Number(openSessions?.total || 0) > 0) {
+      throw badRequest('No se puede eliminar el proyecto porque tiene turnos abiertos. Cierra los turnos primero.');
+    }
     await withTransaction(async (conn) => {
       await conn.execute(`UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ?`, [projectId]);
       await conn.execute(`DELETE FROM ${TABLES.projects} WHERE id = ?`, [projectId]);
@@ -732,6 +747,21 @@ app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'),
 });
 
 // ─── ESTACIONES / CASETAS ─────────────────────────────────────────────────────
+
+app.get('/api/stations', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
+  try {
+    const concessionId = parseOptionalInt(req.query.concession_id);
+    const filters = [];
+    const params = [];
+    if (concessionId) {
+      filters.push('concession_id = ?');
+      params.push(concessionId);
+    }
+    const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+    const stations = await query(`SELECT id, name, location, concession_id FROM ${TABLES.stations} ${where} ORDER BY name ASC`, params);
+    res.json({ ok: true, stations });
+  } catch (error) { next(error); }
+});
 
 app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
@@ -947,104 +977,171 @@ app.delete('/api/booths/:boothId', authenticateRequest, requireMinRole('director
 
 app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
-    const { user_id, project_id, booth_id, station_id } = req.body;
-    if (!user_id || !project_id) throw badRequest('Faltan campos obligatorios.');
-    const [targetUser] = await query(`SELECT role FROM ${TABLES.users} WHERE id = ? LIMIT 1`, [user_id]);
-    if (!targetUser) throw badRequest('Usuario no encontrado.');
+    const { user_id, project_id, booth_id, booth_ids, station_id, replace_all } = req.body;
+    const targetUserId = parseOptionalInt(user_id);
+    const targetProjectId = parseOptionalInt(project_id);
+    const targetStationIdFromBody = parseOptionalInt(station_id);
 
-    if (station_id && !booth_id) {
-      await assertProjectAccess(req.authUser, project_id, { stationId: station_id });
-      if ((ROLE_LEVEL[req.authUser.role] || 0) < ROLE_LEVEL['director']) throw forbidden('Solo directores pueden asignar personal a peajes.');
-      if (targetUser?.role === 'registrador') {
-        // Pool de peaje: solo desactivar asignación previa de este usuario en esta estación
+    if (!targetUserId || !targetProjectId) throw badRequest('Faltan campos obligatorios.');
+
+    const [targetUser] = await query(
+      `SELECT id, role, full_name FROM ${TABLES.users} WHERE id = ? AND is_active = 1 LIMIT 1`,
+      [targetUserId]
+    );
+    if (!targetUser) throw badRequest('Usuario no encontrado o inactivo.');
+
+    const [projectRow] = await query(
+      `SELECT id, COALESCE(max_booths_per_operator, 2) AS max_booths_per_operator
+       FROM ${TABLES.projects}
+       WHERE id = ? LIMIT 1`,
+      [targetProjectId]
+    );
+    if (!projectRow) throw badRequest('Proyecto no encontrado.');
+    const maxBooths = sanitizeMaxBoothsPerOperator(projectRow.max_booths_per_operator);
+
+    // Asignación al pool del peaje: coordinador del peaje o registrador disponible para ese peaje.
+    if (targetStationIdFromBody && !booth_id && (!Array.isArray(booth_ids) || booth_ids.length === 0)) {
+      await assertProjectAccess(req.authUser, targetProjectId, { stationId: targetStationIdFromBody });
+
+      if (targetUser.role === 'coordinador') {
+        if ((ROLE_LEVEL[req.authUser.role] || 0) < ROLE_LEVEL.director) {
+          throw forbidden('Solo directores pueden asignar coordinadores a peajes.');
+        }
         await query(
           `UPDATE ${TABLES.assignments}
            SET is_active = 0
-           WHERE user_id = ? AND project_id = ? AND booth_id IS NULL AND is_active = 1`,
-          [user_id, project_id]
+           WHERE project_id = ? AND station_id = ? AND booth_id IS NULL AND is_active = 1
+             AND user_id IN (SELECT id FROM ${TABLES.users} WHERE role = 'coordinador')`,
+          [targetProjectId, targetStationIdFromBody]
+        );
+      } else if (targetUser.role === 'registrador') {
+        await query(
+          `UPDATE ${TABLES.assignments}
+           SET is_active = 0
+           WHERE user_id = ? AND project_id = ? AND station_id = ? AND booth_id IS NULL AND is_active = 1`,
+          [targetUserId, targetProjectId, targetStationIdFromBody]
         );
       } else {
-        // Coordinador: desactivar coordinador anterior de esta estación
-        await query(
-          `UPDATE ${TABLES.assignments}
-           SET is_active = 0
-           WHERE project_id = ? AND station_id = ? AND booth_id IS NULL AND is_active = 1`,
-          [project_id, station_id]
-        );
+        throw badRequest('Rol no válido para asignación operativa.');
       }
+
       const poolResult = await query(
         `INSERT INTO ${TABLES.assignments} (user_id, project_id, station_id, booth_id, assigned_by, is_active)
          VALUES (?, ?, ?, NULL, ?, 1)`,
-        [user_id, project_id, station_id, req.authUser.user_id]
+        [targetUserId, targetProjectId, targetStationIdFromBody, req.authUser.user_id]
       );
-      return res.json({ ok: true, assignmentId: poolResult.insertId });
-    } else {
-      // Asignar a caseta: solo desactivar asignaciones previas de caseta (conservar asignación de pool)
+      return res.json({ ok: true, assignmentId: poolResult.insertId, mode: 'pool' });
     }
 
-    const [boothRow] = await query(`SELECT id, station_id FROM ${TABLES.booths} WHERE id = ? LIMIT 1`, [booth_id]);
-    if (!boothRow) throw badRequest('La caseta indicada no existe.');
-    await assertProjectAccess(req.authUser, project_id, { stationId: boothRow.station_id });
     if (targetUser.role !== 'registrador') throw badRequest('Solo se puede asignar casetas a registradores.');
+
+    const requestedBoothIds = uniquePositiveIds(Array.isArray(booth_ids) && booth_ids.length > 0 ? booth_ids : (booth_id ? [booth_id] : []));
+    if (!requestedBoothIds.length) throw badRequest('Se requiere al menos una caseta para asignar.');
+    if (requestedBoothIds.length > maxBooths) {
+      throw badRequest(`El usuario no puede tener más de ${maxBooths} caseta(s) activas para este proyecto.`);
+    }
+
+    const placeholders = requestedBoothIds.map(() => '?').join(',');
+    const boothRows = await query(
+      `SELECT tb.id, tb.station_id, tb.code, ts.name AS station_name
+       FROM ${TABLES.booths} tb
+       INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
+       WHERE tb.id IN (${placeholders})`,
+      requestedBoothIds
+    );
+    if (boothRows.length !== requestedBoothIds.length) throw badRequest('Alguna de las casetas indicadas no existe.');
+
+    const targetStationIds = [...new Set(boothRows.map((row) => Number(row.station_id)))];
+    if (targetStationIds.length !== 1) throw badRequest('Las casetas asignadas a un registrador deben pertenecer al mismo peaje.');
+    const targetStationId = targetStationIds[0];
+
+    await assertProjectAccess(req.authUser, targetProjectId, { stationId: targetStationId });
+
     if (req.authUser.role === 'coordinador') {
-      const presenceState = await getPresenceStateForUserProject(user_id, project_id);
+      const presenceState = await getPresenceStateForUserProject(targetUserId, targetProjectId);
       if (presenceState === 'offline') {
         throw forbidden('El coordinador solo puede asignar casetas a registradores conectados.');
       }
     }
 
-    const existingSame = await query(
-      `SELECT id FROM ${TABLES.assignments}
-       WHERE user_id = ? AND project_id = ? AND booth_id = ? AND is_active = 1
-       LIMIT 1`,
-      [user_id, project_id, booth_id]
+    const currentRows = await query(
+      `SELECT a.id, a.booth_id, COALESCE(a.station_id, tb.station_id) AS station_id
+       FROM ${TABLES.assignments} a
+       LEFT JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
+       WHERE a.user_id = ? AND a.project_id = ? AND a.booth_id IS NOT NULL AND a.is_active = 1`,
+      [targetUserId, targetProjectId]
     );
-    if (existingSame.length) return res.json({ ok: true, assignmentId: existingSame[0].id, reused: true });
 
-    const poolRows = await query(
-      `SELECT id FROM ${TABLES.assignments}
-       WHERE user_id = ? AND project_id = ? AND station_id = ? AND booth_id IS NULL AND is_active = 1
-       LIMIT 1`,
-      [user_id, project_id, boothRow.station_id]
-    );
-    if (!poolRows.length) {
-      if ((ROLE_LEVEL[req.authUser.role] || 0) < ROLE_LEVEL['director']) {
-        throw forbidden('El usuario debe pertenecer al pool del peaje antes de asignarlo a una caseta.');
+    const fullReplace = Boolean(replace_all) || (Array.isArray(booth_ids) && booth_ids.length > 0);
+    const currentBoothIds = uniquePositiveIds(currentRows.map((row) => row.booth_id));
+    const desiredBoothIds = fullReplace
+      ? requestedBoothIds
+      : uniquePositiveIds(currentBoothIds.concat(requestedBoothIds));
+
+    if (desiredBoothIds.length > maxBooths) {
+      throw badRequest(`El usuario ya tiene ${currentBoothIds.length} caseta(s). El máximo permitido es ${maxBooths}.`);
+    }
+
+    if (desiredBoothIds.length) {
+      const desiredPlaceholders = desiredBoothIds.map(() => '?').join(',');
+      const desiredRows = await query(`SELECT id, station_id FROM ${TABLES.booths} WHERE id IN (${desiredPlaceholders})`, desiredBoothIds);
+      const desiredStationIds = [...new Set(desiredRows.map((row) => Number(row.station_id)))];
+      if (desiredStationIds.length !== 1 || Number(desiredStationIds[0]) !== Number(targetStationId)) {
+        throw badRequest('Un registrador no puede quedar asignado a casetas de peajes distintos en el mismo proyecto.');
       }
-      await query(
-        `INSERT INTO ${TABLES.assignments} (user_id, project_id, station_id, booth_id, assigned_by, is_active)
-         VALUES (?, ?, ?, NULL, ?, 1)`,
-        [user_id, project_id, boothRow.station_id, req.authUser.user_id]
+    }
+
+    await withTransaction(async (conn) => {
+      const [poolRows] = await conn.execute(
+        `SELECT id FROM ${TABLES.assignments}
+         WHERE user_id = ? AND project_id = ? AND station_id = ? AND booth_id IS NULL AND is_active = 1
+         LIMIT 1`,
+        [targetUserId, targetProjectId, targetStationId]
       );
-    }
+      if (!poolRows.length) {
+        // Si el usuario está conectado, el coordinador puede incorporarlo al pool del peaje al asignarle caseta.
+        await conn.execute(
+          `INSERT INTO ${TABLES.assignments} (user_id, project_id, station_id, booth_id, assigned_by, is_active)
+           VALUES (?, ?, ?, NULL, ?, 1)`,
+          [targetUserId, targetProjectId, targetStationId, req.authUser.user_id]
+        );
+      }
 
-    const [projectRow] = await query(
-      `SELECT COALESCE(max_booths_per_operator, 2) AS max_booths_per_operator FROM ${TABLES.projects} WHERE id = ? LIMIT 1`,
-      [project_id]
-    );
-    const [activeBoothCount] = await query(
-      `SELECT COUNT(DISTINCT booth_id) AS total
-       FROM ${TABLES.assignments}
-       WHERE user_id = ? AND project_id = ? AND booth_id IS NOT NULL AND is_active = 1`,
-      [user_id, project_id]
-    );
-    const maxBooths = Number(projectRow?.max_booths_per_operator || 2);
-    if (Number(activeBoothCount?.total || 0) >= maxBooths) {
-      throw badRequest(`El usuario ya alcanzó el límite de ${maxBooths} caseta(s) activas para este proyecto.`);
-    }
+      if (fullReplace) {
+        await conn.execute(
+          `UPDATE ${TABLES.assignments}
+           SET is_active = 0
+           WHERE user_id = ? AND project_id = ? AND booth_id IS NOT NULL AND is_active = 1`,
+          [targetUserId, targetProjectId]
+        );
+      }
 
-    await query(
-      `UPDATE ${TABLES.assignments}
-       SET is_active = 0
-       WHERE project_id = ? AND booth_id = ? AND is_active = 1`,
-      [project_id, booth_id]
-    );
+      // Una caseta solo puede tener un registrador activo. Si estaba ocupada, se reemplaza.
+      await conn.execute(
+        `UPDATE ${TABLES.assignments}
+         SET is_active = 0
+         WHERE project_id = ? AND booth_id IN (${desiredBoothIds.map(() => '?').join(',')}) AND is_active = 1 AND user_id <> ?`,
+        [targetProjectId, ...desiredBoothIds, targetUserId]
+      );
 
-    const result = await query(
-      `INSERT INTO ${TABLES.assignments} (user_id, project_id, station_id, booth_id, assigned_by, is_active) VALUES (?, ?, ?, ?, ?, 1)`,
-      [user_id, project_id, boothRow.station_id, booth_id, req.authUser.user_id]
-    );
-    res.json({ ok: true, assignmentId: result.insertId });
+      for (const bId of desiredBoothIds) {
+        const booth = boothRows.find((row) => Number(row.id) === Number(bId))
+          || (await conn.execute(`SELECT id, station_id FROM ${TABLES.booths} WHERE id = ? LIMIT 1`, [bId]))[0][0];
+        await conn.execute(
+          `UPDATE ${TABLES.assignments}
+           SET is_active = 0
+           WHERE user_id = ? AND project_id = ? AND booth_id = ? AND is_active = 1`,
+          [targetUserId, targetProjectId, bId]
+        );
+        await conn.execute(
+          `INSERT INTO ${TABLES.assignments} (user_id, project_id, station_id, booth_id, assigned_by, is_active)
+           VALUES (?, ?, ?, ?, ?, 1)`,
+          [targetUserId, targetProjectId, booth.station_id || targetStationId, bId, req.authUser.user_id]
+        );
+      }
+    });
+
+    res.json({ ok: true, mode: fullReplace ? 'replace' : 'add', boothIds: desiredBoothIds, maxBooths });
   } catch (error) { next(error); }
 });
 
@@ -1176,9 +1273,41 @@ app.get('/api/projects/:projectId/presence', authenticateRequest, requireMinRole
 
 // ─── ALERTAS DE PERSONAL ──────────────────────────────────────────────────────
 
-app.get('/api/alerts/workers', authenticateRequest, requireMinRole('director'), async (_req, res, next) => {
+app.get('/api/alerts/workers', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
+  const emptyAlerts = {
+    overloadedOperators: [],
+    doubleAssigned: [],
+    staleSessions: [],
+    consecutiveShifts: [],
+    todayActivity: []
+  };
+
   try {
-    // Detectar usuarios asignados a 2+ casetas activas simultáneamente
+    const isCoordinator = req.authUser.role === 'coordinador';
+    const managedStations = isCoordinator ? await getCoordinatorManagedStations(req.authUser.user_id) : [];
+
+    if (isCoordinator && !managedStations.length) {
+      return res.json({ ok: true, alerts: emptyAlerts });
+    }
+
+    const assignmentScope = isCoordinator
+      ? `AND (${managedStations.map(() => `(a.project_id = ? AND COALESCE(a.station_id, tb.station_id) = ?)`).join(' OR ')})`
+      : '';
+    const assignmentParams = [];
+    managedStations.forEach((item) => assignmentParams.push(item.projectId, item.stationId));
+
+    const sessionScope = isCoordinator
+      ? `AND (${managedStations.map(() => `(s.project_id = ? AND COALESCE(s.station_id, p.station_id) = ?)`).join(' OR ')})`
+      : '';
+    const sessionParams = [];
+    managedStations.forEach((item) => sessionParams.push(item.projectId, item.stationId));
+
+    const recordScope = isCoordinator
+      ? `AND (${managedStations.map(() => `(r.project_id = ? AND COALESCE(r.station_id, tb.station_id) = ?)`).join(' OR ')})`
+      : '';
+    const recordParams = [];
+    managedStations.forEach((item) => recordParams.push(item.projectId, item.stationId));
+
     const doubleAssigned = await query(
       `SELECT u.id, u.full_name, u.username,
               COUNT(DISTINCT a.booth_id) AS active_booths,
@@ -1188,7 +1317,10 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('director'), 
        INNER JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
        INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
        WHERE a.is_active = 1 AND a.booth_id IS NOT NULL
-       GROUP BY u.id HAVING active_booths > 1`
+       ${assignmentScope}
+       GROUP BY u.id
+       HAVING active_booths > 1`,
+      assignmentParams
     );
 
     const overloadedOperators = await query(
@@ -1202,11 +1334,12 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('director'), 
        INNER JOIN ${TABLES.booths} tb ON tb.id = a.booth_id
        INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
        WHERE a.is_active = 1 AND a.booth_id IS NOT NULL
+       ${assignmentScope}
        GROUP BY u.id, p.id
-       HAVING active_booths > max_allowed`
+       HAVING active_booths > max_allowed`,
+      assignmentParams
     );
 
-    // Detectar sesiones abiertas de ayer o antes (turno sin cerrar)
     const staleSessions = await query(
       `SELECT s.id AS session_id, s.operation_date, s.created_at,
               COALESCE(u.full_name, p.operator_name) AS operator_name, p.toll_name, p.booth_number,
@@ -1215,10 +1348,11 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('director'), 
        INNER JOIN ${TABLES.profiles} p ON p.session_id = s.id AND p.profile_index = 0
        LEFT JOIN ${TABLES.users} u ON u.id = s.owner_user_id
        WHERE s.status = 'open' AND s.operation_date < CURDATE()
-       ORDER BY s.operation_date ASC`
+       ${sessionScope}
+       ORDER BY s.operation_date ASC`,
+      sessionParams
     );
 
-    // Detectar operadores con registros en turnos consecutivos (mismo día, diferente sesión)
     const consecutiveShifts = await query(
       `SELECT COALESCE(u.full_name, r.operator_name) AS operator_name,
               r.operation_date, COUNT(DISTINCT r.session_id) AS sessions_count,
@@ -1226,13 +1360,15 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('director'), 
        FROM ${TABLES.records} r
        LEFT JOIN ${TABLES.sessions} s ON s.id = r.session_id
        LEFT JOIN ${TABLES.users} u ON u.id = COALESCE(r.owner_user_id, s.owner_user_id)
+       LEFT JOIN ${TABLES.booths} tb ON tb.id = r.booth_id
        WHERE r.operation_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+       ${recordScope}
        GROUP BY COALESCE(r.owner_user_id, s.owner_user_id, CONCAT('legacy:', LOWER(TRIM(r.operator_name)))),
                 COALESCE(u.full_name, r.operator_name), r.operation_date
-       HAVING sessions_count > 1`
+       HAVING sessions_count > 1`,
+      recordParams
     );
 
-    // Actividad hoy por usuario
     const todayActivity = await query(
       `SELECT COALESCE(u.full_name, r.operator_name) AS operator_name, COUNT(*) AS records_today,
               MIN(r.passed_at) AS first_time, MAX(r.passed_at) AS last_time,
@@ -1244,9 +1380,11 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('director'), 
        LEFT JOIN ${TABLES.booths} tb ON tb.id = r.booth_id
        LEFT JOIN ${TABLES.stations} ts ON ts.id = COALESCE(r.station_id, tb.station_id)
        WHERE r.operation_date = CURDATE()
+       ${recordScope}
        GROUP BY COALESCE(r.owner_user_id, s.owner_user_id, CONCAT('legacy:', LOWER(TRIM(r.operator_name)))),
                 COALESCE(u.full_name, r.operator_name)
-       ORDER BY records_today DESC`
+       ORDER BY records_today DESC`,
+      recordParams
     );
 
     res.json({
@@ -1367,7 +1505,6 @@ app.post('/api/sessions/close-bulk', authenticateRequest, requireMinRole('coordi
 
 // ─── SESIONES ─────────────────────────────────────────────────────────────────
 
-// Listar sesiones abiertas (para cerrar turno desde el panel)
 app.get('/api/sessions/open', authenticateRequest, requireMinRole('coordinador'), async (req, res, next) => {
   try {
     const requestedProjectId = parseOptionalInt(req.query.projectId);
@@ -1415,7 +1552,7 @@ app.post('/api/sessions/upsert', authenticateRequest, async (req, res, next) => 
     ) {
       throw forbidden('No puedes modificar un turno que pertenece a otro usuario.');
     }
-    if (session.projectId && req.authUser.role !== 'registrador') {
+    if (session.projectId) {
       await assertProjectAccess(req.authUser, session.projectId, { stationId: session.stationId });
     }
     const ownerUserId = Number(existingSession?.owner_user_id || req.authUser.user_id);
@@ -1463,6 +1600,9 @@ app.post('/api/records/upsert', authenticateRequest, async (req, res, next) => {
     const recordProjectId = parseOptionalInt(session.project_id || r.projectId);
     const recordStationId = parseOptionalInt(session.station_id || r.stationId);
     const recordBoothId = parseOptionalInt(r.boothId);
+    if (recordProjectId) {
+      await assertProjectAccess(req.authUser, recordProjectId, { stationId: recordStationId });
+    }
     await query(
       `INSERT INTO ${TABLES.records}
        (id,session_id,operation_date,toll_name,booth_number,direction,operator_name,
@@ -1827,6 +1967,13 @@ async function runMigrations() {
   try {
     await query(`ALTER TABLE ${TABLES.records} ADD COLUMN booth_id INT UNSIGNED NULL AFTER station_id`);
   } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.assignments} ADD INDEX idx_cidatt_assignments_scope (project_id, station_id, booth_id, is_active)`);
+  } catch (_) {}
+  try {
+    await query(`ALTER TABLE ${TABLES.presence} ADD INDEX idx_cidatt_presence_project_user (project_id, user_id, last_heartbeat_at)`);
+  } catch (_) {}
+
   await query(`UPDATE ${TABLES.projects} SET max_booths_per_operator = 2 WHERE max_booths_per_operator IS NULL OR max_booths_per_operator > 2 OR max_booths_per_operator < 1`);
 
   const defaultConcessionId = await ensureDefaultConcession();
@@ -1903,7 +2050,6 @@ async function start() {
     console.log(`RLV CIDATT escuchando en http://localhost:${port}`);
   });
 }
-
 
 start().catch((err) => {
   console.error('Error al iniciar:', err);

@@ -284,6 +284,30 @@
       color: var(--muted);
       font-weight: bold;
     }
+    .setup-assigned-summary {
+      border: 1px solid rgba(22, 101, 52, .25);
+      background: var(--ok-bg);
+      color: var(--ok);
+      border-radius: 12px;
+      padding: 9px 10px;
+      font-size: .78rem;
+      line-height: 1.35;
+      margin: 8px 0;
+    }
+    .setup-assigned-summary strong { display: block; margin-bottom: 3px; }
+    .setup-help-warning {
+      border: 1px solid rgba(234, 179, 8, .45);
+      background: rgba(254, 240, 138, .18);
+      color: #854d0e;
+      border-radius: 12px;
+      padding: 9px 10px;
+      font-size: .78rem;
+      line-height: 1.35;
+      margin: 8px 0;
+    }
+    @media (hover: hover) {
+      .history-item:hover .history-swipe-content { transform: translateX(-120px); }
+    }
     .btn-fuga {
       background: var(--danger-bg);
       color: var(--danger);
@@ -308,7 +332,6 @@
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
-      <button class="theme-toggle hidden" id="btnBackToPanel" type="button" title="Volver">← Atrás</button>
         <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión / cambiar usuario">🔓 Cerrar sesión</button>
         <button class="theme-toggle" id="btnHelp" title="Ayuda">❓</button>
         <button class="theme-toggle" id="btnTheme">🌙</button>
@@ -325,15 +348,13 @@
         </div>
         <button type="submit" class="btn-primary" style="width:100%; font-size: 1.1rem; padding: 14px;">Ingresar</button>
       </form>
-      <div style="margin-top:12px;">
-        <a href="/panel.html" class="btn-soft" style="display:inline-flex; justify-content:center; width:100%; text-decoration:none;">Abrir panel de pruebas</a>
-      </div>
+      <p class="helper" style="margin-top:12px;">Los usuarios administradores, directores y coordinadores serán enviados automáticamente al panel.</p>
     </section>
 
     <div class="site-info-bar hidden" id="siteInfoBar">
       <span class="site-info-text" id="siteInfoLabel">📍 Cargando...</span>
       <div class="site-actions">
-        <button type="button" class="btn-soft btn-sm hidden" id="btnLocalCloseShift">Cerrar local</button>
+        <button type="button" class="btn-soft btn-sm hidden" id="btnLocalCloseShift">Cerrar turno local</button>
         <button type="button" class="btn-switch btn-sm hidden" id="btnSwitchCaseta">🔄 Cambiar</button>
         <button type="button" class="btn-soft btn-sm" id="btnCambiarDatos">⚙️ Ajustes</button>
         <button type="button" class="btn-danger btn-sm hidden" id="btnLogoutRegisterInline">🔓 Salir</button>
@@ -365,6 +386,7 @@
               <option value="__manual__">Sin asignación / configuración manual</option>
             </select>
             <p class="setup-mini-note">Use esta lista cuando el coordinador ya asignó la caseta. Si no hay asignación o no hay internet, use la configuración manual.</p>
+            <div class="setup-assigned-summary hidden" id="assignedSummary1"></div>
 
             <div class="setup-small-grid" id="manualPrimaryFields">
               <div>
@@ -408,6 +430,7 @@
               <option value="__manual__">Sin asignación / configuración manual</option>
             </select>
             <p class="setup-mini-note">La caseta secundaria mantiene la misma concesión y peaje de la principal. Solo cambie caseta y sentido.</p>
+            <div class="setup-assigned-summary hidden" id="assignedSummary2"></div>
 
             <input id="setupPeaje2" class="setup-readonly" type="text" maxlength="60" placeholder="Peaje principal" style="margin-bottom:8px;" readonly />
             <input id="setupCaseta2" type="text" maxlength="20" placeholder="Número de Caseta secundaria" style="margin-bottom:8px;" />
@@ -426,7 +449,7 @@
 
         <button type="submit" class="btn-primary" style="width:100%;">Guardar configuración</button>
         <div class="form-actions" style="margin-top:10px;">
-          <button type="button" class="btn-soft" id="btnResetSetupInputs">Borrar formulario</button>
+          <button type="button" class="btn-soft" id="btnResetSetupInputs">Borrar datos del formulario</button>
           <button type="button" class="btn-soft hidden" id="btnCancelSetupEdit">Cancelar</button>
         </div>
       </form>
@@ -459,6 +482,10 @@
             </div>
           </div>
 
+          <div style="display:flex; justify-content:flex-end; margin:8px 0 10px;">
+            <button type="button" class="btn-fuga btn-sm" id="btnRegistrarFuga">🚧 Fuga</button>
+          </div>
+
           <div class="group-card" id="groupTipo">
             <label>Tipo de vehículo</label>
             <div class="chips" id="tipoChips">
@@ -483,6 +510,7 @@
               <button type="button" class="chip" data-ejes-principal="8">8</button>
               <button type="button" class="chip" data-ejes-principal="9">9</button>
             </div>
+            <p class="setup-mini-note hidden" id="fixedAxleNotice">Este tipo de vehículo usa 2 ejes por defecto.</p>
           </div>
 
           <div class="group-card" id="groupSecundaria">
@@ -518,10 +546,7 @@
               </div>
             </div>
           </div>
-          
-          <div style="display:flex; justify-content:flex-end; margin:8px 0 0;">
-            <button type="button" class="btn-fuga btn-sm" id="btnRegistrarFuga">🚧 Registrar fuga</button>
-          </div>
+
 
           <div class="form-actions">
             <button type="button" class="btn-soft" id="btnDeshacerUltimo">↩️ Deshacer Último</button>
@@ -542,7 +567,7 @@
         </div>
 
         <div class="toolbar">
-          <button type="button" class="btn-ok" id="btnCerrarTurno">📤 Exportar / Cerrar Turno</button>
+          <button type="button" class="btn-ok" id="btnCerrarTurno">📤 Exportar registros</button>
           <button type="button" class="btn-soft" id="btnToggleHistorial" style="padding: 8px;">Ver todo el historial</button>
         </div>
         
@@ -597,7 +622,7 @@
           • Desliza un registro a la izquierda para ver las opciones ✏️ editar o 🗑️ eliminar<br>
           • Usa el buscador de placas para encontrar registros rápidamente</p>
 
-          <p><strong>5. Exportar / Cerrar Turno</strong><br>
+          <p><strong>5. Exportar registros</strong><br>
           Presiona el botón verde y elige:<br>
           • ☁️ <strong>Enviar a la nube</strong> — sincroniza con la base de datos central<br>
           • 📊 <strong>Exportar CSV</strong> — descarga el archivo para Excel<br>
@@ -661,10 +686,10 @@
     </div>
   </div>
 
-  <!-- Modal Exportar / Cerrar Turno -->
+  <!-- Modal Exportar registros -->
   <div id="exportOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:none; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:16px; padding:24px; margin:16px; max-width:360px; width:100%; box-shadow:0 8px 32px rgba(0,0,0,0.25);">
-      <h3 style="margin:0 0 8px; font-size:1.1rem;">📤 Cerrar Turno</h3>
+      <h3 style="margin:0 0 8px; font-size:1.1rem;">📤 Exportar registros</h3>
       <p style="margin:0 0 16px; font-size:0.85rem; color:#666;">¿Qué deseas hacer con los registros?</p>
       <div style="display:flex; flex-direction:column; gap:10px;">
         <button type="button" id="btnExportCloud" style="padding:14px; border:none; border-radius:10px; background:#1a6b5a; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️ Enviar a la nube</button>
@@ -1000,6 +1025,8 @@
           btn.style.opacity = lockedToTwo && !isTwoAxles ? '0.45' : '1';
           btn.style.cursor = lockedToTwo && !isTwoAxles ? 'not-allowed' : 'pointer';
         });
+        var notice = document.getElementById('fixedAxleNotice');
+        if (notice) notice.classList.toggle('hidden', !lockedToTwo);
         if (lockedToTwo && selectedEjesPrincipal !== 2) {
           selectedEjesPrincipal = 2;
           activateChip('[data-ejes-principal]', 'data-ejes-principal', selectedEjesPrincipal);
@@ -1212,10 +1239,26 @@
         var select = document.getElementById(selectId);
         if (!select) return;
 
-        var primarySelected = document.getElementById('setupAssigned1') ? document.getElementById('setupAssigned1').value : '';
+        var primarySelect = document.getElementById('setupAssigned1');
+        var primarySelected = primarySelect ? primarySelect.value : '';
+        var primaryAssignment = primarySelected && primarySelected !== '__manual__'
+          ? findAssignmentByBoothId(primarySelected)
+          : null;
+
         var booths = getAssignedBooths().filter(function(item) {
           if (!secondaryMode) return true;
-          return !primarySelected || primarySelected === '__manual__' || String(item.boothId) !== String(primarySelected);
+          if (primarySelected && primarySelected !== '__manual__' && String(item.boothId) === String(primarySelected)) return false;
+
+          // La caseta secundaria solo debe pertenecer al mismo peaje/concesión de la principal.
+          if (primaryAssignment) {
+            if (primaryAssignment.stationId && item.stationId) return String(item.stationId) === String(primaryAssignment.stationId);
+            return normalizeText(item.stationName || '') === normalizeText(primaryAssignment.stationName || '') &&
+                   normalizeText(cleanConcessionDisplayName(item.concessionName || '')) === normalizeText(cleanConcessionDisplayName(primaryAssignment.concessionName || ''));
+          }
+
+          // Si la principal está en modo manual, no hay una asignación base confiable para filtrar.
+          // En ese caso, la secundaria queda manual: misma concesión/peaje, otra caseta.
+          return false;
         });
 
         var manualLabel = secondaryMode
@@ -1224,12 +1267,19 @@
 
         var html = '<option value="__manual__">' + manualLabel + '</option>';
         html += booths.map(function(item) {
-          var label = [
-            item.concessionName ? cleanConcessionDisplayName(item.concessionName) : '',
-            item.stationName || 'Peaje',
-            item.boothCode ? 'Caseta ' + item.boothCode : 'Caseta'
-          ].filter(Boolean).join(' · ');
-          return '<option value="' + item.boothId + '">' + label + '</option>';
+          var label = secondaryMode
+            ? [
+                item.boothCode ? 'Caseta ' + item.boothCode : 'Caseta',
+                item.directions || ''
+              ].filter(Boolean).join(' · ')
+            : [
+                item.concessionName ? cleanConcessionDisplayName(item.concessionName) : '',
+                item.stationName || 'Peaje',
+                item.boothCode ? 'Caseta ' + item.boothCode : 'Caseta',
+                item.directions || ''
+              ].filter(Boolean).join(' · ');
+
+          return '<option value="' + item.boothId + '">Asignada: ' + label + '</option>';
         }).join('');
 
         select.innerHTML = html;
@@ -1264,6 +1314,12 @@
         var secondaryCard = document.getElementById('setupAssigned2')?.closest('.setup-mode-card');
         var status1 = document.getElementById('setupModeStatus1');
         var status2 = document.getElementById('setupModeStatus2');
+        var manualPrimaryFields = document.getElementById('manualPrimaryFields');
+        var summary1 = document.getElementById('assignedSummary1');
+        var summary2 = document.getElementById('assignedSummary2');
+
+        var primaryAssignment = getPrimarySelectedAssignment();
+        var secondaryAssignment = getSecondarySelectedAssignment();
 
         if (primaryCard) {
           primaryCard.classList.toggle('manual-active', primaryManual);
@@ -1288,15 +1344,40 @@
             : 'Usando segunda caseta asignada';
         }
 
+        if (manualPrimaryFields) manualPrimaryFields.classList.toggle('hidden', !primaryManual);
+
+        if (summary1) {
+          summary1.classList.toggle('hidden', primaryManual || !primaryAssignment);
+          if (primaryAssignment) {
+            summary1.innerHTML =
+              '<strong>Caseta asignada por coordinador</strong>' +
+              'Concesión: ' + (cleanConcessionDisplayName(primaryAssignment.concessionName) || '—') + '<br>' +
+              'Peaje: ' + (primaryAssignment.stationName || '—') + '<br>' +
+              'Caseta: ' + (primaryAssignment.boothCode || '—') + '<br>' +
+              'Sentido: ' + (primaryAssignment.directions || '—');
+          }
+        }
+
+        if (summary2) {
+          summary2.classList.toggle('hidden', secondaryManual || !secondaryAssignment);
+          if (secondaryAssignment) {
+            summary2.innerHTML =
+              '<strong>Segunda caseta asignada</strong>' +
+              'Peaje: ' + (getSelectedPeajeName() || secondaryAssignment.stationName || '—') + '<br>' +
+              'Caseta: ' + (secondaryAssignment.boothCode || '—') + '<br>' +
+              'Sentido: ' + (secondaryAssignment.directions || '—');
+          }
+        }
+
         // La concesión y peaje solo se editan cuando el perfil principal está en modo manual.
         setDisabledByIds(['setupConcession1', 'setupConcessionCustom1', 'setupPeaje1', 'setupPeajeCustom1'], !primaryManual);
         setDisabledByIds(['setupCaseta1', 'setupSentido1'], !primaryManual);
 
         // En la secundaria nunca se edita concesión/peaje; solo caseta y sentido si está en manual.
+        setDisabledByIds(['setupPeaje2'], true);
         setDisabledByIds(['setupCaseta2', 'setupSentido2'], !secondaryManual);
 
-        // Los selectores de asignación se mantienen habilitados para que el operador elija entre lo asignado
-        // o pase a manual cuando no exista asignación / no haya conexión.
+        // Los selectores de asignación se mantienen habilitados para elegir entre lo asignado o manual.
         setDisabledByIds(['setupAssigned1', 'setupAssigned2'], false);
 
         applyAuthenticatedUserDefaults();
@@ -1320,16 +1401,16 @@
           return;
         }
 
-        var previousSecondary = document.getElementById('setupAssigned2') ? document.getElementById('setupAssigned2').value : '';
         var profile = assignmentToProfile(item);
         setPrimaryProfileFields(profile);
 
-        renderAssignmentSelect('setupAssigned2', previousSecondary, true);
-        if (document.getElementById('setupAssigned2') && document.getElementById('setupAssigned2').value !== '__manual__') {
-          applyAssignmentToSecondary(document.getElementById('setupAssigned2').value);
-        } else {
-          syncSecondaryFromPrimary();
-        }
+        // Al cambiar la caseta principal, se recalculan las opciones secundarias.
+        // No se selecciona automáticamente la segunda caseta: el operador debe confirmarla.
+        renderAssignmentSelect('setupAssigned2', '', true);
+        if (document.getElementById('setupAssigned2')) document.getElementById('setupAssigned2').value = '__manual__';
+        document.getElementById('setupCaseta2').value = '';
+        document.getElementById('setupSentido2').value = '';
+        syncSecondaryFromPrimary();
 
         updateSetupManualMode();
       }
@@ -1359,14 +1440,7 @@
 
       function syncSecondaryFromPrimary() {
         var secondaryPeaje = document.getElementById('setupPeaje2');
-        var secondaryAssignment = getSecondarySelectedAssignment();
-        if (secondaryPeaje) {
-          if (secondaryAssignment && (secondaryAssignment.stationName || secondaryAssignment.concessionName)) {
-            secondaryPeaje.value = [secondaryAssignment.concessionName, secondaryAssignment.stationName].filter(Boolean).join(' / ');
-          } else {
-            secondaryPeaje.value = getSelectedPeajeName();
-          }
-        }
+        if (secondaryPeaje) secondaryPeaje.value = getSelectedPeajeName();
 
         var operador2 = document.getElementById('setupOperador2');
         if (operador2) operador2.value = getOperatorFullName();
@@ -1393,8 +1467,11 @@
         document.getElementById('setupCaseta2Box').classList.toggle('hidden', profiles.length <= 1);
         document.getElementById('setupCaseta2').value = secondary.numeroCaseta || '';
         document.getElementById('setupSentido2').value = secondary.sentidoCirculacion || '';
-        if (secondary && secondary.boothId) applyAssignmentToSecondary(secondary.boothId);
-        else syncSecondaryFromPrimary();
+        if (secondary && secondary.boothId && document.getElementById('setupAssigned2').value !== '__manual__') {
+          applyAssignmentToSecondary(secondary.boothId);
+        } else {
+          syncSecondaryFromPrimary();
+        }
         applyAuthenticatedUserDefaults();
         updateSetupManualMode();
       }
@@ -1402,16 +1479,19 @@
       function populateSetupFromAssignments() {
         var profiles = buildProfilesFromAssignments();
         renderAssignmentSelect('setupAssigned1', profiles[0] && profiles[0].boothId, false);
-        renderAssignmentSelect('setupAssigned2', profiles[1] && profiles[1].boothId, true);
+        renderAssignmentSelect('setupAssigned2', '', true);
         if (!profiles.length) {
           renderConcessionSelect('');
           renderPeajeSelect('');
           applyAuthenticatedUserDefaults();
+          updateSetupManualMode();
           return false;
         }
+
+        // Se precarga la caseta principal asignada. La secundaria queda disponible para que el operador la confirme.
         fillSetupFormFromProfiles({
           fechaTurno: siteInfo && siteInfo.fechaTurno ? siteInfo.fechaTurno : todayDate(),
-          profiles: profiles
+          profiles: [profiles[0]]
         });
         return true;
       }
@@ -1443,6 +1523,8 @@
         var operatorName = getOperatorFullName();
         var concessionName = getSelectedConcessionName();
         var tollName = getSelectedPeajeName();
+        if (!operatorName) throw new Error('No se encontró el nombre del operador. Cierre sesión e ingrese nuevamente.');
+
         if (index === 1) {
           if (!concessionName) throw new Error('Seleccione la concesión de la caseta principal.');
           if (!tollName) throw new Error('Seleccione el peaje de la caseta principal.');
@@ -1461,17 +1543,17 @@
           };
         }
 
+        if (!concessionName) throw new Error('La caseta secundaria debe usar la misma concesión de la principal.');
+        if (!tollName) throw new Error('La caseta secundaria debe usar el mismo peaje de la principal.');
         if (!document.getElementById('setupCaseta2').value) throw new Error('Ingrese el número de caseta secundaria.');
         if (!document.getElementById('setupSentido2').value) throw new Error('Seleccione el sentido de la caseta secundaria.');
         var assigned2 = findAssignmentByBoothId(document.getElementById('setupAssigned2').value);
-        var secondaryConcessionName = assigned2 && assigned2.concessionName ? assigned2.concessionName : concessionName;
-        var secondaryTollName = assigned2 && assigned2.stationName ? assigned2.stationName : tollName;
         return {
-          nombrePeaje: secondaryTollName,
+          nombrePeaje: tollName,
           numeroCaseta: document.getElementById('setupCaseta2').value,
           operador: operatorName,
           sentidoCirculacion: document.getElementById('setupSentido2').value,
-          concessionName: secondaryConcessionName,
+          concessionName: concessionName,
           projectId: assigned2 ? assigned2.projectId : null,
           stationId: assigned2 ? assigned2.stationId : null,
           boothId: assigned2 ? assigned2.boothId : null
@@ -1730,16 +1812,13 @@
         logoutButtons.forEach(function(logoutButton) {
           if (!logoutButton) return;
           logoutButton.classList.toggle('hidden', !sessionVisible);
-          logoutButton.textContent = '🔓 Salir';
+          logoutButton.textContent = '🔓 Cerrar sesión';
           logoutButton.title = 'Cerrar sesión para ingresar con otro usuario';
         });
 
+        // En la interfaz del registrador no hay botón Atrás: solo cierre de sesión, ajustes y cierre de turno.
         var backButton = document.getElementById('btnBackToPanel');
-        if (backButton) {
-          backButton.classList.toggle('hidden', !sessionVisible);
-          backButton.textContent = '← Atrás';
-          backButton.title = 'Volver a la vista anterior';
-        }
+        if (backButton) backButton.classList.add('hidden');
       }
 
       async function logoutRegisterSession() {
@@ -1933,6 +2012,11 @@
         fabSave.classList.toggle('hidden', !hasSite || showSetup);
         if (btnCancelSetupEdit) btnCancelSetupEdit.classList.toggle('hidden', !isEditingSetup);
         if (btnLocalCloseShift) btnLocalCloseShift.classList.toggle('hidden', !hasSite);
+
+        var setupTitle = setupCard ? setupCard.querySelector('h2') : null;
+        if (setupTitle) setupTitle.textContent = isEditingSetup ? 'Editando configuración del turno' : 'Configuración del Turno';
+        var submitButton = setupCard ? setupCard.querySelector('button[type="submit"]') : null;
+        if (submitButton) submitButton.textContent = isEditingSetup ? 'Guardar cambios' : 'Guardar configuración';
       }
 
       function resetForm(loadDraft = false) {
@@ -2054,7 +2138,7 @@
       function buildRecordPayload(options) {
         var settings = Object.assign({ isFugitive: false }, options || {});
         var act = getCurrentSiteInfo();
-        if (!act) throw new Error('Faltan datos de la caseta.');
+        if (!act) throw new Error('Primero configure una caseta para iniciar el turno.');
         if (!settings.isFugitive) {
           if (!placaPrincipal.value || !selectedTipo || !selectedEjesPrincipal) throw new Error('Complete placa, tipo y ejes principales.');
           if (tieneSecundaria.checked && (!placaSecundaria.value || !selectedEjesSecundaria)) throw new Error('Complete datos de la placa secundaria.');
@@ -2624,14 +2708,10 @@
          if (e.target.checked) {
            var select2 = document.getElementById('setupAssigned2');
            renderAssignmentSelect('setupAssigned2', select2 ? select2.value : '', true);
-
-           var firstAssignedOption = Array.from(document.getElementById('setupAssigned2').options)
-             .find(function(option) { return option.value && option.value !== '__manual__'; });
-
-           if (firstAssignedOption && document.getElementById('setupAssigned2').value === '__manual__' && navigator.onLine) {
-             document.getElementById('setupAssigned2').value = firstAssignedOption.value;
-             applyAssignmentToSecondary(firstAssignedOption.value);
-           }
+           // No se autoelige la segunda caseta. El operador debe confirmarla para evitar errores.
+           if (document.getElementById('setupAssigned2')) document.getElementById('setupAssigned2').value = '__manual__';
+           document.getElementById('setupCaseta2').value = '';
+           document.getElementById('setupSentido2').value = '';
          }
 
          updateSetupManualMode();
@@ -2677,12 +2757,13 @@
       document.getElementById('btnCambiarDatos').addEventListener('click', async () => {
         isEditingSetup = true;
         if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
+        setStatus('Editando configuración actual. Use Cancelar si no desea cambiarla.', 'ok');
         applySetupVisibility();
       });
 
       if (btnResetSetupInputs) {
         btnResetSetupInputs.addEventListener('click', function() {
-          if (!confirm('Borrar los valores del formulario de configuracion?')) return;
+          if (!confirm('¿Borrar solo los datos visibles del formulario? No se cerrará el turno ni se eliminarán registros.')) return;
           clearSetupInputs(false);
           isEditingSetup = true;
           applySetupVisibility();
@@ -2699,14 +2780,14 @@
 
       if (btnLocalCloseShift) {
         btnLocalCloseShift.addEventListener('click', async function() {
-          if (!confirm('Cerrar el turno actual solo en este dispositivo?')) return;
+          if (!confirm('¿Cerrar el turno local de este dispositivo? Los registros no se eliminarán.')) return;
           await closeLocalShift();
         });
       }
 
       if (btnRegistrarFuga) {
         btnRegistrarFuga.addEventListener('click', async function() {
-          if (!confirm('Registrar una fuga con la hora actual del formulario?')) return;
+          if (!confirm('¿Registrar fuga con la hora actual del formulario?')) return;
           try {
             await registerFugitiveRecord();
           } catch (err) {
