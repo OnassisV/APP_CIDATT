@@ -481,7 +481,7 @@
 <div class="modal-overlay" id="modalProject">
   <div class="modal">
     <div class="modal-title" id="modalProjectTitle">Nuevo Proyecto</div>
-    <div class="form-group"><label>Nombre del proyecto</label><input id="pName" class="readonly-derived" readonly placeholder="Se completará con la concesión seleccionada"/><div class="select-hint">El nombre se toma de la concesión seleccionada. Para un nombre nuevo usa “Otros”.</div></div>
+    <div class="form-group"><label>Proyecto / Red vial *</label><input id="pName" placeholder="Ej: Red Vial 5, IIRSA Centro, operativo trimestral"/><div class="select-hint">La concesión agrupa proyectos. El proyecto puede ser una red vial, vía concesionada u otro operativo específico.</div></div>
     <div class="form-group"><label>Descripción</label><textarea id="pDesc" rows="2" placeholder="Descripción opcional"></textarea></div>
     <div class="form-row">
       <div class="form-group"><label>Fecha inicio *</label><input id="pStart" type="date"/></div>
@@ -744,6 +744,8 @@
   var dashboardFilterState = {
     concessionId: '',
     projectId: '',
+    stationId: '',
+    boothId: '',
     status: 'all',
     dateMode: 'quarter',
     dateFrom: '',
@@ -827,8 +829,7 @@
   }
 
   function goBackOrDefault(defaultView) {
-    if (window.history.length > 1) window.history.back();
-    else showView(defaultView || 'viewDashboard');
+    showView(defaultView || 'viewDashboard');
   }
 
   function getQuarterRange(dateValue) {
@@ -877,6 +878,8 @@
       }
     }
 
+    if (dashboardFilterState.stationId && !projectHasDashboardStation(project, dashboardFilterState.stationId)) return false;
+    if (dashboardFilterState.boothId && !projectHasDashboardBooth(project, dashboardFilterState.boothId)) return false;
     if (dashboardFilterState.status !== 'all' && project.status !== dashboardFilterState.status) return false;
     const range = getDashboardDateRange();
     if (range.from || range.to) {
@@ -1208,17 +1211,14 @@
     const customWrap = document.getElementById('pConcessionCustomWrap');
     const customInput = document.getElementById('pConcessionCustom');
     const nameInput = document.getElementById('pName');
-    if (!select || !nameInput) return;
-    if (select.value === '__other__') {
-      if (customWrap) customWrap.style.display = 'block';
-      nameInput.value = customInput ? canonicalConcessionName(customInput.value.trim()) : '';
-      return;
+    if (!select) return;
+    const isOther = select.value === '__other__';
+    if (customWrap) customWrap.style.display = isOther ? 'block' : 'none';
+    if (!isOther && customInput) customInput.value = '';
+    if (nameInput && !nameInput.value && force) {
+      nameInput.placeholder = isOther ? 'Ej: Proyecto especial, operativo temporal' : 'Ej: Red vial, vía concesionada u operativo específico';
     }
-    if (customWrap) customWrap.style.display = 'none';
-    const selected = select.options[select.selectedIndex];
-    if (!selected || !select.value) return;
-    const concessionName = canonicalConcessionName(selected.dataset.name || selected.text || '');
-    if (!nameInput.value || force) nameInput.value = concessionName;
+    syncProjectDescriptionSuggestion(false);
   }
 
   function getSelectedConcessionNameFromSelect(selectId, customInputId) {
@@ -1327,7 +1327,7 @@
     if (projectModal && !document.getElementById('pConcessionSelect')) {
       const field = document.createElement('div');
       field.className = 'form-group';
-      field.innerHTML = '<label>Concesión del proyecto *</label><select id="pConcessionSelect"></select><div id="pConcessionCustomWrap" style="display:none;margin-top:8px;"><input id="pConcessionCustom" placeholder="Nueva concesión"/></div><div class="select-hint">El proyecto se identifica por concesión. Usa “Otros” solo si no aparece en la lista.</div>';
+      field.innerHTML = '<label>Concesión *</label><select id="pConcessionSelect"></select><div id="pConcessionCustomWrap" style="display:none;margin-top:8px;"><input id="pConcessionCustom" placeholder="Nueva concesión"/></div><div class="select-hint">Selecciona la concesión titular. Luego define el proyecto/red vial de esa concesión.</div>';
       const nameGroup = document.getElementById('pName')?.closest('.form-group');
       if (nameGroup && nameGroup.parentNode) nameGroup.parentNode.insertBefore(field, nameGroup);
     }
@@ -1395,10 +1395,7 @@
 
     const projectBackBtn = document.querySelector('#viewProjectDetail .topbar .btn.btn-soft.btn-sm');
     if (projectBackBtn) {
-      projectBackBtn.onclick = () => {
-        if (window.location.hash && window.location.hash.indexOf('#project/') === 0) window.history.back();
-        else showView('viewProjects');
-      };
+      projectBackBtn.onclick = () => showView('viewProjects');
     }
 
     const stationSelect = document.getElementById('sName');
@@ -1430,25 +1427,8 @@
       if (statsGrid && statsGrid.parentNode) statsGrid.parentNode.insertBefore(card, statsGrid);
     }
 
-    const globalTopbar = document.getElementById('globalTopbar');
-    if (globalTopbar && !document.getElementById('btnGlobalBack')) {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-soft btn-sm';
-      btn.id = 'btnGlobalBack';
-      btn.textContent = 'Atras';
-      btn.onclick = () => goBackOrDefault('viewDashboard');
-      globalTopbar.insertBefore(btn, document.getElementById('globalUserChip'));
-    }
-
-    const mobileActions = document.querySelector('.mobile-topbar div');
-    if (mobileActions && !document.getElementById('btnMobileBack')) {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-soft btn-sm';
-      btn.id = 'btnMobileBack';
-      btn.textContent = 'Atras';
-      btn.onclick = () => goBackOrDefault('viewDashboard');
-      mobileActions.insertBefore(btn, mobileActions.firstChild);
-    }
+    document.getElementById('btnGlobalBack')?.remove();
+    document.getElementById('btnMobileBack')?.remove();
 
     if (document.getElementById('pConcessionSelect') && !document.getElementById('pConcessionSelect').dataset.bound) {
       document.getElementById('pConcessionSelect').dataset.bound = '1';
@@ -1518,86 +1498,51 @@
   function upgradeDashboardFiltersCard() {
     const card = document.getElementById('dashboardFiltersCard');
     if (!card) return;
-
-    if (!document.getElementById('dashFilterProject')) {
-      card.className = 'card filters-card';
-      card.innerHTML = `
-        <div class="filters-header">
-          <div>
-            <h2>Filtros del Dashboard</h2>
-            <p>Filtra las tarjetas y la tabla de proyectos según concesión, proyecto, estado y fecha.</p>
-          </div>
-          <span class="filter-pill" id="dashboardFilterCounter">0 proyecto(s)</span>
+    card.className = 'card filters-card';
+    card.style.marginBottom = '18px';
+    card.innerHTML = `
+      <div class="filters-header">
+        <div>
+          <h2>Filtros del Dashboard</h2>
+          <p>Jerarquía operativa: concesión → proyecto/red vial → peaje → caseta.</p>
         </div>
-
-        <div class="filters-grid">
-          <div class="form-group">
-            <label>Concesión</label>
-            <select id="dashFilterConcession"><option value="">Todas</option></select>
-          </div>
-
-          <div class="form-group">
-            <label>Proyecto</label>
-            <select id="dashFilterProject"><option value="">Todos los proyectos</option></select>
-          </div>
-
-          <div class="form-group">
-            <label>Estado</label>
-            <select id="dashFilterStatus">
-              <option value="all">Mostrar todo</option>
-              <option value="activo">Activos</option>
-              <option value="cerrado">Finalizado</option>
-              <option value="pausado">Pausado</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label>Fecha</label>
-            <select id="dashFilterDateMode">
-              <option value="quarter">Trimestral</option>
-              <option value="custom">Fechas específicas</option>
-              <option value="all">Todo</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label>Rango</label>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-              <input id="dashFilterDateFrom" type="date" title="Desde"/>
-              <input id="dashFilterDateTo" type="date" title="Hasta"/>
-            </div>
-          </div>
-        </div>`;
-    }
-
+        <span class="filter-pill" id="dashboardFilterCounter">0 proyecto(s)</span>
+      </div>
+      <div class="filters-grid">
+        <div class="form-group"><label>Concesión</label><select id="dashFilterConcession"><option value="">Todas las concesiones</option></select></div>
+        <div class="form-group"><label>Proyecto / Red vial</label><select id="dashFilterProject"><option value="">Todos los proyectos</option></select></div>
+        <div class="form-group"><label>Peaje</label><select id="dashFilterStation"><option value="">Todos los peajes</option></select></div>
+        <div class="form-group"><label>Caseta</label><select id="dashFilterBooth"><option value="">Todas las casetas</option></select></div>
+        <div class="form-group"><label>Estado</label><select id="dashFilterStatus"><option value="all">Mostrar todo</option><option value="activo">Activos</option><option value="cerrado">Finalizado</option><option value="pausado">Pausado</option></select></div>
+        <div class="form-group"><label>Fecha</label><select id="dashFilterDateMode"><option value="quarter">Trimestral</option><option value="custom">Fechas específicas</option><option value="all">Todo</option></select></div>
+        <div class="form-group"><label>Desde</label><input id="dashFilterDateFrom" type="date"/></div>
+        <div class="form-group"><label>Hasta</label><input id="dashFilterDateTo" type="date"/></div>
+      </div>`;
     renderConcessionOptions('dashFilterConcession', false);
-    const concessionSelect = document.getElementById('dashFilterConcession');
-    if (concessionSelect && !concessionSelect.querySelector('option[value=""]')) {
-      concessionSelect.insertAdjacentHTML('afterbegin', '<option value="">Todas</option>');
-    }
-
-    if (!card.dataset.enhanced) {
-      ['dashFilterConcession', 'dashFilterProject', 'dashFilterStatus', 'dashFilterDateMode', 'dashFilterDateFrom', 'dashFilterDateTo'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('change', () => {
-          dashboardFilterState = {
-            concessionId: document.getElementById('dashFilterConcession')?.value || '',
-            projectId: document.getElementById('dashFilterProject')?.value || '',
-            status: document.getElementById('dashFilterStatus')?.value || 'all',
-            dateMode: document.getElementById('dashFilterDateMode')?.value || 'all',
-            dateFrom: document.getElementById('dashFilterDateFrom')?.value || '',
-            dateTo: document.getElementById('dashFilterDateTo')?.value || ''
-          };
-          applyDashboardFilters();
-        });
+    ['dashFilterConcession','dashFilterProject','dashFilterStation','dashFilterBooth','dashFilterStatus','dashFilterDateMode','dashFilterDateFrom','dashFilterDateTo'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', () => {
+        dashboardFilterState = {
+          concessionId: document.getElementById('dashFilterConcession')?.value || '',
+          projectId: document.getElementById('dashFilterProject')?.value || '',
+          stationId: document.getElementById('dashFilterStation')?.value || '',
+          boothId: document.getElementById('dashFilterBooth')?.value || '',
+          status: document.getElementById('dashFilterStatus')?.value || 'all',
+          dateMode: document.getElementById('dashFilterDateMode')?.value || 'all',
+          dateFrom: document.getElementById('dashFilterDateFrom')?.value || '',
+          dateTo: document.getElementById('dashFilterDateTo')?.value || ''
+        };
+        if (id === 'dashFilterConcession') { dashboardFilterState.projectId = ''; dashboardFilterState.stationId = ''; dashboardFilterState.boothId = ''; }
+        if (id === 'dashFilterProject') { dashboardFilterState.stationId = ''; dashboardFilterState.boothId = ''; }
+        if (id === 'dashFilterStation') dashboardFilterState.boothId = '';
+        applyDashboardFilters();
       });
-      card.dataset.enhanced = '1';
-    }
-
+    });
     renderDashboardProjectFilterOptions();
+    renderDashboardStationFilterOptions();
+    renderDashboardBoothFilterOptions();
   }
-
   function routeToHash(skipHashSync) {
     if (skipHashSync || _suspendHashSync) return;
     let nextHash = '#dashboard';
@@ -1616,6 +1561,7 @@
       const projectId = Number(hash.split('/')[1]);
       if (projectId) { openProjectDetail(projectId, true); return true; }
     }
+    if (hash === 'coord') { showView('viewCoordProject', true); loadCoordView(); return true; }
     if (hash.indexOf('coord/') === 0) {
       const projectId = Number(hash.split('/')[1]);
       showView('viewCoordProject', true);
@@ -1791,6 +1737,103 @@
     return String(project && project.concession_id || '') === filter;
   }
 
+  function getProjectStationsForDashboard(project) {
+    return Array.isArray(project && project.stations) ? project.stations : [];
+  }
+
+  function getDashboardSelectedStationId() { return Number(dashboardFilterState.stationId || 0); }
+  function getDashboardSelectedBoothId() { return Number(dashboardFilterState.boothId || 0); }
+
+  function projectHasDashboardStation(project, stationId) {
+    if (!stationId) return true;
+    return getProjectStationsForDashboard(project).some((station) => Number(station.id) === Number(stationId));
+  }
+
+  function projectHasDashboardBooth(project, boothId) {
+    if (!boothId) return true;
+    return getProjectStationsForDashboard(project).some((station) =>
+      Array.isArray(station.booths) && station.booths.some((booth) => Number(booth.id) === Number(boothId))
+    );
+  }
+
+  function renderDashboardStationFilterOptions() {
+    const select = document.getElementById('dashFilterStation');
+    if (!select || !dashboardRawData) return;
+    const currentValue = select.value;
+    const map = new Map();
+    (dashboardRawData.projectStats || [])
+      .filter((project) => projectMatchesDashboardConcessionOnly(project))
+      .filter((project) => !dashboardFilterState.projectId || String(project.id) === String(dashboardFilterState.projectId))
+      .forEach((project) => {
+        getProjectStationsForDashboard(project).forEach((station) => {
+          if (!station || !station.id) return;
+          if (!map.has(String(station.id))) map.set(String(station.id), { id: station.id, name: station.name, projectName: project.name });
+        });
+      });
+    const stations = Array.from(map.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
+    select.innerHTML = '<option value="">Todos los peajes</option>' + stations.map((station) => '<option value="' + esc(station.id) + '">' + esc(station.name) + (station.projectName ? ' — ' + esc(station.projectName) : '') + '</option>').join('');
+    if (currentValue && stations.some((station) => String(station.id) === String(currentValue))) select.value = currentValue;
+    else { select.value = ''; dashboardFilterState.stationId = ''; }
+  }
+
+  function renderDashboardBoothFilterOptions() {
+    const select = document.getElementById('dashFilterBooth');
+    if (!select || !dashboardRawData) return;
+    const currentValue = select.value;
+    const stationId = getDashboardSelectedStationId();
+    const map = new Map();
+    (dashboardRawData.projectStats || [])
+      .filter((project) => projectMatchesDashboardConcessionOnly(project))
+      .filter((project) => !dashboardFilterState.projectId || String(project.id) === String(dashboardFilterState.projectId))
+      .forEach((project) => {
+        getProjectStationsForDashboard(project).forEach((station) => {
+          if (stationId && Number(station.id) !== stationId) return;
+          (station.booths || []).forEach((booth) => {
+            if (!booth || !booth.id) return;
+            const key = String(booth.id);
+            if (!map.has(key)) map.set(key, { id: booth.id, code: booth.code, stationName: station.name });
+          });
+        });
+      });
+    const booths = Array.from(map.values()).sort((a, b) => String(a.stationName + a.code).localeCompare(String(b.stationName + b.code), 'es'));
+    select.innerHTML = '<option value="">Todas las casetas</option>' + booths.map((booth) => '<option value="' + esc(booth.id) + '">' + esc(booth.stationName) + ' · Caseta ' + esc(booth.code || '') + '</option>').join('');
+    if (currentValue && booths.some((booth) => String(booth.id) === String(currentValue))) select.value = currentValue;
+    else { select.value = ''; dashboardFilterState.boothId = ''; }
+  }
+
+  function deriveDashboardProjectMetrics(project) {
+    const stationId = getDashboardSelectedStationId();
+    const boothId = getDashboardSelectedBoothId();
+    if (!stationId && !boothId) return project;
+    const clone = Object.assign({}, project);
+    const stations = getProjectStationsForDashboard(project)
+      .filter((station) => !stationId || Number(station.id) === stationId)
+      .map((station) => {
+        if (!boothId) return station;
+        const booths = (station.booths || []).filter((booth) => Number(booth.id) === boothId);
+        if (!booths.length) return null;
+        return Object.assign({}, station, { booths });
+      })
+      .filter(Boolean);
+    const selectedBooths = [];
+    stations.forEach((station) => (station.booths || []).forEach((booth) => selectedBooths.push(booth)));
+    if (boothId) {
+      clone.total_records = selectedBooths.reduce((sum, booth) => sum + Number(booth.total_records || 0), 0);
+      clone.records_today = selectedBooths.reduce((sum, booth) => sum + Number(booth.records_today || 0), 0);
+      clone.total_booths = selectedBooths.length;
+      clone.staffed_booths = selectedBooths.filter((booth) => Number(booth.is_staffed || 0) === 1).length;
+      clone.active_staff = new Set(selectedBooths.flatMap((booth) => String(booth.assigned_user_ids || '').split(',').filter(Boolean))).size;
+    } else {
+      clone.total_records = stations.reduce((sum, station) => sum + Number(station.total_records || 0), 0);
+      clone.records_today = stations.reduce((sum, station) => sum + Number(station.records_today || 0), 0);
+      clone.total_booths = stations.reduce((sum, station) => sum + Number(station.total_booths || 0), 0);
+      clone.staffed_booths = stations.reduce((sum, station) => sum + Number(station.staffed_booths || 0), 0);
+      clone.active_staff = stations.reduce((sum, station) => sum + Number(station.active_staff || 0), 0);
+    }
+    clone._filteredStations = stations;
+    return clone;
+  }
+
   function renderDashboardProjectFilterOptions() {
     const select = document.getElementById('dashFilterProject');
     if (!select || !dashboardRawData) return;
@@ -1820,8 +1863,12 @@
     if (!dashboardRawData) return;
 
     renderDashboardProjectFilterOptions();
+    renderDashboardStationFilterOptions();
+    renderDashboardBoothFilterOptions();
 
-    const filteredStats = (dashboardRawData.projectStats || []).filter(projectMatchesDashboardFilters);
+    const filteredStats = (dashboardRawData.projectStats || [])
+      .filter(projectMatchesDashboardFilters)
+      .map(deriveDashboardProjectMetrics);
 
     renderDashboardStats({ projectStats: filteredStats });
     renderDashboardProjects(filteredStats);
@@ -1884,10 +1931,12 @@
     document.getElementById('projectsTable').innerHTML = `
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Proyecto</th><th>Estado</th><th>Casetas</th><th>Hoy</th><th>Total</th><th></th></tr></thead>
+          <thead><tr><th>Concesión</th><th>Proyecto / Red vial</th><th>Estado</th><th>Casetas</th><th>Hoy</th><th>Total</th><th></th></tr></thead>
           <tbody>${projects.map(p => {
             const staffPct = p.total_booths ? Math.round((p.staffed_booths / p.total_booths) * 100) : 0;
+            const concessionName = getProjectConcessionName(p) || '—';
             return `<tr>
+              <td>${esc(concessionName)}</td>
               <td><strong>${esc(p.name)}</strong></td>
               <td><span class="badge badge-${p.status}">${p.status}</span></td>
               <td>
@@ -2194,7 +2243,8 @@
     document.getElementById('modalProjectTitle').textContent = 'Nuevo Proyecto';
     renderConcessionOptions('pConcessionSelect', true);
     document.getElementById('pName').value = '';
-    document.getElementById('pName').readOnly = true;
+    document.getElementById('pName').readOnly = false;
+    document.getElementById('pName').placeholder = 'Ej: Red Vial 5, IIRSA Centro, operativo trimestral';
     document.getElementById('pDesc').value = '';
     document.getElementById('pStart').value = new Date().toISOString().slice(0,10);
     document.getElementById('pEnd').value = '';
@@ -2211,14 +2261,14 @@
     editingProjectId = id;
     document.getElementById('modalProjectTitle').textContent = 'Editar Proyecto';
     renderConcessionOptions('pConcessionSelect', true);
-    document.getElementById('pName').value = canonicalConcessionName(concessionName || name || '');
-    document.getElementById('pName').readOnly = true;
+    document.getElementById('pName').value = name || '';
+    document.getElementById('pName').readOnly = false;
     document.getElementById('pDesc').value = desc;
     document.getElementById('pStart').value = start;
     document.getElementById('pEnd').value = end;
     if (document.getElementById('pMaxBooths')) document.getElementById('pMaxBooths').value = maxBooths || 2;
     if (document.getElementById('pConcessionSelect')) {
-      setConcessionSelectValue('pConcessionSelect', 'pConcessionCustom', concessionId, concessionName || name || '');
+      setConcessionSelectValue('pConcessionSelect', 'pConcessionCustom', concessionId, concessionName || '');
       syncProjectNameFromConcession(true);
     }
     document.getElementById('pStatus').value = status;
@@ -2229,7 +2279,7 @@
     // MEJORA: Evitar doble click usando la utilidad visual de estado
     withLoading('btnSaveProject', async () => {
       const concessionPayload = getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom');
-      const projectName = canonicalConcessionName(concessionPayload.name || document.getElementById('pName').value.trim());
+      const projectName = String(document.getElementById('pName').value || '').trim();
       const body = {
         name: projectName,
         description: document.getElementById('pDesc').value.trim(),
@@ -2241,7 +2291,7 @@
         status: document.getElementById('pStatus').value
       };
       if (!body.concession_id && !body.concession_name) return alert('La concesión es obligatoria.');
-      if (!body.name) return alert('Selecciona una concesión válida para nombrar el proyecto.');
+      if (!body.name) return alert('Indica el nombre del proyecto, red vial u operativo.');
       document.getElementById('pName').value = body.name;
       if (!body.description) syncProjectDescriptionSuggestion(true), body.description = document.getElementById('pDesc').value.trim();
       if (!body.start_date) return alert('La fecha de inicio es obligatoria.');
@@ -2395,7 +2445,7 @@
   // ── SWITCH TO REGISTER ────────────────────────────────────────────────────
 
   document.getElementById('btnSwitchToRegister').onclick = () => {
-    window.location.href = '/?mode=register';
+    window.location.href = '/?mode=register&fromPanel=1';
   };
 
   // ── USUARIOS ──────────────────────────────────────────────────────────────

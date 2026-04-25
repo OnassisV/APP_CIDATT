@@ -350,6 +350,7 @@
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
+        <button class="theme-toggle hidden" id="btnBackToPanel" type="button" title="Volver al panel">← Panel</button>
         <button class="theme-toggle btn-logout-compact hidden" id="btnLogoutRegister" title="Cerrar sesión / cambiar usuario" aria-label="Cerrar sesión">🔓</button>
         <button class="theme-toggle" id="btnHelp" title="Ayuda">❓</button>
         <button class="theme-toggle" id="btnTheme">🌙</button>
@@ -1841,9 +1842,15 @@
           logoutButton.setAttribute('aria-label', 'Cerrar sesión');
         }
 
-        // En la interfaz del registrador no hay botón Atrás ni cierre de sesión duplicado.
+        var params = new URLSearchParams(window.location.search);
+        var cameFromPanel = params.get('fromPanel') === '1' || params.get('mode') === 'register';
+        var shouldShowPanelBack = sessionVisible && cameFromPanel && isPanelRole(authUser && authUser.role);
         var backButton = document.getElementById('btnBackToPanel');
-        if (backButton) backButton.classList.add('hidden');
+        if (backButton) {
+          backButton.classList.toggle('hidden', !shouldShowPanelBack);
+          backButton.textContent = '← Panel';
+          backButton.title = 'Volver al panel principal';
+        }
       }
 
       async function logoutRegisterSession() {
@@ -1867,6 +1874,14 @@
       }
 
       document.getElementById('btnLogoutRegister').addEventListener('click', logoutRegisterSession);
+      var backToPanelButton = document.getElementById('btnBackToPanel');
+      if (backToPanelButton) {
+        backToPanelButton.addEventListener('click', function() {
+          var target = authUser && authUser.role === 'coordinador' ? '/panel.html#coord' : '/panel.html#dashboard';
+          window.location.href = target;
+        });
+      }
+
 
       function redirectToPanelIfNeeded(role) {
         if (!isPanelRole(role)) return false;

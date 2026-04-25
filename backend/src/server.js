@@ -1408,7 +1408,7 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
       `SELECT p.id, p.name, p.status, p.start_date, p.end_date, p.daily_start_time, p.daily_end_time,
               p.concession_id, c.name AS concession_name,
               COUNT(DISTINCT r.id) AS total_records,
-              COUNT(DISTINCT CASE WHEN DATE(r.created_at) = CURDATE() THEN r.id END) AS records_today,
+              COUNT(DISTINCT CASE WHEN r.operation_date = CURDATE() THEN r.id END) AS records_today,
               COUNT(DISTINCT tb.id) AS total_booths,
               COUNT(DISTINCT CASE WHEN a.is_active = 1 THEN a.booth_id END) AS staffed_booths,
               COUNT(DISTINCT CASE WHEN a.is_active = 1 THEN a.user_id END) AS active_staff
@@ -1417,10 +1417,77 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
        LEFT JOIN ${TABLES.projectSites} ps ON ps.project_id = p.id AND ps.is_active = 1
        LEFT JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
        LEFT JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
-       LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id
+       LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id AND a.booth_id = tb.id AND a.is_active = 1
        LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id OR (r.project_id IS NULL AND r.toll_name = ts.name))
-       GROUP BY p.id ORDER BY p.start_date DESC`
+       GROUP BY p.id, p.name, p.status, p.start_date, p.end_date, p.daily_start_time, p.daily_end_time, p.concession_id, c.name
+       ORDER BY p.start_date DESC`
     );
+
+    if (projectStats.length) {
+      const projectIds = projectStats.map((project) => project.id);
+      const placeholders = projectIds.map(() => '?').join(',');
+
+      const stationRows = await query(
+        `SELECT p.id AS project_id, ts.id, ts.name, ts.location, ts.concession_id, c.name AS concession_name,
+                COUNT(DISTINCT tb.id) AS total_booths,
+                COUNT(DISTINCT CASE WHEN a.is_active = 1 THEN a.booth_id END) AS staffed_booths,
+                COUNT(DISTINCT CASE WHEN a.is_active = 1 THEN a.user_id END) AS active_staff,
+                COUNT(DISTINCT r.id) AS total_records,
+                COUNT(DISTINCT CASE WHEN r.operation_date = CURDATE() THEN r.id END) AS records_today
+         FROM ${TABLES.projectSites} ps
+         INNER JOIN ${TABLES.projects} p ON p.id = ps.project_id
+         INNER JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
+         LEFT JOIN ${TABLES.concessions} c ON c.id = ts.concession_id
+         LEFT JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
+         LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id AND a.booth_id = tb.id AND a.is_active = 1
+         LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id AND (r.station_id = ts.id OR (r.station_id IS NULL AND r.toll_name = ts.name)))
+         WHERE ps.is_active = 1 AND ps.project_id IN (${placeholders})
+         GROUP BY p.id, ts.id, ts.name, ts.location, ts.concession_id, c.name
+         ORDER BY p.id, ts.name ASC`,
+        projectIds
+      );
+
+      const boothRows = await query(
+        `SELECT p.id AS project_id, tb.station_id, tb.id, tb.code, tb.directions,
+                COUNT(DISTINCT r.id) AS total_records,
+                COUNT(DISTINCT CASE WHEN r.operation_date = CURDATE() THEN r.id END) AS records_today,
+                MAX(CASE WHEN a.is_active = 1 THEN 1 ELSE 0 END) AS is_staffed,
+                GROUP_CONCAT(DISTINCT CASE WHEN a.is_active = 1 THEN a.user_id END SEPARATOR ',') AS assigned_user_ids,
+                GROUP_CONCAT(DISTINCT CASE WHEN a.is_active = 1 THEN u.full_name END SEPARATOR ', ') AS assigned_user_names
+         FROM ${TABLES.projectSites} ps
+         INNER JOIN ${TABLES.projects} p ON p.id = ps.project_id
+         INNER JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
+         INNER JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
+         LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id AND a.booth_id = tb.id AND a.is_active = 1
+         LEFT JOIN ${TABLES.users} u ON u.id = a.user_id
+         LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id AND (r.booth_id = tb.id OR (r.booth_id IS NULL AND r.booth_number = tb.code AND r.toll_name = ts.name)))
+         WHERE ps.is_active = 1 AND ps.project_id IN (${placeholders})
+         GROUP BY p.id, tb.station_id, tb.id, tb.code, tb.directions
+         ORDER BY p.id, tb.station_id, tb.code ASC`,
+        projectIds
+      );
+
+      const stationsByProject = new Map();
+      stationRows.forEach((station) => {
+        const key = Number(station.project_id);
+        if (!stationsByProject.has(key)) stationsByProject.set(key, []);
+        stationsByProject.get(key).push({ ...station, booths: [] });
+      });
+
+      const stationIndex = new Map();
+      stationsByProject.forEach((stations) => {
+        stations.forEach((station) => stationIndex.set(Number(station.id), station));
+      });
+
+      boothRows.forEach((booth) => {
+        const station = stationIndex.get(Number(booth.station_id));
+        if (station) station.booths.push(booth);
+      });
+
+      projectStats.forEach((project) => {
+        project.stations = stationsByProject.get(Number(project.id)) || [];
+      });
+    }
 
     const weeklyTrend = await query(
       `SELECT operation_date, COUNT(*) AS records
