@@ -1350,7 +1350,7 @@
           summary1.classList.toggle('hidden', primaryManual || !primaryAssignment);
           if (primaryAssignment) {
             summary1.innerHTML =
-              '<strong>Caseta asignada por coordinador</strong>' +
+              '<strong>Caseta asignada por coordinador</strong><br>' +
               'Concesión: ' + (cleanConcessionDisplayName(primaryAssignment.concessionName) || '—') + '<br>' +
               'Peaje: ' + (primaryAssignment.stationName || '—') + '<br>' +
               'Caseta: ' + (primaryAssignment.boothCode || '—') + '<br>' +
@@ -1362,7 +1362,7 @@
           summary2.classList.toggle('hidden', secondaryManual || !secondaryAssignment);
           if (secondaryAssignment) {
             summary2.innerHTML =
-              '<strong>Segunda caseta asignada</strong>' +
+              '<strong>Segunda caseta asignada</strong><br>' +
               'Peaje: ' + (getSelectedPeajeName() || secondaryAssignment.stationName || '—') + '<br>' +
               'Caseta: ' + (secondaryAssignment.boothCode || '—') + '<br>' +
               'Sentido: ' + (secondaryAssignment.directions || '—');
@@ -1386,6 +1386,12 @@
 
       function findAssignmentByBoothId(boothId) {
         return getAssignedBooths().find(function(item) { return String(item.boothId) === String(boothId); }) || null;
+      }
+
+      function getPrimarySelectedAssignment() {
+        var select = document.getElementById('setupAssigned1');
+        if (!select || !select.value || select.value === '__manual__') return null;
+        return findAssignmentByBoothId(select.value);
       }
 
       function getSecondarySelectedAssignment() {
