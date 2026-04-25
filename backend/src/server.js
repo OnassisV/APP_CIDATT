@@ -147,6 +147,20 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+
+function parseBaseCatalogGroupName(rawName) {
+  const raw = String(rawName || '').trim().replace(/\s+/g, ' ');
+  if (!raw) return { concessionName: '', projectName: '' };
+  const match = raw.match(/^(.+?)\s*\((.+)\)\s*$/);
+  if (match) {
+    return {
+      concessionName: match[1].trim(),
+      projectName: match[2].trim()
+    };
+  }
+  return { concessionName: raw, projectName: raw };
+}
+
 function parseOptionalInt(value) {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
@@ -774,11 +788,23 @@ app.post('/api/catalog/import-base', authenticateRequest, requireMinRole('direct
     const catalog = Array.isArray(req.body.catalog) ? req.body.catalog : [];
     if (!catalog.length) throw badRequest('No se recibio catalogo para importar.');
 
-    const counters = { concessions: 0, stations: 0, booths: 0, reusedConcessions: 0, reusedStations: 0 };
+    const counters = {
+      concessions: 0,
+      projects: 0,
+      stations: 0,
+      booths: 0,
+      links: 0,
+      reusedConcessions: 0,
+      reusedProjects: 0,
+      reusedStations: 0,
+      reusedLinks: 0
+    };
 
     await withTransaction(async (conn) => {
       for (const group of catalog) {
-        const concessionName = String(group.concession || group.name || '').trim();
+        const parsed = parseBaseCatalogGroupName(group.concession || group.name || group.label || '');
+        const concessionName = String(group.concessionName || group.concesion || parsed.concessionName || '').trim();
+        const projectName = String(group.projectName || group.project || group.proyecto || parsed.projectName || concessionName).trim();
         if (!concessionName || normalizeText(concessionName) === normalizeText('Concesion General')) continue;
 
         const [existingConcessions] = await conn.execute(
@@ -797,6 +823,36 @@ app.post('/api/catalog/import-base', authenticateRequest, requireMinRole('direct
           );
           concessionId = result.insertId;
           counters.concessions += 1;
+        }
+
+        let projectId = null;
+        if (projectName) {
+          const [existingProjects] = await conn.execute(
+            `SELECT id FROM ${TABLES.projects}
+             WHERE concession_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+             LIMIT 1`,
+            [concessionId, projectName]
+          );
+          if (existingProjects.length) {
+            projectId = existingProjects[0].id;
+            counters.reusedProjects += 1;
+          } else {
+            const [projectResult] = await conn.execute(
+              `INSERT INTO ${TABLES.projects}
+               (name, description, status, start_date, end_date, concession_id, max_booths_per_operator, created_by)
+               VALUES (?, ?, 'activo', COALESCE(?, CURDATE()), ?, ?, 2, ?)`,
+              [
+                projectName,
+                group.description || 'Importado desde lista base de desplegables',
+                group.start_date || null,
+                group.end_date || null,
+                concessionId,
+                req.authUser.user_id
+              ]
+            );
+            projectId = projectResult.insertId;
+            counters.projects += 1;
+          }
         }
 
         const tolls = Array.isArray(group.tolls) ? group.tolls : [];
@@ -830,6 +886,33 @@ app.post('/api/catalog/import-base', authenticateRequest, requireMinRole('direct
             );
             stationId = stationResult.insertId;
             counters.stations += 1;
+          }
+
+          if (projectId && stationId) {
+            const [existingLinks] = await conn.execute(
+              `SELECT id, is_active FROM ${TABLES.projectSites}
+               WHERE project_id = ? AND station_id = ?
+               LIMIT 1`,
+              [projectId, stationId]
+            );
+            if (existingLinks.length) {
+              if (Number(existingLinks[0].is_active) !== 1) {
+                await conn.execute(
+                  `UPDATE ${TABLES.projectSites} SET is_active = 1, linked_by = ? WHERE id = ?`,
+                  [req.authUser.user_id, existingLinks[0].id]
+                );
+                counters.links += 1;
+              } else {
+                counters.reusedLinks += 1;
+              }
+            } else {
+              await conn.execute(
+                `INSERT INTO ${TABLES.projectSites} (project_id, station_id, linked_by, is_active)
+                 VALUES (?, ?, ?, 1)`,
+                [projectId, stationId, req.authUser.user_id]
+              );
+              counters.links += 1;
+            }
           }
 
           const booths = typeof toll === 'object' && Array.isArray(toll.booths) ? toll.booths : [];

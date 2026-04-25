@@ -2533,142 +2533,189 @@
     }
   }
   window.loadParameters = loadParameters;
+  function getParameterSelection() {
+    try { return JSON.parse(localStorage.getItem('rlv_cidatt_parameter_selection_v1') || '{}'); }
+    catch (_err) { return {}; }
+  }
+
+  function setParameterSelection(next) {
+    const current = getParameterSelection();
+    const merged = Object.assign({}, current, next || {});
+    localStorage.setItem('rlv_cidatt_parameter_selection_v1', JSON.stringify(merged));
+    if (_parametersSnapshot) renderParameters(_parametersSnapshot);
+  }
+
+  function optionHtml(value, label, selected, attrs) {
+    return '<option value="' + esc(value) + '" ' + (selected ? 'selected' : '') + ' ' + (attrs || '') + '>' + esc(label) + '</option>';
+  }
+
+  function findById(list, id) {
+    const numericId = Number(id || 0);
+    return (list || []).find((item) => Number(item.id || 0) === numericId) || null;
+  }
+
+  function getProjectLinkedStations(projectId, data) {
+    const numericProjectId = Number(projectId || 0);
+    const stations = data.stations || [];
+    const links = data.projectSites || [];
+    const linkedIds = new Set(links.filter((link) => Number(link.project_id) === numericProjectId).map((link) => Number(link.station_id)));
+    return stations.filter((station) => linkedIds.has(Number(station.id)));
+  }
+
   function renderParameters(data) {
-    const concessions = data.concessions || [];
+    const concessions = (data.concessions || []).filter((c) => c && c.id && !isDefaultConcessionName(c.name));
     const projects = data.projects || [];
     const stations = data.stations || [];
     const booths = data.booths || [];
-    const projectSites = data.projectSites || [];
     const content = document.getElementById('parametersContent');
     if (!content) return;
 
-    const concessionOptions = concessions.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
-    const projectOptions = projects.map((p) => '<option value="' + esc(p.id) + '" data-concession-id="' + esc(p.concession_id || '') + '">' + esc(p.name) + (p.concession_name ? ' — ' + esc(p.concession_name) : '') + '</option>').join('');
-    const stationOptions = stations.map((st) => '<option value="' + esc(st.id) + '" data-concession-id="' + esc(st.concession_id || '') + '">' + esc(st.name) + (st.concession_name ? ' — ' + esc(st.concession_name) : '') + '</option>').join('');
-    const stationById = new Map(stations.map((st) => [Number(st.id), st]));
-    const projectById = new Map(projects.map((p) => [Number(p.id), p]));
+    const saved = getParameterSelection();
+    const selectedConcessionId = Number(saved.concessionId || (concessions[0] && concessions[0].id) || 0);
+    const projectsForConcession = projects.filter((p) => Number(p.concession_id || 0) === selectedConcessionId);
+    const selectedProjectId = Number(saved.projectId && projectsForConcession.some((p) => Number(p.id) === Number(saved.projectId)) ? saved.projectId : ((projectsForConcession[0] && projectsForConcession[0].id) || 0));
+    const stationsForConcession = stations.filter((st) => Number(st.concession_id || 0) === selectedConcessionId);
+    const linkedStations = selectedProjectId ? getProjectLinkedStations(selectedProjectId, data) : [];
+    const stationListForContext = linkedStations.length ? linkedStations : stationsForConcession;
+    const selectedStationId = Number(saved.stationId && stationListForContext.some((st) => Number(st.id) === Number(saved.stationId)) ? saved.stationId : ((stationListForContext[0] && stationListForContext[0].id) || 0));
+    const selectedConcession = findById(concessions, selectedConcessionId);
+    const selectedProject = findById(projects, selectedProjectId);
+    const selectedStation = findById(stations, selectedStationId);
+    const boothsForStation = booths.filter((b) => Number(b.station_id || 0) === selectedStationId);
+
+    const concessionOptions = concessions.map((c) => optionHtml(c.id, c.name, Number(c.id) === selectedConcessionId)).join('');
+    const projectOptions = projectsForConcession.map((pr) => optionHtml(pr.id, pr.name, Number(pr.id) === selectedProjectId)).join('');
+    const stationOptions = stationsForConcession.map((st) => optionHtml(st.id, st.name, Number(st.id) === selectedStationId)).join('');
+    const linkedStationOptions = stationListForContext.map((st) => optionHtml(st.id, st.name, Number(st.id) === selectedStationId)).join('');
+    const availableToLinkOptions = stationsForConcession.filter((st) => !linkedStations.some((linked) => Number(linked.id) === Number(st.id))).map((st) => optionHtml(st.id, st.name, false)).join('');
 
     content.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
         <div class="section-header">
           <div>
-            <h2>Catálogo operativo real</h2>
-            <div class="param-mini">Esta es la fuente oficial de los desplegables, filtros, proyectos, peajes, casetas y asignaciones. Aquí no se duplica información: se edita la base real.</div>
+            <h2>Catálogo operativo</h2>
+            <div class="param-mini">Fuente única de datos para desplegables, dashboard, proyectos, peajes, casetas y asignaciones.</div>
           </div>
-          <button class="btn btn-soft btn-sm" onclick="importBaseCatalog()">Importar lista base</button>
+          <button class="btn btn-soft btn-sm" onclick="importBaseCatalog()">Importar/actualizar lista base</button>
         </div>
-        <div class="alert alert-info" style="margin-bottom:14px;">
+        <div class="alert alert-info" style="margin-bottom:0;">
           <span>ℹ️</span>
-          <div>Flujo oficial: <strong>Concesión → Proyecto/Red vial → Peaje → Caseta</strong>. Si cambias algo aquí, se reflejará en los desplegables y en el dashboard.</div>
-        </div>
-        <div class="param-grid">
-          <div class="param-card">
-            <h3>1. Concesiones</h3>
-            <div class="param-form inline">
-              <input id="paramConcessionName" placeholder="Ej: Deviandes" />
-              <select id="paramConcessionStatus"><option value="activa">Activa</option><option value="inactiva">Inactiva</option></select>
-              <button class="btn btn-primary btn-sm" onclick="saveParameterConcession()">Guardar</button>
-            </div>
-            <div class="table-wrap"><table><thead><tr><th>Concesión</th><th>Estado</th><th></th></tr></thead><tbody>
-              ${concessions.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.status || 'activa')}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterConcession(${c.id},'${esc(c.name)}','${esc(c.status || 'activa')}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${c.id},'${esc(c.name)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="3">Sin concesiones.</td></tr>'}
-            </tbody></table></div>
-          </div>
-
-          <div class="param-card">
-            <h3>2. Proyectos / red vial</h3>
-            <div class="param-form">
-              <select id="paramProjectConcession"><option value="">Concesión...</option>${concessionOptions}</select>
-              <input id="paramProjectName" placeholder="Ej: Red Vial 4, IIRSA Centro, operativo trimestral" />
-              <div class="form-row"><input id="paramProjectStart" type="date" /><input id="paramProjectEnd" type="date" /></div>
-              <select id="paramProjectStatus"><option value="activo">Activo</option><option value="pausado">Pausado</option><option value="cerrado">Cerrado</option></select>
-              <button class="btn btn-primary btn-sm" onclick="saveParameterProject()">Guardar proyecto</button>
-            </div>
-            <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Concesión</th><th>Estado</th><th></th></tr></thead><tbody>
-              ${projects.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.concession_name || '')}</td><td>${esc(p.status || '')}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterProject(${p.id},${p.concession_id||0},'${esc(p.name)}','${p.start_date||''}','${p.end_date||''}','${esc(p.status || 'activo')}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProject(${p.id},'${esc(p.name)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="4">Sin proyectos.</td></tr>'}
-            </tbody></table></div>
-          </div>
-
-          <div class="param-card">
-            <h3>3. Peajes</h3>
-            <div class="param-form">
-              <select id="paramStationConcession"><option value="">Concesión...</option>${concessionOptions}</select>
-              <input id="paramStationName" placeholder="Nombre del peaje" />
-              <input id="paramStationLocation" placeholder="Ubicación / referencia" />
-              <div class="form-row"><input id="paramStationStart" type="time" /><input id="paramStationEnd" type="time" /></div>
-              <button class="btn btn-primary btn-sm" onclick="saveParameterStation()">Guardar peaje</button>
-            </div>
-            <div class="table-wrap"><table><thead><tr><th>Peaje</th><th>Concesión</th><th>Casetas</th><th></th></tr></thead><tbody>
-              ${stations.map((st) => `<tr><td>${esc(st.name)}</td><td>${esc(st.concession_name || '')}</td><td>${booths.filter((b) => Number(b.station_id) === Number(st.id)).length}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterStation(${st.id},${st.concession_id||0},'${esc(st.name)}','${esc(st.location||'')}','${st.daily_start_time||''}','${st.daily_end_time||''}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id},'${esc(st.name)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="4">Sin peajes.</td></tr>'}
-            </tbody></table></div>
-          </div>
-
-          <div class="param-card">
-            <h3>4. Casetas</h3>
-            <div class="param-form">
-              <select id="paramBoothStation"><option value="">Peaje...</option>${stationOptions}</select>
-              <input id="paramBoothCode" placeholder="Número / código de caseta" />
-              <select id="paramBoothDirection"><option value="">Sentido...</option><option value="Norte a Sur">Norte a Sur</option><option value="Sur a Norte">Sur a Norte</option><option value="Este a Oeste">Este a Oeste</option><option value="Oeste a Este">Oeste a Este</option><option value="Ingreso">Ingreso</option><option value="Salida">Salida</option></select>
-              <button class="btn btn-primary btn-sm" onclick="saveParameterBooth()">Guardar caseta</button>
-            </div>
-            <div class="table-wrap"><table><thead><tr><th>Peaje</th><th>Caseta</th><th>Sentido</th><th></th></tr></thead><tbody>
-              ${booths.map((b) => `<tr><td>${esc(b.station_name || '')}</td><td>${esc(b.code)}</td><td>${esc(b.directions || '')}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterBooth(${b.id},${b.station_id},'${esc(b.code)}','${esc(b.directions||'')}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterBooth(${b.id},'${esc(b.code)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="4">Sin casetas.</td></tr>'}
-            </tbody></table></div>
-          </div>
+          <div>La lista base corresponde a la información correcta que ya estaba en los desplegables. Primero impórtala; luego corrige nombres, proyectos, peajes o casetas aquí.</div>
         </div>
       </div>
 
       <div class="card" style="margin-bottom:16px;">
         <div class="section-header">
           <div>
-            <h2>Vincular peajes a proyectos</h2>
-            <div class="param-mini">Un peaje puede existir en el catálogo de la concesión y vincularse a uno o más proyectos/redes viales de la misma concesión.</div>
+            <h2>Vista de trabajo</h2>
+            <div class="param-mini">Trabaja en orden: <strong>Concesión → Proyecto → Peaje → Caseta</strong>.</div>
           </div>
         </div>
-        <div class="param-form inline">
-          <select id="paramLinkProject"><option value="">Proyecto...</option>${projectOptions}</select>
-          <select id="paramLinkStation"><option value="">Peaje...</option>${stationOptions}</select>
-          <button class="btn btn-primary btn-sm" onclick="saveProjectStationLink()">Vincular</button>
+        <div class="grid-3">
+          <div class="form-group">
+            <label>Concesión</label>
+            <select id="paramFocusConcession" onchange="setParameterSelection({ concessionId: this.value, projectId: '', stationId: '' })">${concessionOptions || '<option value="">Sin concesiones</option>'}</select>
+          </div>
+          <div class="form-group">
+            <label>Proyecto / red vial</label>
+            <select id="paramFocusProject" onchange="setParameterSelection({ projectId: this.value, stationId: '' })">${projectOptions || '<option value="">Sin proyectos para esta concesión</option>'}</select>
+          </div>
+          <div class="form-group">
+            <label>Peaje</label>
+            <select id="paramFocusStation" onchange="setParameterSelection({ stationId: this.value })">${linkedStationOptions || '<option value="">Sin peajes vinculados</option>'}</select>
+          </div>
         </div>
-        <div class="table-wrap"><table><thead><tr><th>Proyecto</th><th>Concesión</th><th>Peaje vinculado</th><th></th></tr></thead><tbody>
-          ${projectSites.map((link) => {
-            const p = projectById.get(Number(link.project_id));
-            const st = stationById.get(Number(link.station_id));
-            if (!p || !st) return '';
-            return `<tr><td>${esc(p.name)}</td><td>${esc(p.concession_name || st.concession_name || '')}</td><td>${esc(st.name)}</td><td class="param-actions"><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProjectStationLink(${link.project_id},${link.station_id},'${esc(st.name)}')">Retirar</button></td></tr>`;
-          }).join('') || '<tr><td colspan="4">Sin peajes vinculados a proyectos.</td></tr>'}
-        </tbody></table></div>
       </div>
 
-      <div class="card">
-        <h2 style="font-size:1rem;margin-bottom:12px;">Vista jerárquica real</h2>
+      <div class="param-grid">
+        <div class="card param-card">
+          <h3>1. Concesión</h3>
+          <div class="param-mini" style="margin-bottom:8px;">Titular/operador del grupo.</div>
+          <div class="param-form">
+            <input id="paramConcessionName" placeholder="Nombre de concesión" value="${esc(selectedConcession ? selectedConcession.name : '')}" data-edit-id="${esc(selectedConcession ? selectedConcession.id : '')}" />
+            <select id="paramConcessionStatus"><option value="activa" ${selectedConcession && selectedConcession.status === 'activa' ? 'selected' : ''}>Activa</option><option value="inactiva" ${selectedConcession && selectedConcession.status === 'inactiva' ? 'selected' : ''}>Inactiva</option></select>
+            <div class="param-actions">
+              <button class="btn btn-primary btn-sm" onclick="saveParameterConcession()">Guardar</button>
+              <button class="btn btn-soft btn-sm" onclick="document.getElementById('paramConcessionName').value='';document.getElementById('paramConcessionName').dataset.editId=''">Nueva</button>
+              ${selectedConcession ? `<button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${selectedConcession.id},'${esc(selectedConcession.name)}')">Eliminar</button>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div class="card param-card">
+          <h3>2. Proyecto / red vial</h3>
+          <div class="param-mini" style="margin-bottom:8px;">Red vial, vía concesionada u operativo.</div>
+          <div class="param-form">
+            <select id="paramProjectConcession"><option value="">Concesión...</option>${concessionOptions}</select>
+            <input id="paramProjectName" placeholder="Nombre del proyecto" value="${esc(selectedProject ? selectedProject.name : '')}" data-edit-id="${esc(selectedProject ? selectedProject.id : '')}" />
+            <div class="form-row"><input id="paramProjectStart" type="date" value="${esc(selectedProject ? (selectedProject.start_date || '') : '')}" /><input id="paramProjectEnd" type="date" value="${esc(selectedProject ? (selectedProject.end_date || '') : '')}" /></div>
+            <select id="paramProjectStatus"><option value="activo" ${selectedProject && selectedProject.status === 'activo' ? 'selected' : ''}>Activo</option><option value="pausado" ${selectedProject && selectedProject.status === 'pausado' ? 'selected' : ''}>Pausado</option><option value="cerrado" ${selectedProject && selectedProject.status === 'cerrado' ? 'selected' : ''}>Cerrado</option></select>
+            <div class="param-actions">
+              <button class="btn btn-primary btn-sm" onclick="saveParameterProject()">Guardar</button>
+              <button class="btn btn-soft btn-sm" onclick="document.getElementById('paramProjectName').value='';document.getElementById('paramProjectName').dataset.editId='';document.getElementById('paramProjectStart').value=new Date().toISOString().slice(0,10);document.getElementById('paramProjectEnd').value=''">Nuevo</button>
+              ${selectedProject ? `<button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProject(${selectedProject.id},'${esc(selectedProject.name)}')">Eliminar</button>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div class="card param-card">
+          <h3>3. Peajes del proyecto</h3>
+          <div class="param-mini" style="margin-bottom:8px;">El peaje pertenece a la concesión y se vincula al proyecto.</div>
+          <div class="param-form">
+            <select id="paramStationConcession"><option value="">Concesión...</option>${concessionOptions}</select>
+            <input id="paramStationName" placeholder="Nombre del peaje" value="${esc(selectedStation ? selectedStation.name : '')}" data-edit-id="${esc(selectedStation ? selectedStation.id : '')}" />
+            <input id="paramStationLocation" placeholder="Ubicación / referencia" value="${esc(selectedStation ? (selectedStation.location || '') : '')}" />
+            <div class="form-row"><input id="paramStationStart" type="time" value="${esc(selectedStation ? (selectedStation.daily_start_time || '') : '')}" /><input id="paramStationEnd" type="time" value="${esc(selectedStation ? (selectedStation.daily_end_time || '') : '')}" /></div>
+            <div class="param-actions">
+              <button class="btn btn-primary btn-sm" onclick="saveParameterStation()">Guardar peaje</button>
+              <button class="btn btn-soft btn-sm" onclick="document.getElementById('paramStationName').value='';document.getElementById('paramStationName').dataset.editId='';document.getElementById('paramStationLocation').value='';document.getElementById('paramStationStart').value='';document.getElementById('paramStationEnd').value=''">Nuevo</button>
+              ${selectedStation ? `<button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${selectedStation.id},'${esc(selectedStation.name)}')">Eliminar</button>` : ''}
+            </div>
+          </div>
+          <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px;">
+            <label>Vincular peaje existente al proyecto seleccionado</label>
+            <div class="param-form inline">
+              <select id="paramLinkProject"><option value="${esc(selectedProjectId)}">${esc(selectedProject ? selectedProject.name : 'Proyecto')}</option></select>
+              <select id="paramLinkStation"><option value="">Peaje disponible...</option>${availableToLinkOptions}</select>
+              <button class="btn btn-primary btn-sm" onclick="saveProjectStationLink()">Vincular</button>
+            </div>
+            <div class="param-mini">Vinculados:<br>${linkedStations.map((st) => `⛽ ${esc(st.name)} <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProjectStationLink(${selectedProjectId},${st.id},'${esc(st.name)}')">Retirar</button>`).join('<br>') || 'Sin peajes vinculados.'}</div>
+          </div>
+        </div>
+
+        <div class="card param-card">
+          <h3>4. Casetas del peaje</h3>
+          <div class="param-mini" style="margin-bottom:8px;">Alimenta asignaciones y configuración manual del registrador.</div>
+          <div class="param-form">
+            <select id="paramBoothStation"><option value="">Peaje...</option>${stationOptions}</select>
+            <input id="paramBoothCode" placeholder="Número / código de caseta" />
+            <select id="paramBoothDirection"><option value="">Sentido...</option><option value="Norte a Sur">Norte a Sur</option><option value="Sur a Norte">Sur a Norte</option><option value="Este a Oeste">Este a Oeste</option><option value="Oeste a Este">Oeste a Este</option><option value="Ingreso">Ingreso</option><option value="Salida">Salida</option></select>
+            <button class="btn btn-primary btn-sm" onclick="saveParameterBooth()">Guardar caseta</button>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Caseta</th><th>Sentido</th><th></th></tr></thead><tbody>
+            ${boothsForStation.map((b) => `<tr><td>${esc(b.code)}</td><td>${esc(b.directions || '')}</td><td class="param-actions"><button class="btn btn-soft btn-sm" onclick="editParameterBooth(${b.id},${b.station_id},'${esc(b.code)}','${esc(b.directions||'')}')">Editar</button><button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterBooth(${b.id},'${esc(b.code)}')">Eliminar</button></td></tr>`).join('') || '<tr><td colspan="3">Sin casetas para este peaje.</td></tr>'}
+          </tbody></table></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h2 style="font-size:1rem;margin-bottom:12px;">Resumen jerárquico</h2>
         <div class="hierarchy-list">
-          ${(data.hierarchy || []).map((c) => `<div class="hierarchy-item"><div class="hierarchy-title"><span>🏢 ${esc(c.name)}</span><small>${(c.projects||[]).length} proyecto(s) · ${(c.stations||[]).length} peaje(s)</small></div><div class="hierarchy-children">${(c.projects||[]).map((p) => `📋 ${esc(p.name)}${p.stations && p.stations.length ? '<br>&nbsp;&nbsp;→ ' + p.stations.map((st) => `⛽ ${esc(st.name)} (${(st.booths||[]).length} caseta(s))`).join('<br>&nbsp;&nbsp;→ ') : '<br>&nbsp;&nbsp;<span style="color:var(--muted)">Sin peajes vinculados</span>'}`).join('<br><br>') || 'Sin proyectos registrados'}</div></div>`).join('') || '<div class="empty-state">Sin parámetros configurados.</div>'}
+          ${(data.hierarchy || []).map((c) => `<div class="hierarchy-item"><div class="hierarchy-title"><span>🏢 ${esc(c.name)}</span><small>${(c.projects||[]).length} proyecto(s) · ${(c.stations||[]).length} peaje(s)</small></div><div class="hierarchy-children">${(c.projects||[]).map((p) => `📋 ${esc(p.name)}${p.stations && p.stations.length ? '<br>&nbsp;&nbsp;→ ' + p.stations.map((st) => `⛽ ${esc(st.name)} (${(st.booths||[]).length} caseta(s))`).join('<br>&nbsp;&nbsp;→ ') : '<br>&nbsp;&nbsp;<span style="color:var(--muted)">Sin peajes vinculados</span>'}`).join('<br><br>') || 'Sin proyectos registrados'}</div></div>`).join('') || '<div class="empty-state">Sin parámetros configurados. Usa “Importar/actualizar lista base”.</div>'}
         </div>
       </div>`;
 
-    const linkProject = document.getElementById('paramLinkProject');
-    const linkStation = document.getElementById('paramLinkStation');
-    if (linkProject && linkStation && !linkProject.dataset.bound) {
-      linkProject.dataset.bound = '1';
-      linkProject.addEventListener('change', () => {
-        const selected = linkProject.options[linkProject.selectedIndex];
-        const concessionId = selected ? selected.dataset.concessionId : '';
-        Array.from(linkStation.options).forEach((option) => {
-          if (!option.value) { option.hidden = false; return; }
-          option.hidden = concessionId && option.dataset.concessionId && option.dataset.concessionId !== concessionId;
-        });
-        if (linkStation.selectedOptions[0]?.hidden) linkStation.value = '';
-      });
-    }
+    if (document.getElementById('paramProjectConcession')) document.getElementById('paramProjectConcession').value = selectedConcessionId || '';
+    if (document.getElementById('paramStationConcession')) document.getElementById('paramStationConcession').value = selectedConcessionId || '';
+    if (document.getElementById('paramBoothStation')) document.getElementById('paramBoothStation').value = selectedStationId || '';
   }
 
-  
   window.importBaseCatalog = async function() {
     if (!BASE_STATION_CATALOG.length) return alert('No hay catálogo base para importar.');
     if (!confirm('¿Importar la lista base actual de concesiones y peajes al catálogo real? No duplicará elementos existentes.')) return;
     try {
       const data = await api('/catalog/import-base', { method: 'POST', body: { catalog: BASE_STATION_CATALOG } });
-      alert('Importación completada. Concesiones nuevas: ' + (data.imported?.concessions || 0) + ', peajes nuevos: ' + (data.imported?.stations || 0) + '.');
+      alert('Importación completada desde la lista base de desplegables. Concesiones nuevas: ' + (data.imported?.concessions || 0) + ', proyectos nuevos: ' + (data.imported?.projects || 0) + ', peajes nuevos: ' + (data.imported?.stations || 0) + ', vínculos: ' + (data.imported?.links || 0) + '.');
       await loadConcessions(true);
       await loadParameters();
       await loadDashboard();
