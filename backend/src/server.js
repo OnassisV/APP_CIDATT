@@ -1386,9 +1386,14 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
     const [projectRow] = await query(
       `SELECT p.id, p.name, p.status, p.start_date, p.end_date,
               p.max_booths_per_operator, p.concession_id,
-              c.name AS concession_name
+              c.name AS concession_name,
+              COALESCE(p.project_type, 'operativo') AS project_type,
+              p.base_project_id,
+              bp.name AS base_project_name,
+              p.operation_label
        FROM ${TABLES.projects} p
        LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+       LEFT JOIN ${TABLES.projects} bp ON bp.id = p.base_project_id
        WHERE p.id = ?
        LIMIT 1`,
       [access.projectId]
@@ -1503,32 +1508,43 @@ app.delete('/api/projects/:projectId/stations/:stationId', authenticateRequest, 
     const stationId = parseOptionalInt(req.params.stationId);
     if (!stationId) throw badRequest('Peaje invalido.');
 
-    const [activeAssignments] = await query(
-      `SELECT COUNT(*) AS total
-       FROM ${TABLES.assignments}
-       WHERE project_id = ? AND is_active = 1 AND (station_id = ? OR booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
-      [access.projectId, stationId, stationId]
+    const [projectRow] = await query(
+      `SELECT id, COALESCE(project_type, 'operativo') AS project_type
+       FROM ${TABLES.projects}
+       WHERE id = ?
+       LIMIT 1`,
+      [access.projectId]
     );
-    if (Number(activeAssignments?.total || 0) > 0) {
-      throw badRequest('No se puede retirar el peaje del proyecto porque tiene personal asignado.');
-    }
+    if (!projectRow) throw badRequest('Proyecto no encontrado.');
 
     const [openSessions] = await query(
       `SELECT COUNT(*) AS total
        FROM ${TABLES.sessions} s
        LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
-       WHERE s.project_id = ? AND s.status = 'open' AND COALESCE(s.station_id, sp.station_id) = ?`,
-      [access.projectId, stationId]
+       WHERE s.project_id = ? AND s.status = 'open'
+         AND (COALESCE(s.station_id, sp.station_id) = ?
+              OR sp.booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
+      [access.projectId, stationId, stationId]
     );
     if (Number(openSessions?.total || 0) > 0) {
-      throw badRequest('No se puede retirar el peaje del proyecto porque tiene turnos abiertos.');
+      throw badRequest('No se puede eliminar el peaje del proyecto porque tiene turnos abiertos.');
     }
 
-    await query(
-      `UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ? AND station_id = ?`,
-      [access.projectId, stationId]
-    );
-    res.json({ ok: true, projectId: access.projectId, stationId });
+    await withTransaction(async (conn) => {
+      await conn.execute(
+        `UPDATE ${TABLES.assignments}
+         SET is_active = 0
+         WHERE project_id = ? AND is_active = 1
+           AND (station_id = ? OR booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
+        [access.projectId, stationId, stationId]
+      );
+      await conn.execute(
+        `UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ? AND station_id = ?`,
+        [access.projectId, stationId]
+      );
+    });
+
+    res.json({ ok: true, projectId: access.projectId, stationId, unlinked: true });
   } catch (error) { next(error); }
 });
 
@@ -1624,25 +1640,28 @@ app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('dire
     const projectId = parseOptionalInt(req.query.projectId);
 
     if (projectId) {
-      const [activeAssignments] = await query(
-        `SELECT COUNT(*) AS total FROM ${TABLES.assignments}
-         WHERE project_id = ? AND is_active = 1 AND (station_id = ? OR booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
-        [projectId, stationId, stationId]
-      );
-      if (Number(activeAssignments?.total || 0) > 0) {
-        throw badRequest('No se puede retirar el peaje del proyecto porque tiene personal asignado.');
-      }
       const [openSessions] = await query(
         `SELECT COUNT(*) AS total
          FROM ${TABLES.sessions} s
          LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
-         WHERE s.project_id = ? AND s.status = 'open' AND COALESCE(s.station_id, sp.station_id) = ?`,
-        [projectId, stationId]
+         WHERE s.project_id = ? AND s.status = 'open'
+           AND (COALESCE(s.station_id, sp.station_id) = ?
+                OR sp.booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
+        [projectId, stationId, stationId]
       );
       if (Number(openSessions?.total || 0) > 0) {
-        throw badRequest('No se puede retirar el peaje del proyecto porque tiene turnos abiertos.');
+        throw badRequest('No se puede eliminar el peaje del proyecto porque tiene turnos abiertos.');
       }
-      await query(`UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ? AND station_id = ?`, [projectId, stationId]);
+      await withTransaction(async (conn) => {
+        await conn.execute(
+          `UPDATE ${TABLES.assignments}
+           SET is_active = 0
+           WHERE project_id = ? AND is_active = 1
+             AND (station_id = ? OR booth_id IN (SELECT id FROM ${TABLES.booths} WHERE station_id = ?))`,
+          [projectId, stationId, stationId]
+        );
+        await conn.execute(`UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ? AND station_id = ?`, [projectId, stationId]);
+      });
       return res.json({ ok: true, unlinked: true });
     }
 
@@ -1651,7 +1670,7 @@ app.delete('/api/stations/:stationId', authenticateRequest, requireMinRole('dire
       [stationId]
     );
     if (Number(linkedProjects?.total || 0) > 0) {
-      throw badRequest('No se puede eliminar el peaje del catalogo porque está vinculado a proyectos. Retíralo primero de esos proyectos.');
+      throw badRequest('No se puede eliminar el peaje del catalogo porque está vinculado a proyectos. Elimínalo primero de esos proyectos.');
     }
     const [activeAssignments] = await query(
       `SELECT COUNT(*) AS total FROM ${TABLES.assignments}

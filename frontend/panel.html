@@ -1514,10 +1514,17 @@
     const selectedKey = concessionKey(selectedName);
     concessionInput.value = isOther ? canonicalConcessionName(document.getElementById('sConcessionCustom')?.value || '') : selectedName;
 
+    const baseProjectId = getStationDropdownBaseProjectId();
     const rows = (!isOther && (selectedId || selectedKey))
       ? stationCatalogRows.filter((row) => {
-          if (selectedId && Number(row.concessionId) === selectedId) return true;
-          return selectedKey && row.concessionKey === selectedKey;
+          const concessionOk = selectedId
+            ? Number(row.concessionId) === selectedId
+            : Boolean(selectedKey && row.concessionKey === selectedKey);
+          if (!concessionOk) return false;
+          // Fuente única: en un operativo basado en proyecto base/red vial, solo aparecen
+          // los peajes vinculados a ese proyecto base, no todos los de la concesión.
+          if (baseProjectId) return (row.linkedProjectIds || []).map(Number).includes(Number(baseProjectId));
+          return true;
         })
       : [];
 
@@ -2683,7 +2690,7 @@
           ${st ? `<strong>${esc(st.name || '')}</strong>
             <div class="param-actions" style="justify-content:flex-start;margin-top:6px;">
               <button class="btn btn-soft btn-sm" onclick="editParameterStationPrompt(${st.id})">Editar</button>
-              <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id})">Eliminar</button>
+              <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${p.id},${st.id})">Eliminar</button>
             </div>` : '<span class="param-mini">Sin peaje</span>'}
           ${p ? `<button class="btn btn-primary btn-sm" style="margin-top:6px;" onclick="createParameterStationPrompt(${p.id},${c.id})">+ Peaje</button>` : ''}
         </td>
@@ -2946,6 +2953,8 @@
     document.getElementById('sName').value = '';
     document.getElementById('sNameCustom').value = '';
     document.getElementById('sNameCustomWrap').style.display = 'none';
+    const stationModal = document.getElementById('modalStation');
+    if (stationModal) stationModal.dataset.baseProjectId = String((currentProjectMeta && (currentProjectMeta.base_project_id || currentProjectMeta.baseProjectId)) || '');
     applyStationConcessionContext(getProjectConcessionContext(currentProjectId));
     document.getElementById('sLocation').value = '';
     document.getElementById('sTimeStart').value = '';
@@ -2962,6 +2971,8 @@
     document.getElementById('sTimeStart').value = ts || '';
     document.getElementById('sTimeEnd').value = te || '';
     renderConcessionOptions('sConcessionSelect', true);
+    const stationModal = document.getElementById('modalStation');
+    if (stationModal) stationModal.dataset.baseProjectId = String((currentProjectMeta && (currentProjectMeta.base_project_id || currentProjectMeta.baseProjectId)) || '');
     applyStationConcessionContext(getProjectConcessionContext(currentProjectId, concessionName));
     filterStationOptionsByConcession();
     selectStationOptionByName(name);
@@ -3028,7 +3039,7 @@
   };
 
   window.deleteStation = async function(id, name) {
-    if (!confirm(`¿Retirar el peaje "${name}" de este proyecto? El peaje quedará en Parámetros para reutilizarlo.`)) return;
+    if (!confirm(`¿Eliminar el peaje "${name}" de este proyecto? El peaje quedará en Parámetros para reutilizarlo.`)) return;
     try {
       await api('/projects/' + currentProjectId + '/stations/' + id, { method: 'DELETE' });
       openProjectDetail(currentProjectId);
@@ -3751,6 +3762,19 @@
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
   }
 
+
+  function getStationDropdownBaseProjectId() {
+    const modal = document.getElementById('modalStation');
+    const explicit = modal && modal.dataset ? Number(modal.dataset.baseProjectId || 0) : 0;
+    if (explicit) return explicit;
+    const project = currentProjectMeta || getProjectMetaById(currentProjectId) || {};
+    const baseId = Number(project.base_project_id || project.baseProjectId || 0);
+    if (baseId) return baseId;
+    const projectType = String(project.project_type || project.projectType || '').toLowerCase();
+    if (projectType === 'base' && Number(project.id || 0)) return Number(project.id);
+    return 0;
+  }
+
   function getStationsForBaseProject(baseProjectId) {
     const source = _parametersSnapshot || {};
     const baseId = Number(baseProjectId || 0);
@@ -4120,7 +4144,7 @@
         <div><strong>🛣️ ${esc(st.name || '')}</strong><div class="param-mini">${booths.length} caseta(s)</div></div>
         <div class="param-actions">
           <button class="btn btn-soft btn-sm" onclick="editParameterStationPrompt(${st.id})">Editar</button>
-          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id})">Eliminar</button>
+          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${p.id},${st.id})">Eliminar</button>
           <button class="btn btn-primary btn-sm" onclick="createParameterBoothPrompt(${st.id})">+ Caseta</button>
         </div>
       </div>
@@ -4187,22 +4211,12 @@
     } catch (e) { alert(e.message); }
   };
 
-  window.deleteParameterStationFromProject = async function(projectId, stationId) {
+  window.deleteParameterStation = async function(projectId, stationId) {
     const station = getSnapshotStation(stationId);
     const name = station ? station.name : 'este peaje';
-    if (!confirm('¿Retirar "' + name + '" de este proyecto base? No elimina el peaje del catálogo.')) return;
+    if (!confirm('¿Eliminar el peaje "' + name + '" de este proyecto base? El catálogo se actualizará y dejará de aparecer en sus desplegables.')) return;
     try {
       await api('/projects/' + projectId + '/stations/' + stationId, { method: 'DELETE' });
-      await refreshParametersEverywhere();
-    } catch (e) { alert(e.message); }
-  };
-
-  window.deleteParameterStation = async function(id) {
-    const item = getSnapshotStation(id);
-    const name = item ? item.name : 'este peaje';
-    if (!confirm('¿Eliminar el peaje "' + name + '" del catálogo? Solo se permite si no está vinculado ni tiene uso operativo.')) return;
-    try {
-      await api('/stations/' + id, { method: 'DELETE' });
       await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
   };
