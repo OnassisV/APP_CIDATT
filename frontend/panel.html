@@ -566,6 +566,32 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modalParameter">
+  <div class="modal">
+    <div class="modal-title" id="modalParameterTitle">Editar parámetro</div>
+    <div class="soft-note" id="modalParameterContext" style="margin-bottom:12px;"></div>
+    <div class="form-group">
+      <label id="paramNameLabel">Nombre *</label>
+      <input id="paramName" placeholder="Nombre"/>
+    </div>
+    <div class="form-group" id="paramStatusGroup" style="display:none;">
+      <label>Estado</label>
+      <select id="paramStatus">
+        <option value="activa">Activa</option>
+        <option value="inactiva">Inactiva</option>
+      </select>
+    </div>
+    <div class="form-group" id="paramDirectionGroup" style="display:none;">
+      <label>Sentido</label>
+      <input id="paramDirection" placeholder="Ej: Norte a Sur, Sur a Norte, Ingreso, Salida"/>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalParameter')">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveParameter">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modalUser">
   <div class="modal">
     <div class="modal-title" id="modalUserTitle">Nuevo Usuario</div>
@@ -688,6 +714,8 @@
   var _openSessionsSnapshot = [];
   var stationCatalogRows = [];
   var _parametersSnapshot = null;
+  var parameterSearchTerm = '';
+  var parameterModalState = null;
   var BASE_STATION_CATALOG = [
   {
     "concession": "Norvial (Red Vial 5 — Ancón / Huacho / Pativilca)",
@@ -2774,7 +2802,7 @@
   window.deleteParameterConcession = async function(id) {
     const item = getSnapshotConcession(id);
     const name = item ? item.name : 'esta concesión';
-    if (!confirm('¿Eliminar la concesión "' + name + '"? Solo se permite si no tiene proyectos ni peajes.')) return;
+    if (!confirm('¿Eliminar la concesión "' + name + '" y su catálogo base? Solo se bloqueará si tiene operativos, turnos, asignaciones o registros.')) return;
     try {
       await api('/concessions/' + id, { method: 'DELETE' });
       await refreshParametersEverywhere();
@@ -4076,10 +4104,43 @@
     });
   }
 
+  function normalizeParameterSearch(value) {
+    return String(value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+  }
+
+  function parameterBoothText(booth) {
+    return [booth && booth.code, booth && booth.directions].filter(Boolean).join(' ');
+  }
+
+  function filterParameterHierarchy(hierarchy) {
+    const term = normalizeParameterSearch(parameterSearchTerm);
+    if (!term) return hierarchy || [];
+    return (hierarchy || []).map((concession) => {
+      const concessionMatches = normalizeParameterSearch(concession.name || '').includes(term);
+      if (concessionMatches) return concession;
+      const projects = (concession.projects || []).map((project) => {
+        const projectMatches = normalizeParameterSearch(project.name || '').includes(term);
+        if (projectMatches) return project;
+        const stations = (project.stations || []).map((station) => {
+          const stationMatches = normalizeParameterSearch(station.name || '').includes(term);
+          if (stationMatches) return station;
+          const booths = (station.booths || []).filter((booth) => normalizeParameterSearch(parameterBoothText(booth)).includes(term));
+          return booths.length ? Object.assign({}, station, { booths }) : null;
+        }).filter(Boolean);
+        return stations.length ? Object.assign({}, project, { stations }) : null;
+      }).filter(Boolean);
+      return projects.length ? Object.assign({}, concession, { projects }) : null;
+    }).filter(Boolean);
+  }
+
   function renderParameters(data) {
     const content = document.getElementById('parametersContent');
     if (!content) return;
-    const hierarchy = getParameterHierarchy(data);
+    const hierarchy = filterParameterHierarchy(getParameterHierarchy(data));
     content.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
         <div class="section-header">
@@ -4088,6 +4149,10 @@
             <div class="param-mini">Aquí se mantiene la estructura fija: concesión → proyecto base/red vial → peaje → caseta. No es un operativo trimestral.</div>
           </div>
           <button class="btn btn-primary btn-sm" onclick="createParameterConcessionPrompt()">+ Concesión</button>
+        </div>
+        <div class="form-group" style="margin-top:12px;margin-bottom:0;">
+          <label>Buscar parámetro</label>
+          <input id="parameterSearchInput" value="${esc(parameterSearchTerm)}" placeholder="Buscar concesión, proyecto base, peaje, caseta o sentido..." oninput="setParameterSearchTerm(this.value)"/>
         </div>
         <div class="alert alert-info" style="margin-bottom:0;">
           <span>ℹ️</span>
@@ -4101,6 +4166,16 @@
         </div>
       </div>`;
   }
+
+  window.setParameterSearchTerm = function(value) {
+    parameterSearchTerm = String(value || '');
+    renderParameters(_parametersSnapshot);
+    const input = document.getElementById('parameterSearchInput');
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  };
 
   function renderParameterConcessionBlock(c) {
     const projects = (c.projects || []).filter((p) => String(p.project_type || 'base').toLowerCase() === 'base');
@@ -4221,6 +4296,191 @@
       await api('/projects/' + projectId + '/stations/' + stationId, { method: 'DELETE' });
       await refreshParametersEverywhere();
     } catch (e) { alert(e.message); }
+  };
+
+  function getParameterModalTitle(type, mode) {
+    const action = mode === 'create' ? 'Agregar' : 'Editar';
+    const labels = {
+      concession: 'concesión',
+      project: 'proyecto base / red vial',
+      station: 'peaje',
+      booth: 'caseta'
+    };
+    return action + ' ' + (labels[type] || 'parámetro');
+  }
+
+  function getParameterContextLabel(type, context) {
+    if (type === 'concession') return 'Define la concesión que agrupa proyectos base y peajes.';
+    if (type === 'project') return 'Concesión: ' + ((context.concession && context.concession.name) || 'seleccionada');
+    if (type === 'station') {
+      const parts = [];
+      if (context.concession && context.concession.name) parts.push('Concesión: ' + context.concession.name);
+      if (context.project && context.project.name) parts.push('Proyecto base: ' + context.project.name);
+      return parts.join(' · ') || 'Peaje del catálogo base.';
+    }
+    if (type === 'booth') return 'Peaje: ' + ((context.station && context.station.name) || 'seleccionado');
+    return '';
+  }
+
+  function findParentConcessionForProject(project) {
+    return getSnapshotConcession(project && project.concession_id);
+  }
+
+  function findProjectForStation(station) {
+    const links = (_parametersSnapshot && _parametersSnapshot.projectSites) || [];
+    const link = links.find((item) => Number(item.station_id) === Number(station && station.id) && Number(item.is_active ?? 1) === 1);
+    return link ? getSnapshotProject(link.project_id) : null;
+  }
+
+  function openParameterEditor(type, mode, context) {
+    parameterModalState = Object.assign({ type, mode }, context || {});
+    const item = parameterModalState.item || {};
+    const isBooth = type === 'booth';
+    const title = document.getElementById('modalParameterTitle');
+    const contextEl = document.getElementById('modalParameterContext');
+    const nameLabel = document.getElementById('paramNameLabel');
+    const nameInput = document.getElementById('paramName');
+    const statusGroup = document.getElementById('paramStatusGroup');
+    const statusInput = document.getElementById('paramStatus');
+    const directionGroup = document.getElementById('paramDirectionGroup');
+    const directionInput = document.getElementById('paramDirection');
+    if (!title || !nameInput) return;
+
+    title.textContent = getParameterModalTitle(type, mode);
+    contextEl.textContent = getParameterContextLabel(type, parameterModalState);
+    nameLabel.textContent = isBooth ? 'Código / número de caseta *' : 'Nombre *';
+    nameInput.value = isBooth ? (item.code || '') : (item.name || '');
+    nameInput.placeholder = isBooth ? 'Ej: 01, C-02, Operador 1' : 'Nombre';
+    statusGroup.style.display = type === 'concession' ? 'block' : 'none';
+    statusInput.value = item.status || 'activa';
+    directionGroup.style.display = isBooth ? 'block' : 'none';
+    directionInput.value = item.directions || '';
+    openModal('modalParameter');
+    setTimeout(() => nameInput.focus(), 50);
+  }
+
+  async function saveParameterModal() {
+    if (!parameterModalState) return;
+    const state = parameterModalState;
+    const name = String(document.getElementById('paramName').value || '').trim();
+    const status = String(document.getElementById('paramStatus').value || 'activa').trim() || 'activa';
+    const directions = String(document.getElementById('paramDirection').value || '').trim();
+    if (!name) {
+      alert(state.type === 'booth' ? 'El código de caseta es obligatorio.' : 'El nombre es obligatorio.');
+      return;
+    }
+
+    if (state.type === 'concession') {
+      if (state.mode === 'create') {
+        const data = await api('/concessions', { method: 'POST', body: { name } });
+        if (data.concessionId) await api('/concessions/' + data.concessionId, { method: 'PUT', body: { name, status } });
+      } else {
+        await api('/concessions/' + state.id, { method: 'PUT', body: { name, status } });
+      }
+    } else if (state.type === 'project') {
+      const concessionId = state.mode === 'create' ? state.concessionId : state.item && state.item.concession_id;
+      if (!concessionId) throw new Error('No se encontró la concesión del proyecto base.');
+      if (state.mode === 'create') {
+        await api('/projects', { method: 'POST', body: {
+          name,
+          description: 'Catálogo base editable desde Parámetros',
+          concession_id: concessionId,
+          project_type: 'base',
+          status: 'activo',
+          max_booths_per_operator: 2
+        } });
+      } else {
+        await api('/projects/' + state.id, { method: 'PUT', body: {
+          name,
+          concession_id: concessionId,
+          project_type: 'base',
+          max_booths_per_operator: 2
+        } });
+      }
+    } else if (state.type === 'station') {
+      const concessionId = state.mode === 'create' ? state.concessionId : state.item && state.item.concession_id;
+      if (!concessionId) throw new Error('No se encontró la concesión del peaje.');
+      if (state.mode === 'create') {
+        if (!state.projectId) throw new Error('No se encontró el proyecto base del peaje.');
+        await api('/projects/' + state.projectId + '/stations', { method: 'POST', body: { name, concession_id: concessionId } });
+      } else {
+        await api('/stations/' + state.id, { method: 'PUT', body: { name, concession_id: concessionId } });
+      }
+    } else if (state.type === 'booth') {
+      if (state.mode === 'create') {
+        if (!state.stationId) throw new Error('No se encontró el peaje de la caseta.');
+        await api('/stations/' + state.stationId + '/booths', { method: 'POST', body: { code: name, directions } });
+      } else {
+        await api('/booths/' + state.id, { method: 'PUT', body: { code: name, directions } });
+      }
+    }
+
+    closeModal('modalParameter');
+    parameterModalState = null;
+    await refreshParametersEverywhere();
+  }
+
+  const btnSaveParameter = document.getElementById('btnSaveParameter');
+  if (btnSaveParameter) {
+    btnSaveParameter.onclick = () => withLoading('btnSaveParameter', saveParameterModal).catch((e) => alert(e.message));
+  }
+
+  const paramNameInput = document.getElementById('paramName');
+  if (paramNameInput) {
+    paramNameInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        btnSaveParameter && btnSaveParameter.click();
+      }
+    });
+  }
+
+  window.createParameterConcessionPrompt = function() {
+    openParameterEditor('concession', 'create', {});
+  };
+
+  window.editParameterConcessionPrompt = function(id) {
+    const item = getSnapshotConcession(id);
+    if (!item) return alert('Concesión no encontrada.');
+    openParameterEditor('concession', 'edit', { id, item });
+  };
+
+  window.createParameterProjectPrompt = function(concessionId) {
+    const concession = getSnapshotConcession(concessionId);
+    if (!concession) return alert('Concesión no encontrada.');
+    openParameterEditor('project', 'create', { concessionId, concession });
+  };
+
+  window.editParameterProjectPrompt = function(id) {
+    const item = getSnapshotProject(id);
+    if (!item) return alert('Proyecto base no encontrado.');
+    openParameterEditor('project', 'edit', { id, item, concession: findParentConcessionForProject(item) });
+  };
+
+  window.createParameterStationPrompt = function(projectId, concessionId) {
+    const project = getSnapshotProject(projectId);
+    const concession = getSnapshotConcession(concessionId);
+    if (!project || !concession) return alert('Proyecto base o concesión no encontrada.');
+    openParameterEditor('station', 'create', { projectId, concessionId, project, concession });
+  };
+
+  window.editParameterStationPrompt = function(id) {
+    const item = getSnapshotStation(id);
+    if (!item) return alert('Peaje no encontrado.');
+    const project = findProjectForStation(item);
+    openParameterEditor('station', 'edit', { id, item, project, concession: getSnapshotConcession(item.concession_id) });
+  };
+
+  window.createParameterBoothPrompt = function(stationId) {
+    const station = getSnapshotStation(stationId);
+    if (!station) return alert('Peaje no encontrado.');
+    openParameterEditor('booth', 'create', { stationId, station });
+  };
+
+  window.editParameterBoothPrompt = function(id) {
+    const item = getSnapshotBooth(id);
+    if (!item) return alert('Caseta no encontrada.');
+    openParameterEditor('booth', 'edit', { id, item, station: getSnapshotStation(item.station_id) });
   };
 
   // Mantener la asignación de registradores como estaba: seleccionar/arrastrar registrador → caseta.

@@ -783,17 +783,86 @@ app.delete('/api/concessions/:id', authenticateRequest, requireMinRole('director
   try {
     const id = parseOptionalInt(req.params.id);
     if (!id) throw badRequest('Concesion invalida.');
+    const [concession] = await query(`SELECT id, name FROM ${TABLES.concessions} WHERE id = ? LIMIT 1`, [id]);
+    if (!concession) throw badRequest('Concesion no encontrada.');
+    if (normalizeText(concession.name) === normalizeText('Concesion General')) {
+      throw badRequest('No se puede eliminar la concesion general.');
+    }
+
     const [usage] = await query(
       `SELECT
-         (SELECT COUNT(*) FROM ${TABLES.projects} WHERE concession_id = ?) AS projects_count,
-         (SELECT COUNT(*) FROM ${TABLES.stations} WHERE concession_id = ?) AS stations_count`,
-      [id, id]
+         (SELECT COUNT(*)
+          FROM ${TABLES.projects}
+          WHERE concession_id = ? AND COALESCE(project_type, 'operativo') <> 'base') AS operative_projects,
+         (SELECT COUNT(*)
+          FROM ${TABLES.sessions} s
+          LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id
+          LEFT JOIN ${TABLES.booths} pb ON pb.id = sp.booth_id
+          WHERE (
+              s.project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
+              OR s.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
+              OR sp.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
+              OR pb.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
+            )) AS related_sessions,
+         (SELECT COUNT(*)
+          FROM ${TABLES.assignments} a
+          LEFT JOIN ${TABLES.booths} ab ON ab.id = a.booth_id
+          WHERE a.is_active = 1
+            AND (
+              a.project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
+              OR a.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
+              OR ab.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
+            )) AS active_assignments,
+         (SELECT COUNT(*)
+          FROM ${TABLES.records} r
+          LEFT JOIN ${TABLES.booths} rb ON rb.id = r.booth_id
+          WHERE r.project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
+             OR r.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
+             OR rb.station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)) AS records_count`,
+      [id, id, id, id, id, id, id, id, id, id, id]
     );
-    if (Number(usage?.projects_count || 0) > 0 || Number(usage?.stations_count || 0) > 0) {
-      throw badRequest('No se puede eliminar la concesion porque tiene proyectos o peajes asociados.');
+    if (Number(usage?.operative_projects || 0) > 0) {
+      throw badRequest('No se puede eliminar la concesion porque tiene proyectos operativos asociados. Elimina o cierra esos proyectos primero.');
     }
-    await query(`DELETE FROM ${TABLES.concessions} WHERE id = ?`, [id]);
-    res.json({ ok: true });
+    if (Number(usage?.related_sessions || 0) > 0) {
+      throw badRequest('No se puede eliminar la concesion porque tiene turnos operativos asociados.');
+    }
+    if (Number(usage?.active_assignments || 0) > 0) {
+      throw badRequest('No se puede eliminar la concesion porque tiene personal asignado activo.');
+    }
+    if (Number(usage?.records_count || 0) > 0) {
+      throw badRequest('No se puede eliminar la concesion porque ya tiene registros operativos asociados.');
+    }
+
+    await withTransaction(async (conn) => {
+      await conn.execute(
+        `DELETE FROM ${TABLES.assignments}
+         WHERE project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
+            OR station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)
+            OR booth_id IN (
+              SELECT tb.id FROM ${TABLES.booths} tb
+              INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
+              WHERE ts.concession_id = ?
+            )`,
+        [id, id, id]
+      );
+      await conn.execute(
+        `DELETE FROM ${TABLES.projectSites}
+         WHERE project_id IN (SELECT id FROM ${TABLES.projects} WHERE concession_id = ?)
+            OR station_id IN (SELECT id FROM ${TABLES.stations} WHERE concession_id = ?)`,
+        [id, id]
+      );
+      await conn.execute(
+        `DELETE tb FROM ${TABLES.booths} tb
+         INNER JOIN ${TABLES.stations} ts ON ts.id = tb.station_id
+         WHERE ts.concession_id = ?`,
+        [id]
+      );
+      await conn.execute(`DELETE FROM ${TABLES.stations} WHERE concession_id = ?`, [id]);
+      await conn.execute(`DELETE FROM ${TABLES.projects} WHERE concession_id = ?`, [id]);
+      await conn.execute(`DELETE FROM ${TABLES.concessions} WHERE id = ?`, [id]);
+    });
+    res.json({ ok: true, deletedCatalog: true });
   } catch (error) { next(error); }
 });
 
