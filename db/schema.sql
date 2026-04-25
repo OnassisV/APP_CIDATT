@@ -46,13 +46,18 @@ CREATE TABLE IF NOT EXISTS cidatt_projects (
   start_date DATE NOT NULL,
   end_date DATE NULL,
   concession_id INT UNSIGNED NULL,
+  project_type VARCHAR(20) NOT NULL DEFAULT 'operativo',
+  base_project_id INT UNSIGNED NULL,
+  operation_label VARCHAR(160) NULL,
   daily_start_time TIME NULL,
   daily_end_time TIME NULL,
   max_booths_per_operator INT NOT NULL DEFAULT 2,
   created_by BIGINT UNSIGNED NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  KEY idx_cidatt_projects_type_concession (project_type, concession_id),
+  KEY idx_cidatt_projects_base (base_project_id)
 );
 
 CREATE TABLE IF NOT EXISTS cidatt_toll_stations (
@@ -74,6 +79,7 @@ CREATE TABLE IF NOT EXISTS cidatt_toll_booths (
   directions VARCHAR(200) NOT NULL DEFAULT '',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
+  UNIQUE KEY uk_cidatt_booths_station_code (station_id, code),
   CONSTRAINT fk_cidatt_booths_station FOREIGN KEY (station_id) REFERENCES cidatt_toll_stations (id) ON DELETE CASCADE
 );
 
@@ -83,6 +89,10 @@ CREATE TABLE IF NOT EXISTS cidatt_project_sites (
   station_id INT UNSIGNED NOT NULL,
   linked_by BIGINT UNSIGNED NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
+  work_start_date DATE NULL,
+  work_end_date DATE NULL,
+  daily_start_time TIME NULL,
+  daily_end_time TIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -100,7 +110,8 @@ CREATE TABLE IF NOT EXISTS cidatt_user_assignments (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_cidatt_assignments_user (user_id),
-  KEY idx_cidatt_assignments_project (project_id)
+  KEY idx_cidatt_assignments_project (project_id),
+  KEY idx_cidatt_assignments_scope (project_id, station_id, booth_id, is_active)
 );
 
 CREATE TABLE IF NOT EXISTS cidatt_shift_sessions (
@@ -181,5 +192,6 @@ CREATE TABLE IF NOT EXISTS cidatt_device_presence (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_cidatt_presence_user_device (user_id, device_id)
+  UNIQUE KEY uk_cidatt_presence_user_device (user_id, device_id),
+  KEY idx_cidatt_presence_project_user (project_id, user_id, last_heartbeat_at)
 );

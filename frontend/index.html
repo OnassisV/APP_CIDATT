@@ -824,15 +824,19 @@
         });
       }
 
-      var STORAGE_KEY = 'rlv_cidatt_records_v1';
-      var SITE_INFO_KEY = 'rlv_cidatt_site_info_v1';
-      var DRAFT_KEY = 'rlv_cidatt_draft_v1';
+      var STORAGE_KEY_BASE = 'rlv_cidatt_records_v1';
+      var SITE_INFO_KEY_BASE = 'rlv_cidatt_site_info_v1';
+      var DRAFT_KEY_BASE = 'rlv_cidatt_draft_v1';
+      var STORAGE_KEY = STORAGE_KEY_BASE + ':anonymous';
+      var SITE_INFO_KEY = SITE_INFO_KEY_BASE + ':anonymous';
+      var DRAFT_KEY = DRAFT_KEY_BASE + ':anonymous';
       var LICENSE_KEY = 'rlv_cidatt_auth_v1';
       var OPERATION_CONTEXT_KEY = 'rlv_cidatt_operation_context_v1';
       var AUTH_TOKEN_STORAGE_KEY = 'rlv_cidatt_auth_token';
       var AUTH_USER_STORAGE_KEY = 'rlv_cidatt_auth_user';
       var DEVICE_ID_STORAGE_KEY = 'rlv_cidatt_device_id';
       var SETUP_CATALOG_STORAGE_KEY = 'rlv_cidatt_setup_catalog_v1';
+      var SETUP_CATALOG_CACHE_VERSION = '2026-04-25-catalog-v2';
       
       var HISTORY_LIMIT = 5; var NEWLINE = String.fromCharCode(10); var CSV_BOM = String.fromCharCode(65279);
 
@@ -860,6 +864,44 @@
   var authOperationContext = { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
   var setupCatalogState = { loaded: false, concessions: [], projects: [], stations: [], booths: [], hierarchy: [], refreshedAt: null };
   var realtimeTimer = null;
+
+      function getUserScopeId(user) {
+        var source = user || authUser || null;
+        var raw = source && (source.id || source.userId || source.user_id || source.username);
+        return String(raw || 'anonymous').replace(/[^a-zA-Z0-9_-]/g, '_');
+      }
+
+      function buildScopedKey(baseKey, user) {
+        return baseKey + ':' + getUserScopeId(user);
+      }
+
+      function refreshScopedStorageKeys(user) {
+        STORAGE_KEY = buildScopedKey(STORAGE_KEY_BASE, user);
+        SITE_INFO_KEY = buildScopedKey(SITE_INFO_KEY_BASE, user);
+        DRAFT_KEY = buildScopedKey(DRAFT_KEY_BASE, user);
+      }
+
+      function getScopedStorageKeys(user) {
+        return {
+          records: buildScopedKey(STORAGE_KEY_BASE, user),
+          site: buildScopedKey(SITE_INFO_KEY_BASE, user),
+          draft: buildScopedKey(DRAFT_KEY_BASE, user)
+        };
+      }
+
+      async function loadLocalStateForCurrentUser() {
+        refreshScopedStorageKeys(authUser);
+        registros = (await getDB(STORAGE_KEY).catch(function() { return []; })) || [];
+        siteInfo = (await getDB(SITE_INFO_KEY).catch(function() { return null; })) || null;
+        draftInfo = (await getDB(DRAFT_KEY).catch(function() { return null; })) || null;
+      }
+
+      function filterOutboxItemsForCurrentUser(items) {
+        var currentScope = getUserScopeId(authUser);
+        return (items || []).filter(function(item) {
+          return item && item.userScopeId === currentScope;
+        });
+      }
 
   var SETUP_CATALOG = [
         {
@@ -1083,6 +1125,7 @@
         putDB(OPERATION_CONTEXT_KEY, null).catch(()=>{});
         hasValidLicense = false;
         stopRealtimeServices();
+        refreshScopedStorageKeys(null);
         try { showPanelButtons(); } catch (_err) {}
       }
 
@@ -1123,6 +1166,7 @@
         var source = payload || {};
         return {
           loaded: true,
+          version: SETUP_CATALOG_CACHE_VERSION,
           refreshedAt: Date.now(),
           concessions: Array.isArray(source.concessions) ? source.concessions : [],
           projects: Array.isArray(source.projects) ? source.projects : [],
@@ -1135,9 +1179,10 @@
 
       async function loadSetupCatalog(forceRefresh) {
         var cached = await getDB(SETUP_CATALOG_STORAGE_KEY).catch(function() { return null; });
-        if (cached && !forceRefresh) setupCatalogState = cached;
+        var cacheIsValid = cached && cached.version === SETUP_CATALOG_CACHE_VERSION;
+        if (cacheIsValid && !forceRefresh) setupCatalogState = cached;
         if (!authToken || !navigator.onLine) {
-          if (cached) setupCatalogState = cached;
+          if (cacheIsValid) setupCatalogState = cached;
           return setupCatalogState;
         }
         if (hasRemoteSetupCatalog() && !forceRefresh) return setupCatalogState;
@@ -1146,7 +1191,7 @@
           setupCatalogState = normalizeCatalogPayload(payload);
           await putDB(SETUP_CATALOG_STORAGE_KEY, setupCatalogState).catch(function(){});
         } catch (err) {
-          if (cached) setupCatalogState = cached;
+          if (cacheIsValid) setupCatalogState = cached;
         }
         return setupCatalogState;
       }
@@ -1301,12 +1346,6 @@
           var clean = cleanConcessionDisplayName(item.concessionName || '');
           if (clean && !map.has(normalizeText(clean))) map.set(normalizeText(clean), { name: clean, rawName: item.concessionName, source: 'assigned' });
         });
-        if (!map.size) {
-          SETUP_CATALOG.forEach(function(group) {
-            var clean = cleanConcessionDisplayName(group.concession);
-            if (clean && !map.has(normalizeText(clean))) map.set(normalizeText(clean), { name: clean, rawName: group.concession, source: 'fallback' });
-          });
-        }
         return Array.from(map.values()).sort(function(a, b) { return a.name.localeCompare(b.name, 'es'); });
       }
 
@@ -1318,11 +1357,6 @@
         getAssignedBooths().forEach(function(item) {
           if (normalizeText(cleanConcessionDisplayName(item.concessionName)) === norm && item.stationName) tolls.push(item.stationName);
         });
-        if (!tolls.length) {
-          SETUP_CATALOG.forEach(function(group) {
-            if (normalizeText(cleanConcessionDisplayName(group.concession)) === norm) tolls = tolls.concat(group.tolls || []);
-          });
-        }
         var seen = new Set();
         return tolls.filter(function(name) { var key = normalizeText(name); if (!name || seen.has(key)) return false; seen.add(key); return true; }).sort(function(a, b) { return a.localeCompare(b, 'es'); });
       }
@@ -1812,7 +1846,7 @@
           wb.style.display = 'block';
           return;
         }
-        var pendingItems = await getOutboxItems().catch(function() { return []; });
+        var pendingItems = filterOutboxItemsForCurrentUser(await getOutboxItems().catch(function() { return []; }));
         if (!navigator.onLine) {
           wb.textContent = 'Modo offline activo. Los cambios se guardan localmente.';
           wb.style.display = 'block';
@@ -1831,6 +1865,7 @@
           id: id || (type + ':' + generateId()),
           type: type,
           payload: payload,
+          userScopeId: getUserScopeId(authUser),
           createdAt: Date.now()
         }).catch(()=>{});
         await refreshWarningBanner();
@@ -1851,7 +1886,7 @@
           await refreshWarningBanner();
           return 0;
         }
-        var items = await getOutboxItems();
+        var items = filterOutboxItemsForCurrentUser(await getOutboxItems());
         items.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
         var processed = 0;
         for (var i = 0; i < items.length; i++) {
@@ -1922,6 +1957,7 @@
         authUser = payload.user || authUser || null;
         authAssignments = payload.assignments || [];
         authOperationContext = payload.operationContext || { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+        await loadLocalStateForCurrentUser();
         if (authUser) localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser));
         await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
         await putDB(OPERATION_CONTEXT_KEY, {
@@ -2050,13 +2086,15 @@
       }
 
       async function logoutRegisterSession() {
+        var previousKeys = getScopedStorageKeys(authUser);
         clearCachedAuth();
         siteInfo = null;
         draftInfo = null;
         editingId = null;
         isEditingSetup = false;
-        await putDB(SITE_INFO_KEY, null).catch(()=>{});
-        await putDB(DRAFT_KEY, null).catch(()=>{});
+        registros = [];
+        await putDB(previousKeys.site, null).catch(()=>{});
+        await putDB(previousKeys.draft, null).catch(()=>{});
         await putDB(OPERATION_CONTEXT_KEY, null).catch(()=>{});
 
         if (licenseCard) licenseCard.classList.remove('hidden');
@@ -2106,6 +2144,7 @@
             authUser = cachedLicense.usuario;
             authAssignments = cachedContext && cachedContext.assignments ? cachedContext.assignments : [];
             authOperationContext = cachedContext && cachedContext.operationContext ? cachedContext.operationContext : { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+            await loadLocalStateForCurrentUser();
             hasValidLicense = true;
             await loadSetupCatalog(false).catch(function(){});
             populateSetupFromAssignments();
@@ -3096,16 +3135,25 @@
       
       try {
         await initDB();
-        registros = (await getDB(STORAGE_KEY)) || []; siteInfo = (await getDB(SITE_INFO_KEY)) || null; draftInfo = (await getDB(DRAFT_KEY)) || null;
-        let lic = await getDB(LICENSE_KEY);
-        if (lic && lic.usuario) authUser = lic.usuario;
-        let cachedContext = await getDB(OPERATION_CONTEXT_KEY);
-        if (cachedContext && cachedContext.assignments) authAssignments = cachedContext.assignments;
-        if (cachedContext && cachedContext.operationContext) authOperationContext = cachedContext.operationContext;
+        if (authToken) {
+          try {
+            var storedAuthUser = JSON.parse(localStorage.getItem(AUTH_USER_STORAGE_KEY) || 'null');
+            if (storedAuthUser) authUser = storedAuthUser;
+          } catch (_storedUserErr) {}
+          await loadLocalStateForCurrentUser();
+          let cachedContext = await getDB(OPERATION_CONTEXT_KEY);
+          if (cachedContext && cachedContext.assignments) authAssignments = cachedContext.assignments;
+          if (cachedContext && cachedContext.operationContext) authOperationContext = cachedContext.operationContext;
+          await restoreAuthenticatedSession();
+        } else {
+          refreshScopedStorageKeys(null);
+          registros = [];
+          siteInfo = null;
+          draftInfo = null;
+        }
         await loadSetupCatalog(false).catch(function(){});
         if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
         if (siteInfo && Array.isArray(siteInfo.profiles) && siteInfo.profiles.length) await syncSiteInfoWithAssignments();
-        await restoreAuthenticatedSession();
         await refreshWarningBanner();
       } catch (err) {
         let wb = document.getElementById('warningBanner'); wb.textContent = `⚠️ Modo privado detectado. Los datos se perderán si cierra la pestaña.`; wb.style.display = 'block';

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rlv-cidatt-v3';
+const CACHE_NAME = 'rlv-cidatt-v4-20260425';
 const APP_SHELL = ['/', '/index.html', '/panel.html', '/app.webmanifest'];
 
 function isHtmlRequest(request) {

@@ -1049,6 +1049,7 @@
   function redirectToLogin() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(PANEL_STATE_KEY);
     window.location.href = '/';
   }
 
@@ -2286,7 +2287,7 @@
       <table>
         <thead><tr><th>Nombre</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Casetas</th><th></th></tr></thead>
         <tbody>${projects.map(p => {
-          const canDelete = Number(p.staffed_booths || 0) === 0;
+          const canDelete = true;
           return `<tr>
             <td><strong>${esc(p.name)}</strong><br><small style="color:var(--muted)">${esc(p.description||'')}</small></td>
             <td><span class="badge badge-${p.status}">${p.status}</span></td>
@@ -2296,7 +2297,7 @@
             <td class="table-actions">
               <button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Detalle</button>
               <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}',${p.max_booths_per_operator||2},${p.concession_id||0},'${esc(p.concession_name||'')}',${p.base_project_id||0},'${esc(p.operation_label||'')}')">Editar</button>
-              <button class="btn btn-soft btn-sm danger-link-btn" ${canDelete ? '' : 'disabled'} title="${canDelete ? 'Eliminar proyecto' : 'No se puede eliminar con personal asignado o turnos abiertos'}" onclick="deleteProject(${p.id},'${esc(p.name)}')">Eliminar</button>
+              <button class="btn btn-soft btn-sm danger-link-btn" ${canDelete ? '' : 'disabled'} title="Eliminar proyecto. Si hay turnos abiertos, el servidor lo bloqueara." onclick="deleteProject(${p.id},'${esc(p.name)}')">Eliminar</button>
             </td>
           </tr>`;
         }).join('')}</tbody>
@@ -2305,7 +2306,7 @@
 
   async function deleteProject(projectId, projectName) {
     if (!projectId) return;
-    if (!confirm(`¿Eliminar el proyecto "${projectName}"? Solo se permite si no tiene personal asignado.`)) return;
+    if (!confirm(`Eliminar el proyecto "${projectName}"? Se desactivaran asignaciones residuales; si hay turnos abiertos, el servidor lo bloqueara.`)) return;
     try {
       await api('/projects/' + projectId, { method: 'DELETE' });
       await loadProjectsList();
@@ -2400,7 +2401,7 @@
       }
 
       if (a.doubleAssigned && a.doubleAssigned.length) {
-        html += '<div class="card card-sm" style="margin-bottom:12px;"><h3 style="margin-bottom:10px;font-size:.9rem;">🔴 Asignados a 2+ casetas simultáneas</h3>';
+        html += '<div class="card card-sm" style="margin-bottom:12px;"><h3 style="margin-bottom:10px;font-size:.9rem;">Asignados por encima del limite de 2 casetas</h3>';
         html += a.doubleAssigned.map(u => `
           <div class="alert alert-danger">
             <span>⚠️</span>
@@ -2573,7 +2574,7 @@
   }
   window.loadParameters = loadParameters;
 
-  function getParameterHierarchy(data) {
+  function getParameterHierarchyLegacy(data) {
     const source = data || _parametersSnapshot || {};
     const hierarchy = (source.hierarchy || []).filter((c) => c && c.id && !isDefaultConcessionName(c.name));
     if (hierarchy.length) return hierarchy;
@@ -2597,10 +2598,10 @@
     });
   }
 
-  function renderParameters(data) {
+  function renderParametersLegacy(data) {
     const content = document.getElementById('parametersContent');
     if (!content) return;
-    const hierarchy = getParameterHierarchy(data);
+    const hierarchy = getParameterHierarchyLegacy(data);
     const rows = [];
 
     hierarchy.forEach((c) => {
@@ -2780,7 +2781,7 @@
     } catch (e) { alert(e.message); }
   };
 
-  window.createParameterProjectPrompt = async function(concessionId) {
+  window.createParameterProjectPromptLegacy = async function(concessionId) {
     const name = promptClean('Nombre del proyecto / red vial:', '');
     if (!name) return;
     try {
@@ -2796,7 +2797,7 @@
     } catch (e) { alert(e.message); }
   };
 
-  window.editParameterProjectPrompt = async function(id) {
+  window.editParameterProjectPromptLegacy = async function(id) {
     const item = getSnapshotProject(id);
     if (!item) return alert('Proyecto no encontrado.');
     const name = promptClean('Nombre del proyecto / red vial:', item.name || '');
@@ -2807,7 +2808,7 @@
     } catch (e) { alert(e.message); }
   };
 
-  window.createParameterStationPrompt = async function(projectId, concessionId) {
+  window.createParameterStationPromptLegacy = async function(projectId, concessionId) {
     const name = promptClean('Nombre del peaje:', '');
     if (!name) return;
     try {
@@ -2816,7 +2817,7 @@
     } catch (e) { alert(e.message); }
   };
 
-  window.editParameterStationPrompt = async function(id) {
+  window.editParameterStationPromptLegacy = async function(id) {
     const item = getSnapshotStation(id);
     if (!item) return alert('Peaje no encontrado.');
     const name = promptClean('Nombre del peaje:', item.name || '');
@@ -2827,7 +2828,7 @@
     } catch (e) { alert(e.message); }
   };
 
-  window.deleteParameterStation = async function(id) {
+  window.deleteParameterStationLegacy = async function(id) {
     const item = getSnapshotStation(id);
     const name = item ? item.name : 'este peaje';
     if (!confirm('¿Eliminar el peaje "' + name + '"? Solo se permite si no está vinculado a proyectos ni tiene casetas activas.')) return;
@@ -3683,6 +3684,7 @@
     stopCoordPresencePolling();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(PANEL_STATE_KEY);
     window.location.href = '/';
   }
 

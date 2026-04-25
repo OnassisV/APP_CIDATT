@@ -464,7 +464,7 @@ async function getProjectStations(projectId) {
             a.id AS assignment_id, u.id AS assigned_user_id, u.full_name AS assigned_user_name, u.username AS assigned_username,
             (SELECT COUNT(*) FROM ${TABLES.records} r
              WHERE r.project_id = ? AND r.operation_date = CURDATE()
-               AND (r.booth_id = tb.id OR (r.booth_id IS NULL AND r.booth_number = tb.code AND r.toll_name = ts2.name))) AS records_today,
+               AND (r.booth_id = tb.id OR (r.booth_id IS NULL AND r.station_id = ts2.id AND r.booth_number = tb.code))) AS records_today,
             (SELECT IF(COUNT(*) > 0, 1, 0)
              FROM ${TABLES.sessions} ss
              JOIN ${TABLES.profiles} sp ON sp.session_id = ss.id
@@ -1054,13 +1054,8 @@ app.get('/api/projects', authenticateRequest, requireMinRole('coordinador'), asy
         `SELECT COUNT(*) AS total_records,
                 COUNT(DISTINCT session_id) AS total_sessions
          FROM ${TABLES.records}
-         WHERE project_id = ? OR (project_id IS NULL AND toll_name IN (
-           SELECT DISTINCT ts.name
-           FROM ${TABLES.projectSites} ps
-           INNER JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
-           WHERE ps.project_id = ? AND ps.is_active = 1
-         ))`,
-        [p.id, p.id]
+         WHERE project_id = ?`,
+        [p.id]
       );
       const [boothCounts] = await query(
         `SELECT COUNT(*) AS total_booths,
@@ -2104,7 +2099,7 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('coordinador'
        WHERE a.is_active = 1 AND a.booth_id IS NOT NULL
        ${assignmentScope}
        GROUP BY u.id
-       HAVING active_booths > 1`,
+       HAVING active_booths > 2`,
       assignmentParams
     );
 
@@ -2146,7 +2141,8 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('coordinador'
        LEFT JOIN ${TABLES.sessions} s ON s.id = r.session_id
        LEFT JOIN ${TABLES.users} u ON u.id = COALESCE(r.owner_user_id, s.owner_user_id)
        LEFT JOIN ${TABLES.booths} tb ON tb.id = r.booth_id
-       WHERE r.operation_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+       WHERE r.project_id IS NOT NULL
+         AND r.operation_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
        ${recordScope}
        GROUP BY COALESCE(r.owner_user_id, s.owner_user_id, CONCAT('legacy:', LOWER(TRIM(r.operator_name)))),
                 COALESCE(u.full_name, r.operator_name), r.operation_date
@@ -2164,7 +2160,8 @@ app.get('/api/alerts/workers', authenticateRequest, requireMinRole('coordinador'
        LEFT JOIN ${TABLES.users} u ON u.id = COALESCE(r.owner_user_id, s.owner_user_id)
        LEFT JOIN ${TABLES.booths} tb ON tb.id = r.booth_id
        LEFT JOIN ${TABLES.stations} ts ON ts.id = COALESCE(r.station_id, tb.station_id)
-       WHERE r.operation_date = CURDATE()
+       WHERE r.project_id IS NOT NULL
+         AND r.operation_date = CURDATE()
        ${recordScope}
        GROUP BY COALESCE(r.owner_user_id, s.owner_user_id, CONCAT('legacy:', LOWER(TRIM(r.operator_name)))),
                 COALESCE(u.full_name, r.operator_name)
@@ -2205,7 +2202,7 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
        LEFT JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
        LEFT JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
        LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id AND a.booth_id = tb.id AND a.is_active = 1
-       LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id OR (r.project_id IS NULL AND r.toll_name = ts.name))
+       LEFT JOIN ${TABLES.records} r ON r.project_id = p.id
        WHERE COALESCE(p.project_type, 'operativo') = 'operativo'
        GROUP BY p.id, p.name, p.status, p.start_date, p.end_date, p.daily_start_time, p.daily_end_time, p.concession_id, c.name, p.project_type, p.base_project_id, bp.name, p.operation_label
        ORDER BY p.start_date DESC`
@@ -2248,7 +2245,7 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
          INNER JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
          LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id AND a.booth_id = tb.id AND a.is_active = 1
          LEFT JOIN ${TABLES.users} u ON u.id = a.user_id
-         LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id AND (r.booth_id = tb.id OR (r.booth_id IS NULL AND r.booth_number = tb.code AND r.toll_name = ts.name)))
+         LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id AND (r.booth_id = tb.id OR (r.booth_id IS NULL AND r.station_id = ts.id AND r.booth_number = tb.code)))
          WHERE ps.is_active = 1 AND ps.project_id IN (${placeholders})
          GROUP BY p.id, tb.station_id, tb.id, tb.code, tb.directions
          ORDER BY p.id, tb.station_id, tb.code ASC`,
@@ -2280,14 +2277,16 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
     const weeklyTrend = await query(
       `SELECT operation_date, COUNT(*) AS records
        FROM ${TABLES.records}
-       WHERE operation_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+       WHERE project_id IS NOT NULL
+         AND operation_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
        GROUP BY operation_date ORDER BY operation_date ASC`
     );
 
     const vehicleTypes = await query(
       `SELECT vehicle_type, COUNT(*) AS count
        FROM ${TABLES.records}
-       WHERE operation_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+       WHERE project_id IS NOT NULL
+         AND operation_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
        GROUP BY vehicle_type ORDER BY count DESC`
     );
 
