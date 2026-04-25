@@ -1280,13 +1280,6 @@ app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'),
       throw badRequest('No se puede eliminar el proyecto base porque ya fue usado por proyectos operativos.');
     }
 
-    const [activeAssignments] = await query(
-      `SELECT COUNT(*) AS total FROM ${TABLES.assignments} WHERE project_id = ? AND is_active = 1`,
-      [projectId]
-    );
-    if (Number(activeAssignments?.total || 0) > 0) {
-      throw badRequest('No se puede eliminar el proyecto porque tiene personal asignado. Retira las asignaciones primero.');
-    }
     const [openSessions] = await query(
       `SELECT COUNT(*) AS total FROM ${TABLES.sessions} WHERE project_id = ? AND status = 'open'`,
       [projectId]
@@ -1295,10 +1288,19 @@ app.delete('/api/projects/:id', authenticateRequest, requireMinRole('director'),
       throw badRequest('No se puede eliminar el proyecto porque tiene turnos abiertos. Cierra los turnos primero.');
     }
     await withTransaction(async (conn) => {
+      // Las asignaciones son parte operativa del proyecto.
+      // Si no hay turnos abiertos, no deben bloquear la eliminación:
+      // se desactivan antes de retirar vínculos y eliminar el proyecto.
+      await conn.execute(
+        `UPDATE ${TABLES.assignments}
+         SET is_active = 0
+         WHERE project_id = ? AND is_active = 1`,
+        [projectId]
+      );
       await conn.execute(`UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ?`, [projectId]);
       await conn.execute(`DELETE FROM ${TABLES.projects} WHERE id = ?`, [projectId]);
     });
-    res.json({ ok: true });
+    res.json({ ok: true, deactivatedAssignments: true });
   } catch (error) { next(error); }
 });
 
