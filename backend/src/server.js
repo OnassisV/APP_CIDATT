@@ -600,6 +600,38 @@ async function buildCatalogStructure() {
   };
 }
 
+function concessionRecordScopeCondition() {
+  return `(
+    rp.concession_id = ?
+    OR spj.concession_id = ?
+    OR rs.concession_id = ?
+    OR EXISTS (
+      SELECT 1
+      FROM ${TABLES.profiles} px
+      LEFT JOIN ${TABLES.projects} pp ON pp.id = px.project_id
+      LEFT JOIN ${TABLES.booths} pb ON pb.id = px.booth_id
+      LEFT JOIN ${TABLES.stations} ps ON ps.id = COALESCE(px.station_id, pb.station_id)
+      WHERE px.session_id = r.session_id
+        AND (pp.concession_id = ? OR ps.concession_id = ?)
+    )
+  )`;
+}
+
+async function getConcessionRecordIds(concessionId, conn = null) {
+  const id = parseOptionalInt(concessionId);
+  const sql = `SELECT DISTINCT r.id
+     FROM ${TABLES.records} r
+     LEFT JOIN ${TABLES.sessions} s ON s.id = r.session_id
+     LEFT JOIN ${TABLES.projects} rp ON rp.id = r.project_id
+     LEFT JOIN ${TABLES.projects} spj ON spj.id = s.project_id
+     LEFT JOIN ${TABLES.booths} rb ON rb.id = r.booth_id
+     LEFT JOIN ${TABLES.stations} rs ON rs.id = COALESCE(r.station_id, rb.station_id)
+     WHERE ${concessionRecordScopeCondition()}`;
+  const params = [id, id, id, id, id];
+  const rows = conn ? (await conn.execute(sql, params))[0] : await query(sql, params);
+  return rows.map((row) => String(row.id || '').trim()).filter(Boolean);
+}
+
 async function getConcessionOperationalBlockers(concessionId) {
   const id = parseOptionalInt(concessionId);
   if (!id) throw badRequest('Concesion invalida.');
@@ -669,18 +701,35 @@ async function getConcessionOperationalBlockers(concessionId) {
      LEFT JOIN ${TABLES.projects} spj ON spj.id = s.project_id
      LEFT JOIN ${TABLES.booths} rb ON rb.id = r.booth_id
      LEFT JOIN ${TABLES.stations} rs ON rs.id = COALESCE(r.station_id, rb.station_id)
-     WHERE rp.concession_id = ?
-        OR spj.concession_id = ?
-        OR rs.concession_id = ?
-        OR EXISTS (
-          SELECT 1
-          FROM ${TABLES.profiles} px
-          LEFT JOIN ${TABLES.projects} pp ON pp.id = px.project_id
-          LEFT JOIN ${TABLES.booths} pb ON pb.id = px.booth_id
-          LEFT JOIN ${TABLES.stations} ps ON ps.id = COALESCE(px.station_id, pb.station_id)
-          WHERE px.session_id = r.session_id
-            AND (pp.concession_id = ? OR ps.concession_id = ?)
-        )`,
+     WHERE ${concessionRecordScopeCondition()}`,
+    [id, id, id, id, id]
+  );
+
+  const recordDetails = await query(
+    `SELECT DISTINCT r.id, r.session_id, r.operation_date, r.passed_at,
+            COALESCE(u.full_name, r.operator_name, sp.operator_name) AS operator_name,
+            COALESCE(r.project_id, s.project_id, sp.project_id) AS project_id,
+            COALESCE(rp.name, spj.name, pp.name) AS project_name,
+            COALESCE(r.station_id, rb.station_id, sp.station_id, pb.station_id) AS station_id,
+            COALESCE(rs.name, ps.name, r.toll_name, sp.toll_name) AS station_name,
+            COALESCE(r.booth_id, sp.booth_id) AS booth_id,
+            COALESCE(rb.code, pb.code, r.booth_number, sp.booth_number) AS booth_code,
+            r.direction, r.main_plate, r.vehicle_type, r.main_axles, r.total_axles,
+            r.sync_status, r.is_fugitive, r.created_at
+     FROM ${TABLES.records} r
+     LEFT JOIN ${TABLES.sessions} s ON s.id = r.session_id
+     LEFT JOIN ${TABLES.profiles} sp ON sp.session_id = s.id AND sp.profile_index = 0
+     LEFT JOIN ${TABLES.users} u ON u.id = COALESCE(r.owner_user_id, s.owner_user_id)
+     LEFT JOIN ${TABLES.projects} rp ON rp.id = r.project_id
+     LEFT JOIN ${TABLES.projects} spj ON spj.id = s.project_id
+     LEFT JOIN ${TABLES.projects} pp ON pp.id = sp.project_id
+     LEFT JOIN ${TABLES.booths} rb ON rb.id = r.booth_id
+     LEFT JOIN ${TABLES.booths} pb ON pb.id = sp.booth_id
+     LEFT JOIN ${TABLES.stations} rs ON rs.id = COALESCE(r.station_id, rb.station_id)
+     LEFT JOIN ${TABLES.stations} ps ON ps.id = COALESCE(sp.station_id, pb.station_id)
+     WHERE ${concessionRecordScopeCondition()}
+     ORDER BY r.operation_date DESC, r.passed_at DESC, r.created_at DESC
+     LIMIT 200`,
     [id, id, id, id, id]
   );
 
@@ -690,6 +739,7 @@ async function getConcessionOperationalBlockers(concessionId) {
     activeAssignments,
     relatedSessions,
     openSessions,
+    recordDetails,
     recordSummary: {
       totalRecords: Number(recordSummary?.total_records || 0),
       sessionsWithRecords: Number(recordSummary?.sessions_with_records || 0),
@@ -711,11 +761,22 @@ async function cleanupConcessionOperationalBlockers(concessionId, options = {}) 
   const shouldDeactivateAssignments = options.deactivateAssignments !== false;
   const shouldCloseSessions = options.closeSessions !== false;
   const shouldDeleteEmptySessions = options.deleteEmptySessions !== false;
+  const shouldDeleteRecords = options.deleteRecords === true;
   let assignmentsDeactivated = 0;
   let sessionsClosed = 0;
   let emptySessionsDeleted = 0;
+  let recordsDeleted = 0;
 
   await withTransaction(async (conn) => {
+    if (shouldDeleteRecords) {
+      const recordIds = await getConcessionRecordIds(concessionId, conn);
+      if (recordIds.length) {
+        const placeholders = recordIds.map(() => '?').join(',');
+        const [result] = await conn.execute(`DELETE FROM ${TABLES.records} WHERE id IN (${placeholders})`, recordIds);
+        recordsDeleted = Number(result.affectedRows || 0);
+      }
+    }
+
     if (shouldDeactivateAssignments && assignmentIds.length) {
       const placeholders = assignmentIds.map(() => '?').join(',');
       const [result] = await conn.execute(
@@ -734,20 +795,44 @@ async function cleanupConcessionOperationalBlockers(concessionId, options = {}) 
       sessionsClosed = Number(result.affectedRows || 0);
     }
 
-    if (shouldDeleteEmptySessions && emptySessionIds.length) {
-      const placeholders = emptySessionIds.map(() => '?').join(',');
-      await conn.execute(`DELETE FROM ${TABLES.profiles} WHERE session_id IN (${placeholders})`, emptySessionIds);
-      const [result] = await conn.execute(`DELETE FROM ${TABLES.sessions} WHERE id IN (${placeholders})`, emptySessionIds);
-      emptySessionsDeleted = Number(result.affectedRows || 0);
+    if (shouldDeleteEmptySessions) {
+      let sessionsToDelete = emptySessionIds;
+      if (shouldDeleteRecords) {
+        const candidateIds = blockers.relatedSessions.map((item) => String(item.session_id || '').trim()).filter(Boolean);
+        if (candidateIds.length) {
+          const placeholders = candidateIds.map(() => '?').join(',');
+          const [rows] = await conn.execute(
+            `SELECT s.id
+             FROM ${TABLES.sessions} s
+             LEFT JOIN ${TABLES.records} r ON r.session_id = s.id
+             WHERE s.id IN (${placeholders})
+             GROUP BY s.id
+             HAVING COUNT(r.id) = 0`,
+            candidateIds
+          );
+          sessionsToDelete = rows.map((row) => String(row.id || '').trim()).filter(Boolean);
+        }
+      }
+      if (sessionsToDelete.length) {
+        const placeholders = sessionsToDelete.map(() => '?').join(',');
+        await conn.execute(`DELETE FROM ${TABLES.profiles} WHERE session_id IN (${placeholders})`, sessionsToDelete);
+        const [result] = await conn.execute(`DELETE FROM ${TABLES.sessions} WHERE id IN (${placeholders})`, sessionsToDelete);
+        emptySessionsDeleted = Number(result.affectedRows || 0);
+      }
     }
   });
+
+  const remainingRecords = shouldDeleteRecords
+    ? (await getConcessionRecordIds(concessionId)).length
+    : blockers.recordSummary.totalRecords;
 
   return {
     ok: true,
     assignmentsDeactivated,
     sessionsClosed,
     emptySessionsDeleted,
-    remainingRecords: blockers.recordSummary.totalRecords,
+    recordsDeleted,
+    remainingRecords,
     operativeProjects: blockers.operativeProjects.length
   };
 }
@@ -1017,7 +1102,8 @@ app.post('/api/concessions/:id/cleanup-blockers', authenticateRequest, requireMi
     const result = await cleanupConcessionOperationalBlockers(id, {
       deactivateAssignments: req.body.deactivate_assignments !== false,
       closeSessions: req.body.close_sessions !== false,
-      deleteEmptySessions: req.body.delete_empty_sessions !== false
+      deleteEmptySessions: req.body.delete_empty_sessions !== false,
+      deleteRecords: req.body.delete_records === true
     });
     res.json(result);
   } catch (error) { next(error); }

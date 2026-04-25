@@ -592,6 +592,18 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modalConcessionBlockers">
+  <div class="modal modal-wide" style="width:min(940px,96vw);">
+    <div class="modal-title" id="modalConcessionBlockersTitle">Bloqueos de concesión</div>
+    <div id="concessionBlockersContent" style="max-height:60vh;overflow:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalConcessionBlockers')">Cerrar</button>
+      <button class="btn btn-soft" id="btnCleanupConcessionBlockers">Liberar asignaciones/turnos</button>
+      <button class="btn btn-danger" id="btnPurgeConcessionRecords">Eliminar registros</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modalUser">
   <div class="modal">
     <div class="modal-title" id="modalUserTitle">Nuevo Usuario</div>
@@ -717,6 +729,7 @@
   var _parametersSnapshot = null;
   var parameterSearchTerm = '';
   var parameterModalState = null;
+  var concessionBlockerState = null;
   var BASE_STATION_CATALOG = [
   {
     "concession": "Norvial (Red Vial 5 — Ancón / Huacho / Pativilca)",
@@ -2870,8 +2883,8 @@
       await api('/concessions/' + id, { method: 'DELETE' });
       await refreshParametersEverywhere();
     } catch (e) {
-      const wantsCleanup = confirm(e.message + '\n\n¿Quieres intentar liberar turnos vacíos y asignaciones activas de esta concesión ahora?');
-      if (wantsCleanup) await window.cleanupParameterConcessionBlockers(id);
+      const wantsCleanup = confirm(e.message + '\n\n¿Quieres ver el detalle de bloqueos de esta concesión ahora?');
+      if (wantsCleanup) await window.openConcessionBlockers(id);
     }
   };
 
@@ -2928,6 +2941,153 @@
       await loadAlerts().catch(() => {});
     } catch (e) { alert(e.message); }
   };
+
+  function renderBlockerSummary(blockers) {
+    const recordSummary = (blockers && blockers.recordSummary) || {};
+    const items = [
+      ['Proyectos operativos', (blockers.operativeProjects || []).length],
+      ['Asignaciones activas', (blockers.activeAssignments || []).length],
+      ['Turnos abiertos', (blockers.openSessions || []).length],
+      ['Turnos relacionados', (blockers.relatedSessions || []).length],
+      ['Registros', Number(recordSummary.totalRecords || 0)]
+    ];
+    return `<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-bottom:12px;">
+      ${items.map(([label, value]) => `<div class="stat-card"><div class="value">${value}</div><div class="label">${label}</div></div>`).join('')}
+    </div>`;
+  }
+
+  function renderConcessionBlockersContent(blockers) {
+    const recordSummary = (blockers && blockers.recordSummary) || {};
+    const records = (blockers && blockers.recordDetails) || [];
+    let html = renderBlockerSummary(blockers || {});
+    if (Number(recordSummary.totalRecords || 0) > 0) {
+      html += `<div class="alert alert-warn" style="margin-bottom:12px;">
+        <span>!</span>
+        <div><strong>Estos registros bloquean el borrado de la concesión.</strong><br>
+        <small>Rango: ${esc(recordSummary.firstDate || '-')} a ${esc(recordSummary.lastDate || '-')} · Sesiones con registros: ${Number(recordSummary.sessionsWithRecords || 0)}. Mostrando hasta ${records.length} registro(s).</small></div>
+      </div>`;
+    }
+
+    if ((blockers.activeAssignments || []).length) {
+      html += `<h3 style="font-size:.9rem;margin:12px 0 8px;">Asignaciones activas</h3>
+        <div class="table-wrap"><table><thead><tr><th>Usuario</th><th>Proyecto</th><th>Peaje</th><th>Caseta</th></tr></thead><tbody>
+        ${(blockers.activeAssignments || []).map((item) => `<tr>
+          <td>${esc(item.full_name || '')}<br><small>@${esc(item.username || '')} · ${esc(item.role || '')}</small></td>
+          <td>${esc(item.project_name || '-')}</td>
+          <td>${esc(item.station_name || '-')}</td>
+          <td>${item.booth_id ? 'C-' + esc(item.booth_code || '') : 'Pool peaje'}</td>
+        </tr>`).join('')}
+        </tbody></table></div>`;
+    }
+
+    if ((blockers.relatedSessions || []).length) {
+      html += `<h3 style="font-size:.9rem;margin:12px 0 8px;">Turnos relacionados</h3>
+        <div class="table-wrap"><table><thead><tr><th>Operador</th><th>Fecha</th><th>Estado</th><th>Peaje</th><th>Caseta</th><th>Registros</th></tr></thead><tbody>
+        ${(blockers.relatedSessions || []).map((session) => `<tr>
+          <td>${esc(session.operator_name || '-')}</td>
+          <td>${esc(session.operation_date || '-')}</td>
+          <td><span class="badge ${String(session.status || '').toLowerCase() === 'open' ? 'badge-activo' : 'badge-cerrado'}">${esc(session.status || '-')}</span></td>
+          <td>${esc(session.station_name || '-')}</td>
+          <td>${session.booth_code ? 'C-' + esc(session.booth_code) : '-'}</td>
+          <td>${Number(session.records_count || 0)}</td>
+        </tr>`).join('')}
+        </tbody></table></div>`;
+    }
+
+    if (records.length) {
+      html += `<h3 style="font-size:.9rem;margin:12px 0 8px;">Registros que bloquean</h3>
+        <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Operador</th><th>Peaje</th><th>Caseta</th><th>Placa</th><th>Vehículo</th><th>Sesión</th></tr></thead><tbody>
+        ${records.map((record) => `<tr>
+          <td>${esc(record.operation_date || '-')}<br><small>${esc(record.passed_at || '')}</small></td>
+          <td>${esc(record.operator_name || '-')}</td>
+          <td>${esc(record.station_name || record.toll_name || '-')}</td>
+          <td>${record.booth_code ? 'C-' + esc(record.booth_code) : '-'}</td>
+          <td><strong>${esc(record.main_plate || '-')}</strong></td>
+          <td>${esc(record.vehicle_type || '-')}${record.total_axles ? ' · ' + Number(record.total_axles) + ' ejes' : ''}${Number(record.is_fugitive || 0) ? '<br><span class="badge badge-cerrado">Fuga</span>' : ''}</td>
+          <td><small>${esc(record.session_id || '-')}</small></td>
+        </tr>`).join('')}
+        </tbody></table></div>`;
+    }
+
+    if (!html.trim()) return '<div class="empty-state">No se encontraron bloqueos para esta concesión.</div>';
+    return html;
+  }
+
+  function updateConcessionBlockerButtons(blockers) {
+    const cleanupBtn = document.getElementById('btnCleanupConcessionBlockers');
+    const purgeBtn = document.getElementById('btnPurgeConcessionRecords');
+    const hasCleanup =
+      (blockers.activeAssignments || []).length ||
+      (blockers.openSessions || []).length ||
+      (blockers.relatedSessions || []).some((session) => Number(session.records_count || 0) === 0);
+    const hasRecords = Number(((blockers || {}).recordSummary || {}).totalRecords || 0) > 0;
+    if (cleanupBtn) cleanupBtn.style.display = hasCleanup ? '' : 'none';
+    if (purgeBtn) purgeBtn.style.display = hasRecords ? '' : 'none';
+  }
+
+  window.openConcessionBlockers = async function(id) {
+    const item = getSnapshotConcession(id);
+    const name = item ? item.name : 'esta concesión';
+    const content = document.getElementById('concessionBlockersContent');
+    document.getElementById('modalConcessionBlockersTitle').textContent = 'Bloqueos de concesión: ' + name;
+    content.innerHTML = '<div class="empty-state">Cargando bloqueos...</div>';
+    openModal('modalConcessionBlockers');
+    try {
+      const details = await api('/concessions/' + id + '/blockers');
+      concessionBlockerState = { id, name, blockers: details.blockers || {} };
+      content.innerHTML = renderConcessionBlockersContent(concessionBlockerState.blockers);
+      updateConcessionBlockerButtons(concessionBlockerState.blockers);
+    } catch (e) {
+      content.innerHTML = `<div class="alert alert-danger"><span>!</span><div>${esc(e.message)}</div></div>`;
+    }
+  };
+
+  async function refreshConcessionBlockerModal() {
+    if (concessionBlockerState && concessionBlockerState.id) {
+      await window.openConcessionBlockers(concessionBlockerState.id);
+    }
+    await refreshParametersEverywhere();
+    await loadAlerts().catch(() => {});
+  }
+
+  async function runConcessionBlockerCleanup(deleteRecords) {
+    if (!concessionBlockerState || !concessionBlockerState.id) return;
+    const blockers = concessionBlockerState.blockers || {};
+    if (deleteRecords) {
+      const total = Number(((blockers.recordSummary || {}).totalRecords) || 0);
+      if (!total) return alert('No hay registros para eliminar en esta concesión.');
+      const typed = window.prompt('Vas a eliminar ' + total + ' registro(s) de "' + concessionBlockerState.name + '". Esta acción es irreversible. Escribe ELIMINAR para confirmar:');
+      if (String(typed || '').trim().toUpperCase() !== 'ELIMINAR') return;
+    } else {
+      if (!confirm('Se cerrarán turnos abiertos, se eliminarán turnos vacíos y se desactivarán asignaciones activas. No se borrarán registros. ¿Continuar?')) return;
+    }
+    const result = await api('/concessions/' + concessionBlockerState.id + '/cleanup-blockers', {
+      method: 'POST',
+      body: {
+        deactivate_assignments: true,
+        close_sessions: true,
+        delete_empty_sessions: true,
+        delete_records: Boolean(deleteRecords)
+      }
+    });
+    alert('Limpieza aplicada.\nAsignaciones desactivadas: ' + Number(result.assignmentsDeactivated || 0) +
+      '\nTurnos cerrados: ' + Number(result.sessionsClosed || 0) +
+      '\nTurnos vacíos eliminados: ' + Number(result.emptySessionsDeleted || 0) +
+      '\nRegistros eliminados: ' + Number(result.recordsDeleted || 0) +
+      '\nRegistros restantes: ' + Number(result.remainingRecords || 0));
+    await refreshConcessionBlockerModal();
+  }
+
+  const btnCleanupConcessionBlockers = document.getElementById('btnCleanupConcessionBlockers');
+  if (btnCleanupConcessionBlockers) {
+    btnCleanupConcessionBlockers.onclick = () => withLoading('btnCleanupConcessionBlockers', () => runConcessionBlockerCleanup(false)).catch((e) => alert(e.message));
+  }
+  const btnPurgeConcessionRecords = document.getElementById('btnPurgeConcessionRecords');
+  if (btnPurgeConcessionRecords) {
+    btnPurgeConcessionRecords.onclick = () => withLoading('btnPurgeConcessionRecords', () => runConcessionBlockerCleanup(true)).catch((e) => alert(e.message));
+  }
+
+  window.cleanupParameterConcessionBlockers = window.openConcessionBlockers;
 
   window.createParameterProjectPromptLegacy = async function(concessionId) {
     const name = promptClean('Nombre del proyecto / red vial:', '');
@@ -4307,7 +4467,7 @@
         </div>
         <div class="param-actions">
           <button class="btn btn-soft btn-sm" onclick="editParameterConcessionPrompt(${c.id})">Editar</button>
-          <button class="btn btn-soft btn-sm" onclick="cleanupParameterConcessionBlockers(${c.id})">Liberar bloqueos</button>
+          <button class="btn btn-soft btn-sm" onclick="openConcessionBlockers(${c.id})">Ver bloqueos</button>
           <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterConcession(${c.id})">Eliminar</button>
           <button class="btn btn-primary btn-sm" onclick="createParameterProjectPrompt(${c.id})">+ Proyecto base</button>
         </div>
