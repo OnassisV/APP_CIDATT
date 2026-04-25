@@ -127,6 +127,21 @@
     .btn-ok { background: var(--ok-bg); color: var(--ok); }
     .btn-sm { padding: 6px 10px; font-size: 0.8rem; border-radius: 8px; }
     .btn-switch { background: #3b82f6; color: white; } /* Azul para destacar el switch */
+    .header-actions .btn-logout-compact {
+      min-width: 34px;
+      height: 34px;
+      padding: 5px 8px;
+      font-size: .9rem;
+      line-height: 1;
+    }
+    .record-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .record-title-row h2 { margin: 0; }
 
     .helper { color: var(--muted); font-size: 0.8rem; line-height: 1.3; margin-top: 8px; }
 
@@ -213,7 +228,119 @@
     }
     .voice-status.active { color: #ef4444; font-weight: 600; }
 
-    @media (max-width: 380px) { .chips, .chips-4, .chips-5 { grid-template-columns: repeat(2, 1fr); } }
+
+    .setup-mode-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px;
+      margin-bottom: 12px;
+      background: var(--bg);
+    }
+    .setup-assignment-select {
+      margin-bottom: 8px;
+    }
+    .setup-readonly {
+      background: var(--bg) !important;
+      color: var(--muted) !important;
+      font-weight: bold;
+    }
+    .setup-small-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .setup-mini-note {
+      font-size: .75rem;
+      color: var(--muted);
+      line-height: 1.3;
+      margin: 4px 0 8px;
+    }
+    .setup-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: bold;
+      background: var(--soft);
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    .setup-mode-card.locked-assigned {
+      border-color: rgba(15, 118, 110, .35);
+      background: rgba(15, 118, 110, .06);
+    }
+    .setup-mode-card.manual-active {
+      border-color: rgba(234, 179, 8, .55);
+      background: rgba(254, 240, 138, .18);
+    }
+    .setup-mode-status {
+      font-size: .74rem;
+      font-weight: bold;
+      border-radius: 999px;
+      padding: 4px 8px;
+      display: inline-flex;
+      margin: 0 0 8px;
+    }
+    .setup-mode-status.assigned {
+      color: var(--ok);
+      background: var(--ok-bg);
+    }
+    .setup-mode-status.manual {
+      color: #854d0e;
+      background: #fef08a;
+    }
+    .setup-mode-card select:disabled,
+    .setup-mode-card input:disabled {
+      opacity: .72;
+      background: var(--bg);
+      color: var(--muted);
+      font-weight: bold;
+    }
+    .setup-assigned-summary {
+      border: 1px solid rgba(22, 101, 52, .25);
+      background: var(--ok-bg);
+      color: var(--ok);
+      border-radius: 12px;
+      padding: 9px 10px;
+      font-size: .78rem;
+      line-height: 1.35;
+      margin: 8px 0;
+    }
+    .setup-assigned-summary strong { display: block; margin-bottom: 3px; }
+    .setup-help-warning {
+      border: 1px solid rgba(234, 179, 8, .45);
+      background: rgba(254, 240, 138, .18);
+      color: #854d0e;
+      border-radius: 12px;
+      padding: 9px 10px;
+      font-size: .78rem;
+      line-height: 1.35;
+      margin: 8px 0;
+    }
+    @media (hover: hover) {
+      .history-item:hover .history-swipe-content { transform: translateX(-120px); }
+    }
+    .btn-fuga {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid rgba(185,28,28,.25);
+      font-size: .74rem;
+      padding: 5px 8px;
+      border-radius: 9px;
+      white-space: nowrap;
+      min-height: 30px;
+    }
+    .btn-fuga:hover {
+      opacity: .9;
+    }
+    @media (max-width: 420px) {
+      .setup-small-grid { grid-template-columns: 1fr; }
+    }
+
+        @media (max-width: 380px) { .chips, .chips-4, .chips-5 { grid-template-columns: repeat(2, 1fr); } }
   </style>
   <link rel="manifest" href="./app.webmanifest">
 </head>
@@ -223,14 +350,14 @@
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
-        <button class="theme-toggle hidden" id="btnBackToPanel" onclick="window.location.href='/panel.html'" title="Volver al panel">← Panel</button>
-        <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión">🔓 Salir</button>
+        <button class="theme-toggle hidden" id="btnBackToPanel" type="button" title="Volver al panel">← Panel</button>
+        <button class="theme-toggle btn-logout-compact hidden" id="btnLogoutRegister" title="Cerrar sesión / cambiar usuario" aria-label="Cerrar sesión">🔓</button>
         <button class="theme-toggle" id="btnHelp" title="Ayuda">❓</button>
         <button class="theme-toggle" id="btnTheme">🌙</button>
       </div>
     </div>
 
-    <section class="card hidden" id="licenseCard">
+    <section class="card" id="licenseCard">
       <h2 style="margin:0 0 10px 0; font-size:1.3rem; color: var(--danger);">🔐 Acceso de Operador</h2>
       <p class="helper" style="margin-top:0; margin-bottom:20px; font-size:0.9rem;">Ingrese su usuario y clave para operar y sincronizar con Railway.</p>
       <form id="licenseForm">
@@ -240,6 +367,7 @@
         </div>
         <button type="submit" class="btn-primary" style="width:100%; font-size: 1.1rem; padding: 14px;">Ingresar</button>
       </form>
+      <p class="helper" style="margin-top:12px;">Los usuarios administradores, directores y coordinadores serán enviados automáticamente al panel.</p>
     </section>
 
     <div class="site-info-bar hidden" id="siteInfoBar">
@@ -253,57 +381,108 @@
     <div class="warning-banner" id="warningBanner"></div>
     <div class="banner" id="statusBanner">Registro guardado.</div>
 
-    <section class="card" id="setupCard">
+    <section class="card hidden" id="setupCard">
       <h2 style="margin:0 0 5px 0; font-size:1.05rem;">Configuración del Turno</h2>
-      <p class="helper" style="margin-top:0; margin-bottom:12px;">Datos base para la exportación y registros.</p>
+      <p class="helper" style="margin-top:0; margin-bottom:12px;">
+        Seleccione la caseta asignada por el coordinador. Si no aparece asignación o no hay señal, configure manualmente usando la base de Parámetros.
+      </p>
       <form id="setupForm">
-        
+
         <div style="margin-bottom:12px;">
-          <label>Fecha de Operación (Para Digitación)</label>
+          <label>Fecha de Operación</label>
           <input id="setupFecha" type="date" required />
         </div>
 
         <div class="perfil-box">
-          <label style="color:var(--accent);">▶ PERFIL 1 (Caseta Principal)</label>
-          <input id="setupPeaje1" type="text" maxlength="60" placeholder="Nombre del Peaje" style="margin-bottom:8px;" required />
-          <input id="setupCaseta1" type="text" maxlength="20" placeholder="Número de Caseta" style="margin-bottom:8px;" required />
-          <input id="setupOperador1" type="text" maxlength="60" placeholder="Nombre del Operador" style="margin-bottom:8px;" required />
-          <select id="setupSentido1" required>
-            <option value="">Seleccione sentido...</option>
-            <option value="Este a Oeste">Este a Oeste</option>
-            <option value="Oeste a Este">Oeste a Este</option>
-            <option value="Norte a Sur">Norte a Sur</option>
-            <option value="Sur a Norte">Sur a Norte</option>
-          </select>
+          <label style="color:var(--accent);">▶ CASETA PRINCIPAL</label>
+          <div class="setup-mode-card">
+            <span class="setup-badge">Asignación / Manual</span>
+            <div class="setup-mode-status manual" id="setupModeStatus1">Modo manual disponible</div>
+            <label>Caseta asignada</label>
+            <select id="setupAssigned1" class="setup-assignment-select">
+              <option value="__manual__">Sin asignación / configuración manual</option>
+            </select>
+            <p class="setup-mini-note">Use esta lista cuando el coordinador ya asignó la caseta. Si no hay asignación o no hay internet, use la configuración manual.</p>
+            <div class="setup-assigned-summary hidden" id="assignedSummary1"></div>
+
+            <div class="setup-small-grid" id="manualPrimaryFields">
+              <div>
+                <label>Concesión</label>
+                <select id="setupConcession1" required></select>
+                <input id="setupConcessionCustom1" class="hidden" type="text" maxlength="80" placeholder="Nombre de concesión" style="margin-top:8px;" />
+              </div>
+              <div>
+                <label>Proyecto base / red vial</label>
+                <select id="setupBaseProject1"></select>
+              </div>
+              <div>
+                <label>Peaje</label>
+                <select id="setupPeaje1" required></select>
+                <input id="setupPeajeCustom1" class="hidden" type="text" maxlength="80" placeholder="Nombre del peaje" style="margin-top:8px;" />
+              </div>
+            </div>
+
+            <input id="setupCaseta1" type="text" maxlength="20" placeholder="Número de Caseta" style="margin-bottom:8px;" required list="setupCasetaOptions1" />
+            <datalist id="setupCasetaOptions1"></datalist>
+            <input id="setupOperador1" class="setup-readonly" type="text" maxlength="60" placeholder="Operador" style="margin-bottom:8px;" required readonly />
+            <select id="setupSentido1" required>
+              <option value="">Seleccione sentido...</option>
+              <option value="Este a Oeste">Este a Oeste</option>
+              <option value="Oeste a Este">Oeste a Este</option>
+              <option value="Norte a Sur">Norte a Sur</option>
+              <option value="Sur a Norte">Sur a Norte</option>
+              <option value="Ingreso">Ingreso</option>
+              <option value="Salida">Salida</option>
+            </select>
+          </div>
         </div>
 
         <div class="toggle-line" style="margin-bottom:12px;">
           <input type="checkbox" id="setupMultiCaseta" />
-          <label for="setupMultiCaseta" style="margin:0; font-size:0.9rem; color:var(--text);">+ Configurar Caseta Secundaria (Multiperfil)</label>
+          <label for="setupMultiCaseta" style="margin:0; font-size:0.9rem; color:var(--text);">+ Configurar Caseta Secundaria (máximo 2 casetas)</label>
         </div>
 
         <div class="perfil-box hidden" id="setupCaseta2Box">
-          <label style="color:var(--warn);">▶ PERFIL 2 (Caseta Secundaria)</label>
-          <input id="setupPeaje2" type="text" maxlength="60" placeholder="Nombre del Peaje" style="margin-bottom:8px;" />
-          <input id="setupCaseta2" type="text" maxlength="20" placeholder="Número de Caseta" style="margin-bottom:8px;" />
-          <input id="setupOperador2" type="text" maxlength="60" placeholder="Nombre del Operador" style="margin-bottom:8px;" />
-          <select id="setupSentido2">
-            <option value="">Seleccione sentido...</option>
-            <option value="Este a Oeste">Este a Oeste</option>
-            <option value="Oeste a Este">Oeste a Este</option>
-            <option value="Norte a Sur">Norte a Sur</option>
-            <option value="Sur a Norte">Sur a Norte</option>
-          </select>
+          <label style="color:var(--warn);">▶ CASETA SECUNDARIA</label>
+          <div class="setup-mode-card">
+            <span class="setup-badge">Misma concesión y peaje</span>
+            <div class="setup-mode-status manual" id="setupModeStatus2">Modo manual disponible</div>
+            <label>Caseta asignada</label>
+            <select id="setupAssigned2" class="setup-assignment-select">
+              <option value="__manual__">Sin asignación / configuración manual</option>
+            </select>
+            <p class="setup-mini-note">La caseta secundaria mantiene la misma concesión y peaje de la principal. Solo cambie caseta y sentido.</p>
+            <div class="setup-assigned-summary hidden" id="assignedSummary2"></div>
+
+            <input id="setupPeaje2" class="setup-readonly" type="text" maxlength="60" placeholder="Peaje principal" style="margin-bottom:8px;" readonly />
+            <input id="setupCaseta2" type="text" maxlength="20" placeholder="Número de Caseta secundaria" style="margin-bottom:8px;" list="setupCasetaOptions2" />
+            <datalist id="setupCasetaOptions2"></datalist>
+            <input id="setupOperador2" class="setup-readonly" type="text" maxlength="60" placeholder="Operador" style="margin-bottom:8px;" readonly />
+            <select id="setupSentido2">
+              <option value="">Seleccione sentido...</option>
+              <option value="Este a Oeste">Este a Oeste</option>
+              <option value="Oeste a Este">Oeste a Este</option>
+              <option value="Norte a Sur">Norte a Sur</option>
+              <option value="Sur a Norte">Sur a Norte</option>
+              <option value="Ingreso">Ingreso</option>
+              <option value="Salida">Salida</option>
+            </select>
+          </div>
         </div>
 
-        <button type="submit" class="btn-primary" style="width:100%;">Iniciar Operación</button>
+        <button type="submit" class="btn-primary" style="width:100%;">Guardar configuración</button>
+        <div class="form-actions" style="margin-top:10px;">
+          <button type="button" class="btn-soft" id="btnResetSetupInputs">Borrar datos del formulario</button>
+          <button type="button" class="btn-soft hidden" id="btnCancelSetupEdit">Cancelar</button>
+        </div>
       </form>
     </section>
 
     <div id="mainContent" class="hidden">
       <section class="card" style="padding-top:8px;">
-        <div class="section-title" style="margin-bottom:6px;">
+        <div class="record-title-row">
           <h2 id="formTitle">Nuevo registro</h2>
+          <button type="button" class="btn-fuga btn-sm" id="btnRegistrarFuga" title="Registrar vehículo fugado sin placa ni ejes">🚧 Fuga</button>
         </div>
 
         <form id="registroForm">
@@ -326,6 +505,7 @@
               </div>
             </div>
           </div>
+
 
           <div class="group-card" id="groupTipo">
             <label>Tipo de vehículo</label>
@@ -351,6 +531,7 @@
               <button type="button" class="chip" data-ejes-principal="8">8</button>
               <button type="button" class="chip" data-ejes-principal="9">9</button>
             </div>
+            <p class="setup-mini-note hidden" id="fixedAxleNotice">Este tipo de vehículo usa 2 ejes por defecto.</p>
           </div>
 
           <div class="group-card" id="groupSecundaria">
@@ -386,7 +567,8 @@
               </div>
             </div>
           </div>
-          
+
+
           <div class="form-actions">
             <button type="button" class="btn-soft" id="btnDeshacerUltimo">↩️ Deshacer Último</button>
             <button type="button" class="btn-soft" id="btnLimpiar">🧹 Limpiar Formulario</button>
@@ -406,7 +588,7 @@
         </div>
 
         <div class="toolbar">
-          <button type="button" class="btn-ok" id="btnCerrarTurno">📤 Exportar / Cerrar Turno</button>
+          <button type="button" class="btn-ok" id="btnCerrarTurno">📤 Exportar y cerrar turno</button>
           <button type="button" class="btn-soft" id="btnToggleHistorial" style="padding: 8px;">Ver todo el historial</button>
         </div>
         
@@ -445,7 +627,7 @@
 
           <p><strong>2. Configurar Turno</strong><br>
           • Selecciona la <em>fecha de operación</em><br>
-          • Completa: nombre del peaje, número de caseta, operador y sentido<br>
+          • Selecciona concesión, proyecto base/red vial, peaje, caseta y sentido<br>
           • Si trabajas en 2 casetas, activa "Multiperfil"<br>
           • Presiona <strong>Iniciar Operación</strong></p>
 
@@ -461,7 +643,7 @@
           • Desliza un registro a la izquierda para ver las opciones ✏️ editar o 🗑️ eliminar<br>
           • Usa el buscador de placas para encontrar registros rápidamente</p>
 
-          <p><strong>5. Exportar / Cerrar Turno</strong><br>
+          <p><strong>5. Exportar y cerrar turno</strong><br>
           Presiona el botón verde y elige:<br>
           • ☁️ <strong>Enviar a la nube</strong> — sincroniza con la base de datos central<br>
           • 📊 <strong>Exportar CSV</strong> — descarga el archivo para Excel<br>
@@ -525,15 +707,15 @@
     </div>
   </div>
 
-  <!-- Modal Exportar / Cerrar Turno -->
+  <!-- Modal Exportar y cerrar turno -->
   <div id="exportOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:none; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:16px; padding:24px; margin:16px; max-width:360px; width:100%; box-shadow:0 8px 32px rgba(0,0,0,0.25);">
-      <h3 style="margin:0 0 8px; font-size:1.1rem;">📤 Cerrar Turno</h3>
-      <p style="margin:0 0 16px; font-size:0.85rem; color:#666;">¿Qué deseas hacer con los registros?</p>
+      <h3 style="margin:0 0 8px; font-size:1.1rem;">📤 Exportar y cerrar turno</h3>
+      <p style="margin:0 0 16px; font-size:0.85rem; color:#666;">Al exportar se cerrará el turno local del dispositivo.</p>
       <div style="display:flex; flex-direction:column; gap:10px;">
-        <button type="button" id="btnExportCloud" style="padding:14px; border:none; border-radius:10px; background:#1a6b5a; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️ Enviar a la nube</button>
-        <button type="button" id="btnExportExcel" style="padding:14px; border:none; border-radius:10px; background:#2563eb; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">📊 Exportar Excel / CSV</button>
-        <button type="button" id="btnExportBoth" style="padding:14px; border:none; border-radius:10px; background:#7c3aed; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️📊 Ambos (nube + Excel)</button>
+        <button type="button" id="btnExportCloud" style="padding:14px; border:none; border-radius:10px; background:#1a6b5a; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️ Enviar a la nube y cerrar</button>
+        <button type="button" id="btnExportExcel" style="padding:14px; border:none; border-radius:10px; background:#2563eb; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">📊 Exportar CSV y cerrar</button>
+        <button type="button" id="btnExportBoth" style="padding:14px; border:none; border-radius:10px; background:#7c3aed; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️📊 Ambos y cerrar</button>
         <button type="button" id="btnExportCancel" style="padding:10px; border:1px solid #ddd; border-radius:10px; background:#fff; color:#666; font-size:0.9rem; cursor:pointer; margin-top:4px;">Cancelar</button>
       </div>
     </div>
@@ -580,12 +762,15 @@
         if (deferredPrompt) { deferredPrompt.prompt(); await deferredPrompt.userChoice; document.getElementById('btnInstall').classList.add('hidden'); deferredPrompt = null; }
       });
 
-      const DB_NAME = 'CIDATTRlvDB'; const DB_VERSION = 1; let db;
+      const DB_NAME = 'CIDATTRlvDB'; const DB_VERSION = 2; let db;
 
       function initDB() {
         return new Promise((resolve, reject) => {
           let req = indexedDB.open(DB_NAME, DB_VERSION);
-          req.onupgradeneeded = e => { if (!e.target.result.objectStoreNames.contains('store')) e.target.result.createObjectStore('store'); };
+          req.onupgradeneeded = e => {
+            if (!e.target.result.objectStoreNames.contains('store')) e.target.result.createObjectStore('store');
+            if (!e.target.result.objectStoreNames.contains('outbox')) e.target.result.createObjectStore('outbox', { keyPath: 'id' });
+          };
           req.onsuccess = e => { db = e.target.result; resolve(); };
           req.onerror = e => reject(e);
         });
@@ -609,12 +794,49 @@
         });
       }
 
-      var STORAGE_KEY = 'rlv_cidatt_records_v1';
-      var SITE_INFO_KEY = 'rlv_cidatt_site_info_v1';
-      var DRAFT_KEY = 'rlv_cidatt_draft_v1';
+      function putOutboxItem(item) {
+        return new Promise((resolve, reject) => {
+          if (!db) return resolve();
+          let tx = db.transaction('outbox', 'readwrite');
+          tx.objectStore('outbox').put(item);
+          tx.oncomplete = () => resolve();
+          tx.onerror = e => reject(e);
+        });
+      }
+
+      function getOutboxItems() {
+        return new Promise(resolve => {
+          if (!db) return resolve([]);
+          let tx = db.transaction('outbox', 'readonly');
+          let req = tx.objectStore('outbox').getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+      }
+
+      function deleteOutboxItem(id) {
+        return new Promise((resolve, reject) => {
+          if (!db) return resolve();
+          let tx = db.transaction('outbox', 'readwrite');
+          tx.objectStore('outbox').delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = e => reject(e);
+        });
+      }
+
+      var STORAGE_KEY_BASE = 'rlv_cidatt_records_v1';
+      var SITE_INFO_KEY_BASE = 'rlv_cidatt_site_info_v1';
+      var DRAFT_KEY_BASE = 'rlv_cidatt_draft_v1';
+      var STORAGE_KEY = STORAGE_KEY_BASE + ':anonymous';
+      var SITE_INFO_KEY = SITE_INFO_KEY_BASE + ':anonymous';
+      var DRAFT_KEY = DRAFT_KEY_BASE + ':anonymous';
       var LICENSE_KEY = 'rlv_cidatt_auth_v1';
+      var OPERATION_CONTEXT_KEY = 'rlv_cidatt_operation_context_v1';
       var AUTH_TOKEN_STORAGE_KEY = 'rlv_cidatt_auth_token';
       var AUTH_USER_STORAGE_KEY = 'rlv_cidatt_auth_user';
+      var DEVICE_ID_STORAGE_KEY = 'rlv_cidatt_device_id';
+      var SETUP_CATALOG_STORAGE_KEY = 'rlv_cidatt_setup_catalog_v1';
+      var SETUP_CATALOG_CACHE_VERSION = '2026-04-25-catalog-v2';
       
       var HISTORY_LIMIT = 5; var NEWLINE = String.fromCharCode(10); var CSV_BOM = String.fromCharCode(65279);
 
@@ -628,17 +850,211 @@
       
       var btnAhora = document.getElementById('btnAhora'); var btnLimpiar = document.getElementById('btnLimpiar'); var btnDeshacerUltimo = document.getElementById('btnDeshacerUltimo');
       var fabSave = document.getElementById('fabSave'); var searchHistory = document.getElementById('searchHistory'); var historialList = document.getElementById('historialList');
-      var btnSwitchCaseta = document.getElementById('btnSwitchCaseta');
+      var btnSwitchCaseta = document.getElementById('btnSwitchCaseta'); var btnHistoryBack = document.getElementById('btnBackToPanel');
+      var btnLocalCloseShift = document.getElementById('btnLocalCloseShift'); var btnCancelSetupEdit = document.getElementById('btnCancelSetupEdit');
+      var btnResetSetupInputs = document.getElementById('btnResetSetupInputs'); var btnRegistrarFuga = document.getElementById('btnRegistrarFuga');
 
       var registros = []; var siteInfo = null; var draftInfo = null; var editingId = null;
       var selectedTipo = ''; var selectedEjesPrincipal = 0; var selectedEjesSecundaria = 0;
   var lastCreatedId = null; var showAllHistory = false; var audioCtx = null; var isSaving = false; var searchTerm = ''; var hasValidLicense = false;
+  var isEditingSetup = false;
   var authToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
   var authUser = null;
+  var authAssignments = [];
+  var authOperationContext = { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+  var setupCatalogState = { loaded: false, concessions: [], projects: [], stations: [], booths: [], hierarchy: [], refreshedAt: null };
+  var realtimeTimer = null;
+
+      function getUserScopeId(user) {
+        var source = user || authUser || null;
+        var raw = source && (source.id || source.userId || source.user_id || source.username);
+        return String(raw || 'anonymous').replace(/[^a-zA-Z0-9_-]/g, '_');
+      }
+
+      function buildScopedKey(baseKey, user) {
+        return baseKey + ':' + getUserScopeId(user);
+      }
+
+      function refreshScopedStorageKeys(user) {
+        STORAGE_KEY = buildScopedKey(STORAGE_KEY_BASE, user);
+        SITE_INFO_KEY = buildScopedKey(SITE_INFO_KEY_BASE, user);
+        DRAFT_KEY = buildScopedKey(DRAFT_KEY_BASE, user);
+      }
+
+      function getScopedStorageKeys(user) {
+        return {
+          records: buildScopedKey(STORAGE_KEY_BASE, user),
+          site: buildScopedKey(SITE_INFO_KEY_BASE, user),
+          draft: buildScopedKey(DRAFT_KEY_BASE, user)
+        };
+      }
+
+      async function loadLocalStateForCurrentUser() {
+        refreshScopedStorageKeys(authUser);
+        registros = (await getDB(STORAGE_KEY).catch(function() { return []; })) || [];
+        siteInfo = (await getDB(SITE_INFO_KEY).catch(function() { return null; })) || null;
+        draftInfo = (await getDB(DRAFT_KEY).catch(function() { return null; })) || null;
+      }
+
+      function filterOutboxItemsForCurrentUser(items) {
+        var currentScope = getUserScopeId(authUser);
+        return (items || []).filter(function(item) {
+          return item && item.userScopeId === currentScope;
+        });
+      }
+
+  var SETUP_CATALOG = [
+        {
+                "concession": "Norvial (Red Vial 5 — Ancón / Huacho / Pativilca)",
+                "tolls": [
+                        "Peaje Serpêntín de Pasamayo",
+                        "Peaje Huacho",
+                        "Peaje Pativilca"
+                ]
+        },
+        {
+                "concession": "Red Vial 4 (Pativilca — Trujillo)",
+                "tolls": [
+                        "Peaje Vesique",
+                        "Peaje Virú",
+                        "Peaje Chicama",
+                        "Peaje Chao",
+                        "Peaje Menocucho"
+                ]
+        },
+        {
+                "concession": "Autopista del Sol (Trujillo — Sullana)",
+                "tolls": [
+                        "Peaje Salaverry",
+                        "Peaje Ascope",
+                        "Peaje Chocope",
+                        "Peaje Lambayeque",
+                        "Peaje Piura (Autopista del Sol)",
+                        "Peaje Sullana"
+                ]
+        },
+        {
+                "concession": "IIRSA Norte (Paita — Yurimaguas)",
+                "tolls": [
+                        "Peaje Piura (IIRSA Norte)",
+                        "Peaje Olmos",
+                        "Peaje Chamaya",
+                        "Peaje Pedro Ruiz",
+                        "Peaje Bagua Grande",
+                        "Peaje Rioja",
+                        "Peaje Moyobamba",
+                        "Peaje Tarapoto",
+                        "Peaje Picota",
+                        "Peaje Tocache"
+                ]
+        },
+        {
+                "concession": "IIRSA Centro T1 (Lima — La Oroya — Huancayo)",
+                "tolls": [
+                        "Peaje Casapalca",
+                        "Peaje La Oroya",
+                        "Peaje Tarma",
+                        "Peaje Huancayo"
+                ]
+        },
+        {
+                "concession": "IIRSA Centro T2 (La Oroya — Pucallpa)",
+                "tolls": [
+                        "Peaje San Ramón",
+                        "Peaje La Merced",
+                        "Peaje Pucallpa"
+                ]
+        },
+        {
+                "concession": "IIRSA Sur T1 (Marcona — Urcos)",
+                "tolls": [
+                        "Peaje Dv. Quilca",
+                        "Peaje Camaná",
+                        "Peaje La Yesera",
+                        "Peaje Ilo (Pampa Cuellar)"
+                ]
+        },
+        {
+                "concession": "IIRSA Sur T2 (Urcos — Inambari)",
+                "tolls": [
+                        "Peaje Urcos",
+                        "Peaje Marcapata",
+                        "Peaje Quincemil"
+                ]
+        },
+        {
+                "concession": "IIRSA Sur T3 (Inambari — Iñapari)",
+                "tolls": [
+                        "Peaje Puerto Maldonado",
+                        "Peaje Iberia"
+                ]
+        },
+        {
+                "concession": "IIRSA Sur T4 (Inambari — Azángaro)",
+                "tolls": [
+                        "Peaje Macusani",
+                        "Peaje Azángaro"
+                ]
+        },
+        {
+                "concession": "IIRSA Sur T5 (Matarani — Ilo — Dv. Quilca)",
+                "tolls": [
+                        "Peaje Matarani",
+                        "Peaje Moquegua",
+                        "Peaje Tomasiri"
+                ]
+        },
+        {
+                "concession": "Red Vial 6 / Survial (Ica — Dv. Quilca)",
+                "tolls": [
+                        "Peaje Chincha Alta",
+                        "Peaje Ica",
+                        "Peaje Dv. Los Libertadores",
+                        "Peaje Nasca"
+                ]
+        },
+        {
+                "concession": "Covinca (Lima — Canta — La Viuda)",
+                "tolls": [
+                        "Peaje Canta",
+                        "Peaje La Viuda"
+                ]
+        },
+        {
+                "concession": "Autopista Arequipa — La Joya",
+                "tolls": [
+                        "Peaje La Joya",
+                        "Peaje Uchumayo"
+                ]
+        },
+        {
+                "concession": "Rutas de Lima / Línea Amarilla",
+                "tolls": [
+                        "Peaje Gambetta",
+                        "Peaje Canta Callao",
+                        "Peaje Ramiro Priale",
+                        "Peaje Javier Prado"
+                ]
+        },
+        {
+                "concession": "Empalme 1B (Buenos Aires — Canchaque)",
+                "tolls": [
+                        "Peaje Buenos Aires",
+                        "Peaje Canchaque"
+                ]
+        }
+];
 
       function pad(val) { return String(val).padStart(2, '0'); }
       function todayDate() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
       function currentTime() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+      function isFixedTwoAxlesType(type) { return ['L', 'M2', 'PNP', 'A'].includes(String(type || '').toUpperCase()); }
+      function isNumericLeadingPlate(value) { return /^[0-9]/.test(String(value || '')); }
+      function goBackFromRegister() {
+        if (window.history.length > 1) return window.history.back();
+        if (document.referrer && document.referrer !== window.location.href) return window.location.href = document.referrer;
+        window.location.href = '/panel.html';
+      }
 
       // --- HORA INTELIGENTE (Digitación) ---
       function formatSmartTime(val) {
@@ -659,8 +1075,27 @@
 
       function formatPlate(value) {
         let clean = String(value || '').toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+        if (!clean) return '';
+        if (isNumericLeadingPlate(clean)) return clean.substring(0, 7);
+        clean = clean.substring(0, 6);
         if (clean.length > 3) return clean.substring(0, 3) + '-' + clean.substring(3, 6);
         return clean;
+      }
+
+      function syncPrimaryAxleOptions() {
+        var lockedToTwo = isFixedTwoAxlesType(selectedTipo);
+        document.querySelectorAll('[data-ejes-principal]').forEach(function(btn) {
+          var isTwoAxles = btn.getAttribute('data-ejes-principal') === '2';
+          btn.disabled = lockedToTwo && !isTwoAxles;
+          btn.style.opacity = lockedToTwo && !isTwoAxles ? '0.45' : '1';
+          btn.style.cursor = lockedToTwo && !isTwoAxles ? 'not-allowed' : 'pointer';
+        });
+        var notice = document.getElementById('fixedAxleNotice');
+        if (notice) notice.classList.toggle('hidden', !lockedToTwo);
+        if (lockedToTwo && selectedEjesPrincipal !== 2) {
+          selectedEjesPrincipal = 2;
+          activateChip('[data-ejes-principal]', 'data-ejes-principal', selectedEjesPrincipal);
+        }
       }
 
       function csvEscape(val) { return '"' + String(val == null ? '' : val).replace(/"/g, '""') + '"'; }
@@ -670,29 +1105,902 @@
         return 'cidatt-' + Date.now() + '-' + Math.random().toString(16).slice(2);
       }
 
+      function getDeviceId() {
+        var deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+        if (!deviceId) {
+          deviceId = generateId();
+          localStorage.setItem(DEVICE_ID_STORAGE_KEY, deviceId);
+        }
+        return deviceId;
+      }
+
+      function clearCachedAuth() {
+        authToken = '';
+        authUser = null;
+        authAssignments = [];
+        authOperationContext = { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        putDB(LICENSE_KEY, null).catch(()=>{});
+        putDB(OPERATION_CONTEXT_KEY, null).catch(()=>{});
+        hasValidLicense = false;
+        stopRealtimeServices();
+        refreshScopedStorageKeys(null);
+        try { showPanelButtons(); } catch (_err) {}
+      }
+
+      function cleanConcessionDisplayName(name) {
+        var raw = String(name || '').trim();
+        if (!raw) return '';
+        return raw
+          .replace(/\s*\([^)]*\)\s*/g, ' ')
+          .split('/')[0]
+          .replace(/\s+—\s+.*$/g, '')
+          .replace(/\s+-\s+.*$/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function normalizeText(value) {
+        return String(value || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      }
+
+
+      function optionSafe(value) {
+        return String(value == null ? '' : value)
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function hasRemoteSetupCatalog() {
+        return Boolean(setupCatalogState && Array.isArray(setupCatalogState.concessions) && setupCatalogState.concessions.length);
+      }
+
+      function normalizeCatalogPayload(payload) {
+        var source = payload || {};
+        return {
+          loaded: true,
+          version: SETUP_CATALOG_CACHE_VERSION,
+          refreshedAt: Date.now(),
+          concessions: Array.isArray(source.concessions) ? source.concessions : [],
+          projects: Array.isArray(source.projects) ? source.projects : [],
+          stations: Array.isArray(source.stations) ? source.stations : [],
+          booths: Array.isArray(source.booths) ? source.booths : [],
+          projectSites: Array.isArray(source.projectSites) ? source.projectSites : [],
+          hierarchy: Array.isArray(source.hierarchy) ? source.hierarchy : []
+        };
+      }
+
+      async function loadSetupCatalog(forceRefresh) {
+        var cached = await getDB(SETUP_CATALOG_STORAGE_KEY).catch(function() { return null; });
+        var cacheIsValid = cached && cached.version === SETUP_CATALOG_CACHE_VERSION;
+        if (cacheIsValid && !forceRefresh) setupCatalogState = cached;
+        if (!authToken || !navigator.onLine) {
+          if (cacheIsValid) setupCatalogState = cached;
+          return setupCatalogState;
+        }
+        if (hasRemoteSetupCatalog() && !forceRefresh) return setupCatalogState;
+        try {
+          var payload = await apiRequest('/catalog/structure');
+          setupCatalogState = normalizeCatalogPayload(payload);
+          await putDB(SETUP_CATALOG_STORAGE_KEY, setupCatalogState).catch(function(){});
+        } catch (err) {
+          if (cacheIsValid) setupCatalogState = cached;
+        }
+        return setupCatalogState;
+      }
+
+      function getRemoteConcessions() {
+        return (setupCatalogState.concessions || [])
+          .filter(function(item) { return item && item.name && normalizeText(item.name) !== normalizeText('Concesion General'); })
+          .map(function(item) { return { id: item.id, name: cleanConcessionDisplayName(item.name), rawName: item.name, source: 'remote' }; })
+          .filter(function(item) { return item.name; });
+      }
+
+      function getRemoteBaseProjectsForConcession(concessionName) {
+        var wanted = normalizeText(cleanConcessionDisplayName(concessionName));
+        if (!wanted) return [];
+        return (setupCatalogState.projects || [])
+          .filter(function(project) {
+            if (!project || !project.name) return false;
+            var type = normalizeText(project.project_type || 'base');
+            var isBase = !type || type === 'base';
+            var sameConcession = normalizeText(cleanConcessionDisplayName(project.concession_name || '')) === wanted;
+            return isBase && sameConcession;
+          })
+          .sort(function(a, b) { return String(a.name || '').localeCompare(String(b.name || ''), 'es'); });
+      }
+
+      function getSelectedBaseProjectId() {
+        var select = document.getElementById('setupBaseProject1');
+        var value = select ? Number(select.value || 0) : 0;
+        return Number.isFinite(value) && value > 0 ? value : null;
+      }
+
+      function stationBelongsToBaseProject(station, baseProjectId) {
+        if (!baseProjectId) return true;
+        var linked = String(station.linked_project_ids || station.linkedProjectIds || '')
+          .split(',')
+          .map(function(item) { return Number(item || 0); })
+          .filter(Boolean);
+        if (linked.includes(Number(baseProjectId))) return true;
+
+        // Fallback: revisar la tabla de vínculos si el backend la envía separada.
+        return (setupCatalogState.projectSites || []).some(function(link) {
+          return Number(link.project_id || link.projectId || 0) === Number(baseProjectId) &&
+                 Number(link.station_id || link.stationId || 0) === Number(station.id || 0) &&
+                 Number(link.is_active == null ? 1 : link.is_active) === 1;
+        });
+      }
+
+      function getRemoteStationsForConcession(concessionName, baseProjectId) {
+        var wanted = normalizeText(cleanConcessionDisplayName(concessionName));
+        if (!wanted) return [];
+        return (setupCatalogState.stations || []).filter(function(station) {
+          var sameConcession = normalizeText(cleanConcessionDisplayName(station.concession_name || station.concessionName || '')) === wanted;
+          return sameConcession && stationBelongsToBaseProject(station, baseProjectId || null);
+        }).sort(function(a, b) { return String(a.name || '').localeCompare(String(b.name || ''), 'es'); });
+      }
+
+      function findCatalogStationBySelection(concessionName, stationName) {
+        var wantedStation = normalizeText(stationName);
+        if (!wantedStation) return null;
+        return getRemoteStationsForConcession(concessionName, getSelectedBaseProjectId()).find(function(station) {
+          return normalizeText(station.name) === wantedStation;
+        }) || null;
+      }
+
+      function getCatalogBoothsForStation(stationId) {
+        var numericStationId = Number(stationId || 0);
+        if (!numericStationId) return [];
+        return (setupCatalogState.booths || []).filter(function(booth) {
+          return Number(booth.station_id || booth.stationId || 0) === numericStationId;
+        }).sort(function(a, b) { return String(a.code || '').localeCompare(String(b.code || ''), 'es', { numeric: true }); });
+      }
+
+      function getCatalogBoothsForSelection(concessionName, stationName) {
+        var station = findCatalogStationBySelection(concessionName, stationName);
+        return station ? getCatalogBoothsForStation(station.id) : [];
+      }
+
+      function findCatalogBoothByCode(concessionName, stationName, code, direction) {
+        var wantedCode = normalizeText(code);
+        var wantedDirection = normalizeText(direction);
+        if (!wantedCode) return null;
+        var booths = getCatalogBoothsForSelection(concessionName, stationName);
+        return booths.find(function(booth) {
+          var codeOk = normalizeText(booth.code) === wantedCode;
+          if (!codeOk) return false;
+          if (!wantedDirection) return true;
+          return normalizeText(booth.directions || '') === wantedDirection;
+        }) || booths.find(function(booth) { return normalizeText(booth.code) === wantedCode; }) || null;
+      }
+
+      function renderCasetaDatalist(inputId, datalistId, concessionName, stationName) {
+        var input = document.getElementById(inputId);
+        var datalist = document.getElementById(datalistId);
+        if (!input || !datalist) return;
+        var booths = getCatalogBoothsForSelection(concessionName, stationName);
+        datalist.innerHTML = booths.map(function(booth) {
+          var label = booth.directions ? booth.code + ' · ' + booth.directions : booth.code;
+          return '<option value="' + optionSafe(booth.code || '') + '" label="' + optionSafe(label) + '"></option>';
+        }).join('');
+      }
+
+      function renderCasetaOptionsForPrimary() {
+        renderCasetaDatalist('setupCaseta1', 'setupCasetaOptions1', getSelectedConcessionName(), getSelectedPeajeName());
+      }
+
+      function renderCasetaOptionsForSecondary() {
+        renderCasetaDatalist('setupCaseta2', 'setupCasetaOptions2', getSelectedConcessionName(), getSelectedPeajeName());
+      }
+
+
+      function getOperatorFullName() {
+        return authUser && authUser.fullName ? authUser.fullName : '';
+      }
+
+      function getAssignedBooths() {
+        var boothAssignments = authOperationContext && Array.isArray(authOperationContext.boothAssignments)
+          ? authOperationContext.boothAssignments
+          : [];
+        return boothAssignments.slice(0, 2);
+      }
+
+      function assignmentToProfile(item) {
+        return {
+          nombrePeaje: item && item.stationName ? item.stationName : '',
+          numeroCaseta: item && item.boothCode ? item.boothCode : '',
+          operador: getOperatorFullName(),
+          sentidoCirculacion: item && item.directions ? item.directions : '',
+          projectId: item && item.projectId ? item.projectId : null,
+          stationId: item && item.stationId ? item.stationId : null,
+          boothId: item && item.boothId ? item.boothId : null,
+          concessionName: item && item.concessionName ? item.concessionName : ''
+        };
+      }
+
+      function buildProfilesFromAssignments() {
+        return getAssignedBooths().map(assignmentToProfile);
+      }
+
+      function getAssignmentKey(profiles) {
+        return (profiles || []).map(function(profile) {
+          return [profile.projectId || '', profile.stationId || '', profile.boothId || '', profile.numeroCaseta || ''].join(':');
+        }).join('|');
+      }
+
+      function buildSetupConcessionList() {
+        var map = new Map();
+        getRemoteConcessions().forEach(function(item) {
+          var clean = cleanConcessionDisplayName(item.name || item.rawName || '');
+          if (clean && !map.has(normalizeText(clean))) map.set(normalizeText(clean), item);
+        });
+        getAssignedBooths().forEach(function(item) {
+          var clean = cleanConcessionDisplayName(item.concessionName || '');
+          if (clean && !map.has(normalizeText(clean))) map.set(normalizeText(clean), { name: clean, rawName: item.concessionName, source: 'assigned' });
+        });
+        return Array.from(map.values()).sort(function(a, b) { return a.name.localeCompare(b.name, 'es'); });
+      }
+
+      function getCatalogTollsForConcession(concessionName) {
+        var norm = normalizeText(cleanConcessionDisplayName(concessionName));
+        var tolls = [];
+        var selectedBaseProjectId = getSelectedBaseProjectId();
+        getRemoteStationsForConcession(concessionName, selectedBaseProjectId).forEach(function(station) { if (station && station.name) tolls.push(station.name); });
+        getAssignedBooths().forEach(function(item) {
+          if (normalizeText(cleanConcessionDisplayName(item.concessionName)) === norm && item.stationName) tolls.push(item.stationName);
+        });
+        var seen = new Set();
+        return tolls.filter(function(name) { var key = normalizeText(name); if (!name || seen.has(key)) return false; seen.add(key); return true; }).sort(function(a, b) { return a.localeCompare(b, 'es'); });
+      }
+
+      function setSelectValueOrFirst(select, value) {
+        if (!select) return;
+        var wanted = String(value || '');
+        if (wanted && Array.from(select.options).some(function(option) { return option.value === wanted; })) {
+          select.value = wanted;
+        } else if (select.options.length) {
+          select.value = select.options[0].value;
+        }
+      }
+
+      function renderConcessionSelect(selectedName) {
+        var select = document.getElementById('setupConcession1');
+        if (!select) return;
+        var list = buildSetupConcessionList();
+        var html = '<option value="">Seleccione concesión...</option>';
+        html += list.map(function(item) {
+          return '<option value="' + optionSafe(item.name) + '" data-source="' + optionSafe(item.source || '') + '">' + optionSafe(item.name) + '</option>';
+        }).join('');
+        html += '<option value="__other__">Otros / no listado</option>';
+        select.innerHTML = html;
+        if (selectedName) {
+          var clean = cleanConcessionDisplayName(selectedName);
+          setSelectValueOrFirst(select, clean);
+          if (select.value !== clean && clean) {
+            select.value = '__other__';
+            var custom = document.getElementById('setupConcessionCustom1');
+            if (custom) custom.value = clean;
+          }
+        }
+        toggleConcessionCustom();
+      }
+
+      function toggleConcessionCustom() {
+        var select = document.getElementById('setupConcession1');
+        var custom = document.getElementById('setupConcessionCustom1');
+        if (!select || !custom) return;
+        var isOther = select.value === '__other__';
+        custom.classList.toggle('hidden', !isOther);
+        if (!isOther) custom.value = '';
+        renderBaseProjectSelect();
+        renderPeajeSelect();
+      }
+
+      function getSelectedConcessionName() {
+        var select = document.getElementById('setupConcession1');
+        var custom = document.getElementById('setupConcessionCustom1');
+        if (!select) return '';
+        if (select.value === '__other__') return String(custom && custom.value ? custom.value : '').trim();
+        return String(select.value || '').trim();
+      }
+
+      function renderBaseProjectSelect(selectedProjectId) {
+        var select = document.getElementById('setupBaseProject1');
+        if (!select) return;
+
+        var concessionName = getSelectedConcessionName();
+        var projects = concessionName ? getRemoteBaseProjectsForConcession(concessionName) : [];
+        var html = '<option value="">Todos / sin proyecto base</option>';
+        html += projects.map(function(project) {
+          return '<option value="' + optionSafe(project.id || '') + '">' + optionSafe(project.name || '') + '</option>';
+        }).join('');
+
+        select.innerHTML = html;
+        select.disabled = !projects.length || document.getElementById('setupConcession1')?.value === '__other__';
+
+        if (selectedProjectId && projects.some(function(project) { return String(project.id) === String(selectedProjectId); })) {
+          select.value = String(selectedProjectId);
+        } else if (projects.length === 1) {
+          // Si la concesión solo tiene un proyecto base, lo elegimos para evitar pasos innecesarios.
+          select.value = String(projects[0].id);
+        } else {
+          select.value = '';
+        }
+      }
+
+      function renderPeajeSelect(selectedName) {
+        var select = document.getElementById('setupPeaje1');
+        if (!select) return;
+        var concessionName = getSelectedConcessionName();
+        var tolls = concessionName ? getCatalogTollsForConcession(concessionName) : [];
+        var html = '<option value="">Seleccione peaje...</option>';
+        html += tolls.map(function(name) {
+          return '<option value="' + optionSafe(name) + '">' + optionSafe(name) + '</option>';
+        }).join('');
+        html += '<option value="__other__">Otros / no listado</option>';
+        select.innerHTML = html;
+        if (selectedName) {
+          if (tolls.some(function(name) { return normalizeText(name) === normalizeText(selectedName); })) {
+            select.value = tolls.find(function(name) { return normalizeText(name) === normalizeText(selectedName); });
+          } else {
+            select.value = '__other__';
+            var custom = document.getElementById('setupPeajeCustom1');
+            if (custom) custom.value = selectedName;
+          }
+        }
+        togglePeajeCustom();
+        syncSecondaryFromPrimary();
+        renderCasetaOptionsForPrimary();
+        renderCasetaOptionsForSecondary();
+      }
+
+      function togglePeajeCustom() {
+        var select = document.getElementById('setupPeaje1');
+        var custom = document.getElementById('setupPeajeCustom1');
+        if (!select || !custom) return;
+        var isOther = select.value === '__other__';
+        custom.classList.toggle('hidden', !isOther);
+        if (!isOther) custom.value = '';
+      }
+
+      function getSelectedPeajeName() {
+        var select = document.getElementById('setupPeaje1');
+        var custom = document.getElementById('setupPeajeCustom1');
+        if (!select) return '';
+        if (select.value === '__other__') return String(custom && custom.value ? custom.value : '').trim();
+        return String(select.value || '').trim();
+      }
+
+      function renderAssignmentSelect(selectId, selectedBoothId, secondaryMode) {
+        var select = document.getElementById(selectId);
+        if (!select) return;
+
+        var primarySelect = document.getElementById('setupAssigned1');
+        var primarySelected = primarySelect ? primarySelect.value : '';
+        var primaryAssignment = primarySelected && primarySelected !== '__manual__'
+          ? findAssignmentByBoothId(primarySelected)
+          : null;
+
+        var booths = getAssignedBooths().filter(function(item) {
+          if (!secondaryMode) return true;
+          if (primarySelected && primarySelected !== '__manual__' && String(item.boothId) === String(primarySelected)) return false;
+
+          // La caseta secundaria solo debe pertenecer al mismo peaje/concesión de la principal.
+          if (primaryAssignment) {
+            if (primaryAssignment.stationId && item.stationId) return String(item.stationId) === String(primaryAssignment.stationId);
+            return normalizeText(item.stationName || '') === normalizeText(primaryAssignment.stationName || '') &&
+                   normalizeText(cleanConcessionDisplayName(item.concessionName || '')) === normalizeText(cleanConcessionDisplayName(primaryAssignment.concessionName || ''));
+          }
+
+          // Si la principal está en modo manual, no hay una asignación base confiable para filtrar.
+          // En ese caso, la secundaria queda manual: misma concesión/peaje, otra caseta.
+          return false;
+        });
+
+        var manualLabel = secondaryMode
+          ? 'Manual: misma concesión/peaje, otra caseta'
+          : 'Manual: seleccionar concesión, peaje y caseta';
+
+        var html = '<option value="__manual__">' + manualLabel + '</option>';
+        html += booths.map(function(item) {
+          var label = secondaryMode
+            ? [
+                item.boothCode ? 'Caseta ' + item.boothCode : 'Caseta',
+                item.directions || ''
+              ].filter(Boolean).join(' · ')
+            : [
+                item.concessionName ? cleanConcessionDisplayName(item.concessionName) : '',
+                item.stationName || 'Peaje',
+                item.boothCode ? 'Caseta ' + item.boothCode : 'Caseta',
+                item.directions || ''
+              ].filter(Boolean).join(' · ');
+
+          return '<option value="' + item.boothId + '">Asignada: ' + label + '</option>';
+        }).join('');
+
+        select.innerHTML = html;
+
+        if (selectedBoothId && booths.some(function(item) { return String(item.boothId) === String(selectedBoothId); })) {
+          select.value = String(selectedBoothId);
+        } else {
+          select.value = '__manual__';
+        }
+
+        updateSetupManualMode();
+      }
+
+      function isManualSetupMode(selectId) {
+        var select = document.getElementById(selectId);
+        return !navigator.onLine || !select || !select.value || select.value === '__manual__';
+      }
+
+      function setDisabledByIds(ids, disabled) {
+        ids.forEach(function(id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          el.disabled = Boolean(disabled);
+        });
+      }
+
+      function updateSetupManualMode() {
+        var primaryManual = isManualSetupMode('setupAssigned1');
+        var secondaryManual = isManualSetupMode('setupAssigned2');
+
+        var primaryCard = document.getElementById('setupAssigned1')?.closest('.setup-mode-card');
+        var secondaryCard = document.getElementById('setupAssigned2')?.closest('.setup-mode-card');
+        var status1 = document.getElementById('setupModeStatus1');
+        var status2 = document.getElementById('setupModeStatus2');
+        var manualPrimaryFields = document.getElementById('manualPrimaryFields');
+        var summary1 = document.getElementById('assignedSummary1');
+        var summary2 = document.getElementById('assignedSummary2');
+
+        var primaryAssignment = getPrimarySelectedAssignment();
+        var secondaryAssignment = getSecondarySelectedAssignment();
+
+        if (primaryCard) {
+          primaryCard.classList.toggle('manual-active', primaryManual);
+          primaryCard.classList.toggle('locked-assigned', !primaryManual);
+        }
+        if (secondaryCard) {
+          secondaryCard.classList.toggle('manual-active', secondaryManual);
+          secondaryCard.classList.toggle('locked-assigned', !secondaryManual);
+        }
+
+        if (status1) {
+          status1.className = 'setup-mode-status ' + (primaryManual ? 'manual' : 'assigned');
+          status1.textContent = primaryManual
+            ? (!navigator.onLine ? 'Modo manual por falta de conexión' : 'Modo manual: sin asignación')
+            : 'Usando caseta asignada por el coordinador';
+        }
+
+        if (status2) {
+          status2.className = 'setup-mode-status ' + (secondaryManual ? 'manual' : 'assigned');
+          status2.textContent = secondaryManual
+            ? (!navigator.onLine ? 'Modo manual secundario por falta de conexión' : 'Modo manual secundario')
+            : 'Usando segunda caseta asignada';
+        }
+
+        if (manualPrimaryFields) manualPrimaryFields.classList.toggle('hidden', !primaryManual);
+
+        if (summary1) {
+          summary1.classList.toggle('hidden', primaryManual || !primaryAssignment);
+          if (primaryAssignment) {
+            summary1.innerHTML =
+              '<strong>Caseta asignada por coordinador</strong><br>' +
+              'Concesión: ' + (cleanConcessionDisplayName(primaryAssignment.concessionName) || '—') + '<br>' +
+              'Peaje: ' + (primaryAssignment.stationName || '—') + '<br>' +
+              'Caseta: ' + (primaryAssignment.boothCode || '—') + '<br>' +
+              'Sentido: ' + (primaryAssignment.directions || '—');
+          }
+        }
+
+        if (summary2) {
+          summary2.classList.toggle('hidden', secondaryManual || !secondaryAssignment);
+          if (secondaryAssignment) {
+            summary2.innerHTML =
+              '<strong>Segunda caseta asignada</strong><br>' +
+              'Peaje: ' + (getSelectedPeajeName() || secondaryAssignment.stationName || '—') + '<br>' +
+              'Caseta: ' + (secondaryAssignment.boothCode || '—') + '<br>' +
+              'Sentido: ' + (secondaryAssignment.directions || '—');
+          }
+        }
+
+        // La concesión y peaje solo se editan cuando el perfil principal está en modo manual.
+        setDisabledByIds(['setupConcession1', 'setupConcessionCustom1', 'setupPeaje1', 'setupPeajeCustom1'], !primaryManual);
+        setDisabledByIds(['setupCaseta1', 'setupSentido1'], !primaryManual);
+
+        // En la secundaria nunca se edita concesión/peaje; solo caseta y sentido si está en manual.
+        setDisabledByIds(['setupPeaje2'], true);
+        setDisabledByIds(['setupCaseta2', 'setupSentido2'], !secondaryManual);
+
+        // Los selectores de asignación se mantienen habilitados para elegir entre lo asignado o manual.
+        setDisabledByIds(['setupAssigned1', 'setupAssigned2'], false);
+
+        applyAuthenticatedUserDefaults();
+        syncSecondaryFromPrimary();
+      }
+
+      function findAssignmentByBoothId(boothId) {
+        return getAssignedBooths().find(function(item) { return String(item.boothId) === String(boothId); }) || null;
+      }
+
+      function getPrimarySelectedAssignment() {
+        var select = document.getElementById('setupAssigned1');
+        if (!select || !select.value || select.value === '__manual__') return null;
+        return findAssignmentByBoothId(select.value);
+      }
+
+      function getSecondarySelectedAssignment() {
+        var select = document.getElementById('setupAssigned2');
+        if (!select || !select.value || select.value === '__manual__') return null;
+        return findAssignmentByBoothId(select.value);
+      }
+
+      function applyAssignmentToPrimary(boothId) {
+        var item = findAssignmentByBoothId(boothId);
+        if (!item) {
+          updateSetupManualMode();
+          return;
+        }
+
+        var profile = assignmentToProfile(item);
+        setPrimaryProfileFields(profile);
+
+        // Al cambiar la caseta principal, se recalculan las opciones secundarias.
+        // No se selecciona automáticamente la segunda caseta: el operador debe confirmarla.
+        renderAssignmentSelect('setupAssigned2', '', true);
+        if (document.getElementById('setupAssigned2')) document.getElementById('setupAssigned2').value = '__manual__';
+        document.getElementById('setupCaseta2').value = '';
+        document.getElementById('setupSentido2').value = '';
+        syncSecondaryFromPrimary();
+
+        updateSetupManualMode();
+      }
+
+      function applyAssignmentToSecondary(boothId) {
+        var item = findAssignmentByBoothId(boothId);
+        if (!item) {
+          updateSetupManualMode();
+          return;
+        }
+        document.getElementById('setupCaseta2').value = item.boothCode || '';
+        document.getElementById('setupSentido2').value = item.directions || '';
+        syncSecondaryFromPrimary();
+        applyAuthenticatedUserDefaults();
+        updateSetupManualMode();
+      }
+
+      function setPrimaryProfileFields(profile) {
+        renderConcessionSelect(profile.concessionName || '');
+        renderBaseProjectSelect(profile.baseProjectId || profile.base_project_id || '');
+        renderPeajeSelect(profile.nombrePeaje || '');
+        document.getElementById('setupCaseta1').value = profile.numeroCaseta || '';
+        document.getElementById('setupSentido1').value = profile.sentidoCirculacion || '';
+        applyAuthenticatedUserDefaults();
+        syncSecondaryFromPrimary();
+        updateSetupManualMode();
+      }
+
+      function syncSecondaryFromPrimary() {
+        var secondaryPeaje = document.getElementById('setupPeaje2');
+        if (secondaryPeaje) secondaryPeaje.value = getSelectedPeajeName();
+
+        var operador2 = document.getElementById('setupOperador2');
+        if (operador2) operador2.value = getOperatorFullName();
+        renderCasetaOptionsForSecondary();
+      }
+
+      function fillSetupFormFromProfiles(meta) {
+        var profiles = meta && Array.isArray(meta.profiles) ? meta.profiles.slice(0, 2) : [];
+        var primary = profiles[0] || {};
+        var secondary = profiles[1] || {};
+        document.getElementById('setupFecha').value = meta && meta.fechaTurno ? meta.fechaTurno : todayDate();
+
+        renderAssignmentSelect('setupAssigned1', primary.boothId || '', false);
+
+        if (primary && (primary.nombrePeaje || primary.concessionName || primary.numeroCaseta)) {
+          setPrimaryProfileFields(primary);
+        } else {
+          renderConcessionSelect('');
+          renderPeajeSelect('');
+        }
+
+        renderAssignmentSelect('setupAssigned2', secondary.boothId || '', true);
+
+        document.getElementById('setupMultiCaseta').checked = profiles.length > 1;
+        document.getElementById('setupCaseta2Box').classList.toggle('hidden', profiles.length <= 1);
+        document.getElementById('setupCaseta2').value = secondary.numeroCaseta || '';
+        document.getElementById('setupSentido2').value = secondary.sentidoCirculacion || '';
+        if (secondary && secondary.boothId && document.getElementById('setupAssigned2').value !== '__manual__') {
+          applyAssignmentToSecondary(secondary.boothId);
+        } else {
+          syncSecondaryFromPrimary();
+        }
+        applyAuthenticatedUserDefaults();
+        updateSetupManualMode();
+      }
+
+      function populateSetupFromAssignments() {
+        var profiles = buildProfilesFromAssignments();
+        renderAssignmentSelect('setupAssigned1', profiles[0] && profiles[0].boothId, false);
+        renderAssignmentSelect('setupAssigned2', '', true);
+        if (!profiles.length) {
+          renderConcessionSelect('');
+          renderPeajeSelect('');
+          applyAuthenticatedUserDefaults();
+          updateSetupManualMode();
+          return false;
+        }
+
+        // Se precarga la caseta principal asignada. La secundaria queda disponible para que el operador la confirme.
+        fillSetupFormFromProfiles({
+          fechaTurno: siteInfo && siteInfo.fechaTurno ? siteInfo.fechaTurno : todayDate(),
+          profiles: [profiles[0]]
+        });
+        return true;
+      }
+
+      function populateSetupFromCurrentSiteInfo() {
+        if (!siteInfo || !Array.isArray(siteInfo.profiles) || !siteInfo.profiles.length) return false;
+        fillSetupFormFromProfiles(siteInfo);
+        return true;
+      }
+
+      function clearSetupInputs(preserveDate) {
+        document.getElementById('setupFecha').value = preserveDate && siteInfo && siteInfo.fechaTurno ? siteInfo.fechaTurno : todayDate();
+        document.getElementById('setupAssigned1').value = '__manual__';
+        document.getElementById('setupAssigned2').value = '__manual__';
+        renderConcessionSelect('');
+        renderBaseProjectSelect('');
+        renderPeajeSelect('');
+        document.getElementById('setupCaseta1').value = '';
+        document.getElementById('setupSentido1').value = '';
+        document.getElementById('setupMultiCaseta').checked = false;
+        document.getElementById('setupCaseta2Box').classList.add('hidden');
+        document.getElementById('setupCaseta2').value = '';
+        document.getElementById('setupSentido2').value = '';
+        syncSecondaryFromPrimary();
+        applyAuthenticatedUserDefaults();
+        updateSetupManualMode();
+      }
+
+      function buildProfileFromSetup(index) {
+        var operatorName = getOperatorFullName();
+        var concessionName = getSelectedConcessionName();
+        var tollName = getSelectedPeajeName();
+        if (!operatorName) throw new Error('No se encontró el nombre del operador. Cierre sesión e ingrese nuevamente.');
+
+        if (index === 1) {
+          if (!concessionName) throw new Error('Seleccione la concesión de la caseta principal.');
+          if (!tollName) throw new Error('Seleccione el peaje de la caseta principal.');
+          if (!document.getElementById('setupCaseta1').value) throw new Error('Ingrese el número de caseta principal.');
+          if (!document.getElementById('setupSentido1').value) throw new Error('Seleccione el sentido de la caseta principal.');
+          var assigned1 = findAssignmentByBoothId(document.getElementById('setupAssigned1').value);
+          var catalogStation1 = assigned1 ? null : findCatalogStationBySelection(concessionName, tollName);
+          var catalogBooth1 = assigned1 ? null : findCatalogBoothByCode(concessionName, tollName, document.getElementById('setupCaseta1').value, document.getElementById('setupSentido1').value);
+          return {
+            nombrePeaje: tollName,
+            numeroCaseta: document.getElementById('setupCaseta1').value,
+            operador: operatorName,
+            sentidoCirculacion: document.getElementById('setupSentido1').value,
+            concessionName: concessionName,
+            baseProjectId: assigned1 ? null : getSelectedBaseProjectId(),
+            projectId: assigned1 ? assigned1.projectId : null,
+            stationId: assigned1 ? assigned1.stationId : (catalogStation1 ? catalogStation1.id : null),
+            boothId: assigned1 ? assigned1.boothId : (catalogBooth1 ? catalogBooth1.id : null)
+          };
+        }
+
+        if (!concessionName) throw new Error('La caseta secundaria debe usar la misma concesión de la principal.');
+        if (!tollName) throw new Error('La caseta secundaria debe usar el mismo peaje de la principal.');
+        if (!document.getElementById('setupCaseta2').value) throw new Error('Ingrese el número de caseta secundaria.');
+        if (!document.getElementById('setupSentido2').value) throw new Error('Seleccione el sentido de la caseta secundaria.');
+        var assigned2 = findAssignmentByBoothId(document.getElementById('setupAssigned2').value);
+        var catalogStation2 = assigned2 ? null : findCatalogStationBySelection(concessionName, tollName);
+        var catalogBooth2 = assigned2 ? null : findCatalogBoothByCode(concessionName, tollName, document.getElementById('setupCaseta2').value, document.getElementById('setupSentido2').value);
+        return {
+          nombrePeaje: tollName,
+          numeroCaseta: document.getElementById('setupCaseta2').value,
+          operador: operatorName,
+          sentidoCirculacion: document.getElementById('setupSentido2').value,
+          concessionName: concessionName,
+          baseProjectId: assigned2 ? null : getSelectedBaseProjectId(),
+          projectId: assigned2 ? assigned2.projectId : null,
+          stationId: assigned2 ? assigned2.stationId : (catalogStation2 ? catalogStation2.id : null),
+          boothId: assigned2 ? assigned2.boothId : (catalogBooth2 ? catalogBooth2.id : null)
+        };
+      }
+
+      async function syncSiteInfoWithAssignments() {
+        var assignedProfiles = buildProfilesFromAssignments();
+        if (!assignedProfiles.length) return false;
+        var currentProfile = siteInfo && siteInfo.profiles ? siteInfo.profiles[siteInfo.activeIndex || 0] : null;
+        var nextActiveIndex = assignedProfiles.findIndex(function(profile) {
+          return currentProfile && profile.boothId && profile.boothId === currentProfile.boothId;
+        });
+        siteInfo = Object.assign({}, siteInfo || {}, {
+          fechaTurno: siteInfo && siteInfo.fechaTurno ? siteInfo.fechaTurno : todayDate(),
+          multi: assignedProfiles.length > 1,
+          activeIndex: nextActiveIndex >= 0 ? nextActiveIndex : 0,
+          profiles: assignedProfiles,
+          remoteSessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : generateId(),
+          assignmentKey: getAssignmentKey(assignedProfiles)
+        });
+        await putDB(SITE_INFO_KEY, siteInfo).catch(()=>{});
+        return true;
+      }
+
+      async function refreshWarningBanner(customText) {
+        var wb = document.getElementById('warningBanner');
+        if (!wb) return;
+        if (customText) {
+          wb.textContent = customText;
+          wb.style.display = 'block';
+          return;
+        }
+        var pendingItems = filterOutboxItemsForCurrentUser(await getOutboxItems().catch(function() { return []; }));
+        if (!navigator.onLine) {
+          wb.textContent = 'Modo offline activo. Los cambios se guardan localmente.';
+          wb.style.display = 'block';
+          return;
+        }
+        if (pendingItems.length) {
+          wb.textContent = 'Sincronizacion pendiente: ' + pendingItems.length + ' cambio(s).';
+          wb.style.display = 'block';
+          return;
+        }
+        wb.style.display = 'none';
+      }
+
+      async function queueSyncTask(type, payload, id) {
+        await putOutboxItem({
+          id: id || (type + ':' + generateId()),
+          type: type,
+          payload: payload,
+          userScopeId: getUserScopeId(authUser),
+          createdAt: Date.now()
+        }).catch(()=>{});
+        await refreshWarningBanner();
+      }
+
+      async function markRecordSyncStatus(recordId, status) {
+        var updated = false;
+        registros = registros.map(function(item) {
+          if (item.id !== recordId) return item;
+          updated = true;
+          return Object.assign({}, item, { syncStatus: status });
+        });
+        if (updated) await putDB(STORAGE_KEY, registros).catch(()=>{});
+      }
+
+      async function flushOutbox() {
+        if (!db || !authToken || !navigator.onLine) {
+          await refreshWarningBanner();
+          return 0;
+        }
+        var items = filterOutboxItemsForCurrentUser(await getOutboxItems());
+        items.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+        var processed = 0;
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
+          try {
+            if (item.type === 'session-upsert') await syncSessionToServer(item.payload);
+            if (item.type === 'record-upsert') await syncRecordToServer(item.payload);
+            if (item.type === 'record-delete') await deleteRecordFromServer(item.payload.recordId);
+            if (item.type === 'record-upsert' && item.payload && item.payload.id) await markRecordSyncStatus(item.payload.id, 'synced');
+            await deleteOutboxItem(item.id);
+            processed++;
+          } catch (err) {
+            if (err && err.status === 401) break;
+          }
+        }
+        await refreshWarningBanner();
+        return processed;
+      }
+
+      async function sendPresenceHeartbeat() {
+        if (!authToken || !navigator.onLine) return null;
+        var activeProfile = getCurrentSiteInfo();
+        var fallbackAssignment = (authOperationContext.boothAssignments && authOperationContext.boothAssignments[0]) ||
+          (authOperationContext.poolAssignments && authOperationContext.poolAssignments[0]) || null;
+        return apiRequest('/presence/heartbeat', {
+          method: 'POST',
+          body: {
+            deviceId: getDeviceId(),
+            projectId: activeProfile && activeProfile.projectId ? activeProfile.projectId : (fallbackAssignment ? fallbackAssignment.projectId : null),
+            stationId: activeProfile && activeProfile.stationId ? activeProfile.stationId : (fallbackAssignment ? fallbackAssignment.stationId : null),
+            sessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : null,
+            currentMode: activeProfile ? 'register' : (hasValidLicense ? 'ready' : 'login'),
+            networkStatus: navigator.onLine ? 'online' : 'offline',
+            context: {
+              activeBooth: activeProfile ? {
+                tollName: activeProfile.nombrePeaje,
+                boothNumber: activeProfile.numeroCaseta
+              } : null,
+              assignedBooths: buildProfilesFromAssignments().map(function(profile) {
+                return {
+                  tollName: profile.nombrePeaje,
+                  boothNumber: profile.numeroCaseta
+                };
+              })
+            }
+          }
+        });
+      }
+
+      function startRealtimeServices() {
+        if (realtimeTimer) return;
+        realtimeTimer = setInterval(function() {
+          flushOutbox().catch(()=>{});
+          sendPresenceHeartbeat().catch(()=>{});
+        }, 25000);
+        flushOutbox().catch(()=>{});
+        sendPresenceHeartbeat().catch(()=>{});
+        refreshWarningBanner().catch(()=>{});
+      }
+
+      function stopRealtimeServices() {
+        if (!realtimeTimer) return;
+        clearInterval(realtimeTimer);
+        realtimeTimer = null;
+      }
+
+      async function applyAuthPayload(payload) {
+        authUser = payload.user || authUser || null;
+        authAssignments = payload.assignments || [];
+        authOperationContext = payload.operationContext || { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+        await loadLocalStateForCurrentUser();
+        if (authUser) localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser));
+        await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
+        await putDB(OPERATION_CONTEXT_KEY, {
+          assignments: authAssignments,
+          operationContext: authOperationContext
+        });
+        hasValidLicense = true;
+        await loadSetupCatalog(true).catch(function(){});
+        showPanelButtons();
+        populateSetupFromAssignments();
+        if (siteInfo && Array.isArray(siteInfo.profiles) && siteInfo.profiles.length) await syncSiteInfoWithAssignments();
+        applyAuthenticatedUserDefaults();
+        await refreshWarningBanner();
+        startRealtimeServices();
+      }
+
       async function apiRequest(path, options) {
         var requestOptions = options || {};
         var headers = Object.assign({ 'Content-Type': 'application/json' }, requestOptions.headers || {});
         if (authToken) headers.Authorization = 'Bearer ' + authToken;
-        var response = await fetch(APP_CONFIG.apiBaseUrl + path, {
-          method: requestOptions.method || 'GET',
-          headers: headers,
-          body: requestOptions.body ? JSON.stringify(requestOptions.body) : undefined
-        });
+        var response;
+        try {
+          response = await fetch(APP_CONFIG.apiBaseUrl + path, {
+            method: requestOptions.method || 'GET',
+            headers: headers,
+            body: requestOptions.body ? JSON.stringify(requestOptions.body) : undefined
+          });
+        } catch (networkError) {
+          var offlineError = new Error('No hay conexion con el servidor.');
+          offlineError.isNetworkError = true;
+          throw offlineError;
+        }
 
         if (!response.ok) {
           let payload;
           try { payload = await response.json(); } catch (err) { payload = null; }
           if (response.status === 401) {
-            authToken = '';
-            authUser = null;
-            localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-            localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-            putDB(LICENSE_KEY, null).catch(()=>{});
-            hasValidLicense = false;
+            clearCachedAuth();
             applySetupVisibility();
           }
-          throw new Error(payload && payload.error ? payload.error : 'No se pudo completar la sincronizacion.');
+          var requestError = new Error(payload && payload.error ? payload.error : 'No se pudo completar la sincronizacion.');
+          requestError.status = response.status;
+          throw requestError;
         }
 
         return response.json();
@@ -707,7 +2015,7 @@
             operationDate: sessionInfo.fechaTurno,
             multi: sessionInfo.multi,
             activeIndex: sessionInfo.activeIndex,
-            status: 'open',
+            status: sessionInfo.status || 'open',
             profiles: sessionInfo.profiles
           }
         });
@@ -729,8 +2037,16 @@
         if (!authUser || !authUser.fullName) return;
         var operador1 = document.getElementById('setupOperador1');
         var operador2 = document.getElementById('setupOperador2');
-        if (operador1 && !operador1.value) operador1.value = authUser.fullName;
-        if (operador2 && !operador2.value) operador2.value = authUser.fullName;
+        if (operador1) {
+          operador1.value = authUser.fullName;
+          operador1.readOnly = true;
+          operador1.classList.add('setup-readonly');
+        }
+        if (operador2) {
+          operador2.value = authUser.fullName;
+          operador2.readOnly = true;
+          operador2.classList.add('setup-readonly');
+        }
         showPanelButtons();
       }
 
@@ -738,21 +2054,68 @@
         return ['admin', 'director', 'coordinador'].includes(role);
       }
 
+      function hasStoredAuthSession() {
+        return Boolean(
+          hasValidLicense ||
+          authToken ||
+          authUser ||
+          localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ||
+          localStorage.getItem(AUTH_USER_STORAGE_KEY)
+        );
+      }
+
       function showPanelButtons() {
+        var sessionVisible = hasStoredAuthSession() || Boolean(hasValidLicense);
+        var logoutButton = document.getElementById('btnLogoutRegister');
+        if (logoutButton) {
+          logoutButton.classList.toggle('hidden', !sessionVisible);
+          logoutButton.textContent = '🔓';
+          logoutButton.title = 'Cerrar sesión para ingresar con otro usuario';
+          logoutButton.setAttribute('aria-label', 'Cerrar sesión');
+        }
+
         var params = new URLSearchParams(window.location.search);
-        if (isPanelRole(authUser && authUser.role) && params.get('mode') === 'register') {
-          document.getElementById('btnBackToPanel').classList.remove('hidden');
-          document.getElementById('btnLogoutRegister').classList.remove('hidden');
+        var cameFromPanel = params.get('fromPanel') === '1' || params.get('mode') === 'register';
+        var shouldShowPanelBack = sessionVisible && cameFromPanel && isPanelRole(authUser && authUser.role);
+        var backButton = document.getElementById('btnBackToPanel');
+        if (backButton) {
+          backButton.classList.toggle('hidden', !shouldShowPanelBack);
+          backButton.textContent = '← Panel';
+          backButton.title = 'Volver al panel principal';
         }
       }
 
-      document.getElementById('btnLogoutRegister').addEventListener('click', function() {
-        authToken = '';
-        authUser = null;
-        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-        localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+      async function logoutRegisterSession() {
+        var previousKeys = getScopedStorageKeys(authUser);
+        clearCachedAuth();
+        siteInfo = null;
+        draftInfo = null;
+        editingId = null;
+        isEditingSetup = false;
+        registros = [];
+        await putDB(previousKeys.site, null).catch(()=>{});
+        await putDB(previousKeys.draft, null).catch(()=>{});
+        await putDB(OPERATION_CONTEXT_KEY, null).catch(()=>{});
+
+        if (licenseCard) licenseCard.classList.remove('hidden');
+        if (setupCard) setupCard.classList.add('hidden');
+        if (mainContent) mainContent.classList.add('hidden');
+        if (siteInfoBar) siteInfoBar.classList.add('hidden');
+        if (fabSave) fabSave.classList.add('hidden');
+
+        showPanelButtons();
         window.location.href = '/';
-      });
+      }
+
+      document.getElementById('btnLogoutRegister').addEventListener('click', logoutRegisterSession);
+      var backToPanelButton = document.getElementById('btnBackToPanel');
+      if (backToPanelButton) {
+        backToPanelButton.addEventListener('click', function() {
+          var target = authUser && authUser.role === 'coordinador' ? '/panel.html#coord' : '/panel.html#dashboard';
+          window.location.href = target;
+        });
+      }
+
 
       function redirectToPanelIfNeeded(role) {
         if (!isPanelRole(role)) return false;
@@ -766,21 +2129,32 @@
         if (!authToken) return false;
         try {
           var payload = await apiRequest('/auth/me');
-          authUser = payload.user || null;
-          if (authUser) localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser));
-          await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
-          hasValidLicense = true;
+          await applyAuthPayload(payload);
           // Redirigir a panel si no es registrador (a menos que venga con ?mode=register)
           if (authUser && redirectToPanelIfNeeded(authUser.role)) return true;
-          applyAuthenticatedUserDefaults();
           return true;
         } catch (err) {
-          authToken = '';
-          authUser = null;
-          localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-          localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-          await putDB(LICENSE_KEY, null).catch(()=>{});
-          hasValidLicense = false;
+          if (err && err.status === 401) {
+            clearCachedAuth();
+            return false;
+          }
+          var cachedLicense = await getDB(LICENSE_KEY).catch(()=>null);
+          var cachedContext = await getDB(OPERATION_CONTEXT_KEY).catch(()=>null);
+          if (cachedLicense && cachedLicense.usuario) {
+            authUser = cachedLicense.usuario;
+            authAssignments = cachedContext && cachedContext.assignments ? cachedContext.assignments : [];
+            authOperationContext = cachedContext && cachedContext.operationContext ? cachedContext.operationContext : { boothAssignments: [], poolAssignments: [], maxBoothsPerOperator: 2 };
+            await loadLocalStateForCurrentUser();
+            hasValidLicense = true;
+            await loadSetupCatalog(false).catch(function(){});
+            populateSetupFromAssignments();
+            if (siteInfo && Array.isArray(siteInfo.profiles) && siteInfo.profiles.length) await syncSiteInfoWithAssignments();
+            applyAuthenticatedUserDefaults();
+            await refreshWarningBanner('Modo offline: usando la ultima sesion conocida.');
+            startRealtimeServices();
+            if (authUser && redirectToPanelIfNeeded(authUser.role)) return true;
+            return true;
+          }
           return false;
         }
       }
@@ -790,6 +2164,23 @@
         sb.style.background = type === 'ok' ? 'var(--ok-bg)' : 'var(--danger-bg)'; sb.style.color = type === 'ok' ? 'var(--ok)' : 'var(--danger)';
         sb.style.display = 'block'; clearTimeout(sb.timer); sb.timer = setTimeout(() => { sb.style.display = 'none'; }, 2000);
       }
+
+      window.addEventListener('online', function() {
+        loadSetupCatalog(true).then(function() {
+          renderConcessionSelect(getSelectedConcessionName());
+          renderBaseProjectSelect(getSelectedBaseProjectId());
+          renderPeajeSelect(getSelectedPeajeName());
+        }).catch(()=>{});
+        refreshWarningBanner().catch(()=>{});
+        flushOutbox().catch(()=>{});
+        sendPresenceHeartbeat().catch(()=>{});
+        updateSetupManualMode();
+      });
+
+      window.addEventListener('offline', function() {
+        refreshWarningBanner().catch(()=>{});
+        updateSetupManualMode();
+      });
 
       function playFeedback() {
         if (navigator.vibrate) navigator.vibrate(60);
@@ -811,6 +2202,11 @@
 
       function validatePlateInput(inputEl) {
         inputEl.value = formatPlate(inputEl.value); inputEl.classList.remove('valid-plate', 'warning-plate');
+        if (!inputEl.value) return;
+        if (isNumericLeadingPlate(inputEl.value)) {
+          if (/^[0-9][A-Z0-9]{6}$/.test(inputEl.value)) inputEl.classList.add('valid-plate'); else inputEl.classList.add('warning-plate');
+          return;
+        }
         if (inputEl.value.length === 7) {
           if (/^[A-Z0-9]{3}-\d{3}$/.test(inputEl.value)) inputEl.classList.add('valid-plate'); else inputEl.classList.add('warning-plate');
         }
@@ -830,10 +2226,18 @@
 
       function setTipo(val, isUserAction = true) { 
         selectedTipo = val || ''; activateChip('[data-tipo]', 'data-tipo', selectedTipo); 
-        if (isUserAction && ['L', 'M2', 'PNP', 'A'].includes(val)) setEjesPrincipal(2, true);
+        if (isFixedTwoAxlesType(selectedTipo)) setEjesPrincipal(2, false);
+        syncPrimaryAxleOptions();
         if (isUserAction) saveDraft(); 
       }
-      function setEjesPrincipal(val, isUserAction = true) { selectedEjesPrincipal = Number(val) || 0; activateChip('[data-ejes-principal]', 'data-ejes-principal', selectedEjesPrincipal); if (isUserAction) saveDraft(); }
+      function setEjesPrincipal(val, isUserAction = true) {
+        var nextValue = Number(val) || 0;
+        if (isFixedTwoAxlesType(selectedTipo) && nextValue && nextValue !== 2) nextValue = 2;
+        selectedEjesPrincipal = nextValue;
+        activateChip('[data-ejes-principal]', 'data-ejes-principal', selectedEjesPrincipal);
+        syncPrimaryAxleOptions();
+        if (isUserAction) saveDraft();
+      }
       function setEjesSecundaria(val, isUserAction = true) { selectedEjesSecundaria = Number(val) || 0; activateChip('[data-ejes-secundaria]', 'data-ejes-secundaria', selectedEjesSecundaria); if (isUserAction) saveDraft(); }
 
       function toggleSecundaria(show) {
@@ -850,14 +2254,19 @@
 
       function renderSiteInfo() {
         var active = getCurrentSiteInfo();
-        if (!active) return;
+        if (!active) {
+          siteInfoLabel.textContent = 'Sin turno activo';
+          return;
+        }
         let opName = active.operador ? active.operador.split(' ')[0] : 'Op'; 
-        siteInfoLabel.innerHTML = `📍 C:${active.numeroCaseta} | 👤 ${opName} | 📅 ${getActiveDate()}`;
+        var totalProfiles = siteInfo && siteInfo.profiles ? siteInfo.profiles.length : 1;
+        var profileLabel = totalProfiles > 1 ? ` | ${siteInfo.activeIndex + 1}/${totalProfiles}` : '';
+        siteInfoLabel.innerHTML = `📍 C:${active.numeroCaseta} | 👤 ${opName} | 📅 ${getActiveDate()}${profileLabel}`;
         
         if (siteInfo.multi) {
            btnSwitchCaseta.classList.remove('hidden');
            // Cambiar color para notar cual está activa
-           siteInfoLabel.style.color = siteInfo.activeIndex === 0 ? 'var(--accent)' : 'var(--warn)';
+           siteInfoLabel.style.color = totalProfiles > 1 && siteInfo.activeIndex % 2 === 0 ? 'var(--accent)' : 'var(--warn)';
         } else {
            btnSwitchCaseta.classList.add('hidden');
            siteInfoLabel.style.color = 'var(--text)';
@@ -867,12 +2276,26 @@
       function applySetupVisibility() {
         if (!hasValidLicense) {
             licenseCard.classList.remove('hidden'); setupCard.classList.add('hidden');
-            mainContent.classList.add('hidden'); siteInfoBar.classList.add('hidden'); fabSave.classList.add('hidden'); return;
+            mainContent.classList.add('hidden'); siteInfoBar.classList.add('hidden'); fabSave.classList.add('hidden');
+            showPanelButtons();
+            return;
         }
         licenseCard.classList.add('hidden');
+        showPanelButtons();
+        updateSetupManualMode();
         var hasSite = Boolean(getCurrentSiteInfo());
-        setupCard.classList.toggle('hidden', hasSite); mainContent.classList.toggle('hidden', !hasSite);
-        siteInfoBar.classList.toggle('hidden', !hasSite); fabSave.classList.toggle('hidden', !hasSite);
+        var showSetup = !hasSite || isEditingSetup;
+        setupCard.classList.toggle('hidden', !showSetup);
+        mainContent.classList.toggle('hidden', !hasSite || showSetup);
+        siteInfoBar.classList.toggle('hidden', !hasSite);
+        fabSave.classList.toggle('hidden', !hasSite || showSetup);
+        if (btnCancelSetupEdit) btnCancelSetupEdit.classList.toggle('hidden', !isEditingSetup);
+        if (btnLocalCloseShift) btnLocalCloseShift.classList.add('hidden');
+
+        var setupTitle = setupCard ? setupCard.querySelector('h2') : null;
+        if (setupTitle) setupTitle.textContent = isEditingSetup ? 'Editando configuración del turno' : 'Configuración del Turno';
+        var submitButton = setupCard ? setupCard.querySelector('button[type="submit"]') : null;
+        if (submitButton) submitButton.textContent = isEditingSetup ? 'Guardar cambios' : 'Guardar configuración';
       }
 
       function resetForm(loadDraft = false) {
@@ -960,7 +2383,9 @@
         if (delBtn && id) {
           if (confirm('¿Eliminar este registro de forma permanente?')) {
             registros = registros.filter(x => x.id !== id); await putDB(STORAGE_KEY, registros).catch(e => alert("Error: " + e));
-            deleteRecordFromServer(id).catch(() => {});
+            deleteRecordFromServer(id).catch(async () => {
+              await queueSyncTask('record-delete', { recordId: id }, 'record-delete:' + id);
+            });
             if (editingId === id) resetForm(false); renderAll(); setStatus('Registro eliminado', 'danger');
           }
         }
@@ -989,49 +2414,116 @@
         fabSave.click();
       });
 
-      form.addEventListener('submit', async function (e) {
-        e.preventDefault();
+      function buildRecordPayload(options) {
+        var settings = Object.assign({ isFugitive: false }, options || {});
         var act = getCurrentSiteInfo();
-        if (!act) return alert('Faltan datos de la caseta.');
-        if (!placaPrincipal.value || !selectedTipo || !selectedEjesPrincipal) return alert('Complete placa, tipo y ejes principales.');
-        if (tieneSecundaria.checked && (!placaSecundaria.value || !selectedEjesSecundaria)) return alert('Complete datos de la placa secundaria.');
-        
-        // Forzamos el formato de hora por si guardaron muy rapido sin que se dispare el onblur
+        if (!act) throw new Error('Primero configure una caseta para iniciar el turno.');
+        if (!settings.isFugitive) {
+          if (!placaPrincipal.value || !selectedTipo || !selectedEjesPrincipal) throw new Error('Complete placa, tipo y ejes principales.');
+          if (tieneSecundaria.checked && (!placaSecundaria.value || !selectedEjesSecundaria)) throw new Error('Complete datos de la placa secundaria.');
+        }
+
         horaPaso.value = formatSmartTime(horaPaso.value);
 
-        var data = {
+        var mainAxles = settings.isFugitive ? Number(selectedEjesPrincipal || 2) : Number(selectedEjesPrincipal);
+        var secondaryAxles = settings.isFugitive ? 0 : (tieneSecundaria.checked ? Number(selectedEjesSecundaria) : 0);
+        return {
           id: editingId || generateId(),
-          fecha: getActiveDate(), nombrePeaje: act.nombrePeaje, numeroCaseta: act.numeroCaseta, sentidoCirculacion: act.sentidoCirculacion, operador: act.operador,
-          horaPaso: horaPaso.value, placaPrincipal: placaPrincipal.value, tipoVehiculo: selectedTipo, ejesPrincipal: selectedEjesPrincipal,
-          placaSecundaria: tieneSecundaria.checked ? placaSecundaria.value : '', ejesSecundaria: tieneSecundaria.checked ? selectedEjesSecundaria : 0,
-          totalEjes: Number(selectedEjesPrincipal) + (tieneSecundaria.checked ? Number(selectedEjesSecundaria) : 0)
+          fecha: getActiveDate(),
+          nombrePeaje: act.nombrePeaje,
+          numeroCaseta: act.numeroCaseta,
+          sentidoCirculacion: act.sentidoCirculacion,
+          operador: act.operador,
+          horaPaso: horaPaso.value,
+          placaPrincipal: settings.isFugitive ? (placaPrincipal.value || 'FUGA') : placaPrincipal.value,
+          tipoVehiculo: settings.isFugitive ? 'FUGA' : selectedTipo,
+          ejesPrincipal: mainAxles,
+          placaSecundaria: settings.isFugitive ? '' : (tieneSecundaria.checked ? placaSecundaria.value : ''),
+          ejesSecundaria: secondaryAxles,
+          totalEjes: Number(mainAxles) + Number(secondaryAxles),
+          isFugitive: settings.isFugitive,
+          projectId: act.projectId || null,
+          stationId: act.stationId || null,
+          boothId: act.boothId || null,
+          sessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : '',
+          syncStatus: 'pending'
         };
+      }
 
-        data.sessionId = siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : '';
-        data.syncStatus = 'pending';
-
-        if (editingId) { registros = registros.map(r => r.id === editingId ? data : r); lastCreatedId = null; } 
+      async function persistRecord(data, statusText, pendingText) {
+        var wasEditing = Boolean(editingId);
+        if (wasEditing) { registros = registros.map(r => r.id === editingId ? data : r); lastCreatedId = null; }
         else { registros.push(data); lastCreatedId = data.id; }
-
         try {
           await putDB(STORAGE_KEY, registros);
           await syncSessionToServer(siteInfo);
           await syncRecordToServer(data);
           data.syncStatus = 'synced';
+          await markRecordSyncStatus(data.id, 'synced');
           await putDB(STORAGE_KEY, registros);
-          playFeedback(); setStatus(editingId ? 'Cambios guardados y sincronizados' : 'Vehículo registrado y sincronizado');
+          sendPresenceHeartbeat().catch(() => {});
+          playFeedback();
+          setStatus(statusText || (wasEditing ? 'Cambios guardados y sincronizados' : 'Vehiculo registrado y sincronizado'));
           resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
         } catch(err) {
+          if (siteInfo && siteInfo.remoteSessionId) await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+          await queueSyncTask('record-upsert', data, 'record-upsert:' + data.id);
           await putDB(STORAGE_KEY, registros).catch(()=>{});
-          playFeedback(); setStatus('Guardado local. Sincronizacion pendiente.', 'danger');
+          playFeedback();
+          setStatus(pendingText || 'Guardado local. Sincronizacion pendiente.', 'danger');
           resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
         }
+      }
+
+      async function registerFugitiveRecord() {
+        await persistRecord(
+          buildRecordPayload({ isFugitive: true }),
+          editingId ? 'Fuga actualizada y sincronizada' : 'Fuga registrada y sincronizada',
+          'Fuga guardada localmente. Sincronizacion pendiente.'
+        );
+      }
+
+      async function closeLocalShift() {
+        if (!siteInfo || !siteInfo.remoteSessionId) return;
+        var closingSession = Object.assign({}, siteInfo, { status: 'closed' });
+        var pendingSync = false;
+        try {
+          await syncSessionToServer(closingSession);
+        } catch (err) {
+          pendingSync = true;
+          await queueSyncTask('session-upsert', closingSession, 'session:' + closingSession.remoteSessionId);
+        }
+        siteInfo = null;
+        isEditingSetup = false;
+        editingId = null;
+        await putDB(SITE_INFO_KEY, null).catch(()=>{});
+        if (!populateSetupFromAssignments()) clearSetupInputs(false);
+        await refreshWarningBanner();
+        sendPresenceHeartbeat().catch(() => {});
+        renderSiteInfo();
+        applySetupVisibility();
+        renderAll();
+        setStatus(pendingSync ? 'Turno cerrado localmente. Pendiente de sincronizacion.' : 'Turno cerrado localmente.');
+      }
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        try {
+          await persistRecord(buildRecordPayload({ isFugitive: false }));
+        } catch (err) {
+          alert(err.message || 'No se pudo guardar el registro.');
+        }
+        return;
+        /*
+          playFeedback(); setStatus(editingId ? 'Cambios guardados y sincronizados' : 'Vehículo registrado y sincronizado');
+          resetForm(false); searchHistory.value = ''; searchTerm = ''; renderAll();
+        */
       });
 
       document.getElementById('btnCerrarTurno').addEventListener('click', async () => {
         let currentFecha = getActiveDate();
         let registrosTurno = registros.filter(r => r.fecha === currentFecha);
-        if (!registrosTurno.length) return alert('No hay registros en esta fecha para exportar.');
+        if (!registrosTurno.length) return alert('No hay registros en esta fecha para exportar y cerrar.');
 
         // Mostrar modal
         let overlay = document.getElementById('exportOverlay');
@@ -1041,8 +2533,8 @@
       function getExportData() {
         let currentFecha = getActiveDate();
         let registrosTurno = registros.filter(r => r.fecha === currentFecha);
-        let rows = [['Fecha', 'Peaje', 'Caseta', 'Sentido', 'Operador', 'Hora', 'Placa 1', 'Tipo', 'Ejes 1', 'Placa 2', 'Ejes 2', 'Total Ejes']];
-        registrosTurno.forEach(r => rows.push([r.fecha, r.nombrePeaje, r.numeroCaseta, r.sentidoCirculacion, (r.operador || ''), r.horaPaso, r.placaPrincipal, r.tipoVehiculo, r.ejesPrincipal, r.placaSecundaria, r.ejesSecundaria, r.totalEjes]));
+        let rows = [['Fecha', 'Peaje', 'Caseta', 'Sentido', 'Operador', 'Hora', 'Placa 1', 'Tipo', 'Ejes 1', 'Placa 2', 'Ejes 2', 'Total Ejes', 'Fuga']];
+        registrosTurno.forEach(r => rows.push([r.fecha, r.nombrePeaje, r.numeroCaseta, r.sentidoCirculacion, (r.operador || ''), r.horaPaso, r.placaPrincipal, r.tipoVehiculo, r.ejesPrincipal, r.placaSecundaria, r.ejesSecundaria, r.totalEjes, r.isFugitive ? 'SI' : 'NO']));
         let act = getCurrentSiteInfo() || { nombrePeaje: 'Peaje', numeroCaseta: '00', operador: 'Op' };
         return { currentFecha, registrosTurno, rows, act };
       }
@@ -1068,35 +2560,42 @@
       async function exportToCloud() {
         let currentFecha = getActiveDate();
         let registrosTurno = registros.filter(r => r.fecha === currentFecha);
-        let siteInfo = getCurrentSiteInfo();
+        let activeProfile = getCurrentSiteInfo();
         let ok = 0, fail = 0;
 
         try {
           await syncSessionToServer(siteInfo);
-        } catch(e) { console.warn('Error sync sesion:', e); }
+        } catch(e) {
+          await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+          console.warn('Error sync sesion:', e);
+        }
 
         for (let r of registrosTurno) {
           try {
             await syncRecordToServer(r);
             r.syncStatus = 'synced';
+            await markRecordSyncStatus(r.id, 'synced');
             ok++;
           } catch(e) {
             r.syncStatus = 'pending';
+            await queueSyncTask('record-upsert', r, 'record-upsert:' + r.id);
             fail++;
           }
         }
+        if (activeProfile) sendPresenceHeartbeat().catch(() => {});
         await putDB(STORAGE_KEY, registros).catch(()=>{});
         return { ok, fail, total: registrosTurno.length };
       }
 
       async function postExportCleanup() {
         let currentFecha = getActiveDate();
-        setTimeout(async () => {
-          if (confirm('Operación completada.\n\n¿Deseas BORRAR los registros de este turno para limpiar el dispositivo?')) {
-            registros = registros.filter(r => r.fecha !== currentFecha);
-            await putDB(STORAGE_KEY, registros).catch(()=>{}); renderAll();
-          }
-        }, 800);
+        const shouldClearLocalRecords = confirm('Exportación completada.\n\nSe cerrará el turno local del dispositivo.\n¿Deseas BORRAR también los registros de este turno para limpiar el dispositivo?');
+        if (shouldClearLocalRecords) {
+          registros = registros.filter(r => r.fecha !== currentFecha);
+          await putDB(STORAGE_KEY, registros).catch(()=>{});
+          renderAll();
+        }
+        await closeLocalShift();
       }
 
       document.getElementById('btnExportCancel').addEventListener('click', () => {
@@ -1417,20 +2916,19 @@
             }
           });
           authToken = result.token || '';
-          authUser = result.user || null;
           localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, authToken);
-          localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(authUser || {}));
-          await putDB(LICENSE_KEY, { activa: true, usuario: authUser, fechaActivacion: todayDate() });
-          hasValidLicense = true;
+          await applyAuthPayload(result);
           inputPassword.value = '';
           // Redirigir a panel si el rol lo requiere
           if (authUser && isPanelRole(authUser.role)) {
             window.location.href = '/panel.html';
             return;
           }
-          applyAuthenticatedUserDefaults();
           setStatus('Acceso concedido', 'ok');
           applySetupVisibility();
+          renderSiteInfo();
+          if (getCurrentSiteInfo()) resetForm(true);
+          renderAll();
         } catch (err) {
           alert(err.message || 'No se pudo iniciar sesion.');
           inputPassword.value = '';
@@ -1438,54 +2936,179 @@
       });
 
       // --- LOGICA MULTIPERFIL (SETUP) ---
-      document.getElementById('setupFecha').value = todayDate(); // Fecha hoy por defecto
-      
+      document.getElementById('setupFecha').value = todayDate();
+
+      renderConcessionSelect('');
+      renderPeajeSelect('');
+      renderAssignmentSelect('setupAssigned1', '', false);
+      renderAssignmentSelect('setupAssigned2', '', true);
+      showPanelButtons();
+      applyAuthenticatedUserDefaults();
+      updateSetupManualMode();
+
+      document.getElementById('setupConcession1').addEventListener('change', function() {
+        toggleConcessionCustom();
+        syncSecondaryFromPrimary();
+      });
+
+      document.getElementById('setupConcessionCustom1').addEventListener('input', function() {
+        renderBaseProjectSelect('');
+        renderPeajeSelect('');
+        syncSecondaryFromPrimary();
+      });
+
+      document.getElementById('setupBaseProject1').addEventListener('change', function() {
+        renderPeajeSelect('');
+        syncSecondaryFromPrimary();
+        renderCasetaOptionsForPrimary();
+        renderCasetaOptionsForSecondary();
+      });
+
+      document.getElementById('setupPeaje1').addEventListener('change', function() {
+        togglePeajeCustom();
+        syncSecondaryFromPrimary();
+        renderCasetaOptionsForPrimary();
+        renderCasetaOptionsForSecondary();
+      });
+
+      document.getElementById('setupPeajeCustom1').addEventListener('input', function() {
+        syncSecondaryFromPrimary();
+        renderCasetaOptionsForPrimary();
+        renderCasetaOptionsForSecondary();
+      });
+
+      function autoFillDirectionFromCatalog(casetaInputId, sentidoSelectId) {
+        var casetaEl = document.getElementById(casetaInputId);
+        var sentidoEl = document.getElementById(sentidoSelectId);
+        if (!casetaEl || !sentidoEl || sentidoEl.value) return;
+        var booth = findCatalogBoothByCode(getSelectedConcessionName(), getSelectedPeajeName(), casetaEl.value, '');
+        if (booth && booth.directions) sentidoEl.value = booth.directions;
+      }
+
+      document.getElementById('setupCaseta1').addEventListener('change', function() {
+        autoFillDirectionFromCatalog('setupCaseta1', 'setupSentido1');
+      });
+
+      document.getElementById('setupCaseta2').addEventListener('change', function() {
+        autoFillDirectionFromCatalog('setupCaseta2', 'setupSentido2');
+      });
+
+      document.getElementById('setupAssigned1').addEventListener('change', function(e) {
+        if (e.target.value !== '__manual__') {
+          applyAssignmentToPrimary(e.target.value);
+        } else {
+          renderAssignmentSelect('setupAssigned2', document.getElementById('setupAssigned2')?.value || '', true);
+          updateSetupManualMode();
+          syncSecondaryFromPrimary();
+        }
+      });
+
+      document.getElementById('setupAssigned2').addEventListener('change', function(e) {
+        if (e.target.value !== '__manual__') applyAssignmentToSecondary(e.target.value);
+        else updateSetupManualMode();
+      });
+
       document.getElementById('setupMultiCaseta').addEventListener('change', (e) => {
          document.getElementById('setupCaseta2Box').classList.toggle('hidden', !e.target.checked);
+         syncSecondaryFromPrimary();
+         applyAuthenticatedUserDefaults();
+
+         if (e.target.checked) {
+           var select2 = document.getElementById('setupAssigned2');
+           renderAssignmentSelect('setupAssigned2', select2 ? select2.value : '', true);
+           // No se autoelige la segunda caseta. El operador debe confirmarla para evitar errores.
+           if (document.getElementById('setupAssigned2')) document.getElementById('setupAssigned2').value = '__manual__';
+           document.getElementById('setupCaseta2').value = '';
+           document.getElementById('setupSentido2').value = '';
+         }
+
+         updateSetupManualMode();
       });
 
       document.getElementById('setupForm').addEventListener('submit', async e => {
         e.preventDefault();
-        let perfiles = [];
-        
-        perfiles.push({
-          nombrePeaje: document.getElementById('setupPeaje1').value, numeroCaseta: document.getElementById('setupCaseta1').value,
-          operador: document.getElementById('setupOperador1').value, sentidoCirculacion: document.getElementById('setupSentido1').value
-        });
 
-        if (document.getElementById('setupMultiCaseta').checked) {
-           perfiles.push({
-             nombrePeaje: document.getElementById('setupPeaje2').value || document.getElementById('setupPeaje1').value, 
-             numeroCaseta: document.getElementById('setupCaseta2').value || '00',
-             operador: document.getElementById('setupOperador2').value || document.getElementById('setupOperador1').value, 
-             sentidoCirculacion: document.getElementById('setupSentido2').value
-           });
+        let perfiles = [];
+        try {
+          perfiles.push(buildProfileFromSetup(1));
+          if (document.getElementById('setupMultiCaseta').checked) {
+            if (perfiles.length >= 2) throw new Error('El máximo permitido es 2 casetas por registrador.');
+            perfiles.push(buildProfileFromSetup(2));
+          }
+        } catch (err) {
+          alert(err.message || 'Revise la configuración del turno.');
+          return;
         }
 
         siteInfo = {
           fechaTurno: document.getElementById('setupFecha').value,
           multi: perfiles.length > 1,
-          activeIndex: 0,
+          activeIndex: siteInfo && typeof siteInfo.activeIndex === 'number' ? Math.min(siteInfo.activeIndex, perfiles.length - 1) : 0,
           profiles: perfiles,
-          remoteSessionId: generateId()
+          remoteSessionId: siteInfo && siteInfo.remoteSessionId ? siteInfo.remoteSessionId : generateId(),
+          assignmentKey: getAssignmentKey(perfiles),
+          status: 'open'
         };
+        isEditingSetup = false;
         await putDB(SITE_INFO_KEY, siteInfo).catch(()=>{});
         try {
           await syncSessionToServer(siteInfo);
-          setStatus('Turno iniciado y sincronizado', 'ok');
+          setStatus('Configuración guardada y sincronizada', 'ok');
         } catch (err) {
-          setStatus('Turno guardado localmente. Sincronizacion pendiente.', 'danger');
+          await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+          setStatus('Configuración guardada localmente. Sincronización pendiente.', 'danger');
         }
+        sendPresenceHeartbeat().catch(() => {});
         renderSiteInfo(); applySetupVisibility(); resetForm(true);
       });
-      
-      document.getElementById('btnCambiarDatos').addEventListener('click', async () => { siteInfo = null; await putDB(SITE_INFO_KEY, null).catch(()=>{}); applySetupVisibility(); });
+
+      document.getElementById('btnCambiarDatos').addEventListener('click', async () => {
+        isEditingSetup = true;
+        if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
+        setStatus('Editando configuración actual. Use Cancelar si no desea cambiarla.', 'ok');
+        applySetupVisibility();
+      });
+
+      if (btnResetSetupInputs) {
+        btnResetSetupInputs.addEventListener('click', function() {
+          if (!confirm('¿Borrar solo los datos visibles del formulario? No se cerrará el turno ni se eliminarán registros.')) return;
+          clearSetupInputs(false);
+          isEditingSetup = true;
+          applySetupVisibility();
+        });
+      }
+
+      if (btnCancelSetupEdit) {
+        btnCancelSetupEdit.addEventListener('click', function() {
+          isEditingSetup = false;
+          if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
+          applySetupVisibility();
+        });
+      }
+
+      if (btnRegistrarFuga) {
+        btnRegistrarFuga.addEventListener('click', async function() {
+          if (!confirm('¿Registrar fuga con la hora actual del formulario?')) return;
+          try {
+            await registerFugitiveRecord();
+          } catch (err) {
+            alert(err.message || 'No se pudo registrar la fuga.');
+          }
+        });
+      }
+
+      if (btnHistoryBack) {
+        btnHistoryBack.addEventListener('click', goBackFromRegister);
+      }
       
       btnSwitchCaseta.addEventListener('click', async () => {
          if (siteInfo && siteInfo.multi) {
-            siteInfo.activeIndex = siteInfo.activeIndex === 0 ? 1 : 0;
+            siteInfo.activeIndex = (siteInfo.activeIndex + 1) % siteInfo.profiles.length;
             await putDB(SITE_INFO_KEY, siteInfo);
-          syncSessionToServer(siteInfo).catch(() => {});
+            syncSessionToServer(siteInfo).catch(async () => {
+              await queueSyncTask('session-upsert', siteInfo, 'session:' + siteInfo.remoteSessionId);
+            });
+            sendPresenceHeartbeat().catch(() => {});
             renderSiteInfo();
             setStatus(`Cambiado a Caseta ${getCurrentSiteInfo().numeroCaseta}`, 'ok');
          }
@@ -1497,8 +3120,11 @@
       btnDeshacerUltimo.addEventListener('click', async () => {
         if (!lastCreatedId) return;
         if (!confirm('¿Seguro que deseas ELIMINAR el último vehículo registrado?')) return;
-        registros = registros.filter(r => r.id !== lastCreatedId); await putDB(STORAGE_KEY, registros).catch(()=>{});
-        deleteRecordFromServer(lastCreatedId).catch(() => {});
+        var removedId = lastCreatedId;
+        registros = registros.filter(r => r.id !== removedId); await putDB(STORAGE_KEY, registros).catch(()=>{});
+        deleteRecordFromServer(removedId).catch(async () => {
+          await queueSyncTask('record-delete', { recordId: removedId }, 'record-delete:' + removedId);
+        });
         lastCreatedId = null; renderAll(); setStatus('Vehículo eliminado', 'danger');
       });
       
@@ -1509,14 +3135,31 @@
       
       try {
         await initDB();
-        registros = (await getDB(STORAGE_KEY)) || []; siteInfo = (await getDB(SITE_INFO_KEY)) || null; draftInfo = (await getDB(DRAFT_KEY)) || null;
-        let lic = await getDB(LICENSE_KEY);
-        if (lic && lic.usuario) authUser = lic.usuario;
-        await restoreAuthenticatedSession();
+        if (authToken) {
+          try {
+            var storedAuthUser = JSON.parse(localStorage.getItem(AUTH_USER_STORAGE_KEY) || 'null');
+            if (storedAuthUser) authUser = storedAuthUser;
+          } catch (_storedUserErr) {}
+          await loadLocalStateForCurrentUser();
+          let cachedContext = await getDB(OPERATION_CONTEXT_KEY);
+          if (cachedContext && cachedContext.assignments) authAssignments = cachedContext.assignments;
+          if (cachedContext && cachedContext.operationContext) authOperationContext = cachedContext.operationContext;
+          await restoreAuthenticatedSession();
+        } else {
+          refreshScopedStorageKeys(null);
+          registros = [];
+          siteInfo = null;
+          draftInfo = null;
+        }
+        await loadSetupCatalog(false).catch(function(){});
+        if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
+        if (siteInfo && Array.isArray(siteInfo.profiles) && siteInfo.profiles.length) await syncSiteInfoWithAssignments();
+        await refreshWarningBanner();
       } catch (err) {
         let wb = document.getElementById('warningBanner'); wb.textContent = `⚠️ Modo privado detectado. Los datos se perderán si cierra la pestaña.`; wb.style.display = 'block';
       }
 
+      syncPrimaryAxleOptions();
       applySetupVisibility(); 
       if (hasValidLicense) { applyAuthenticatedUserDefaults(); renderSiteInfo(); if (getCurrentSiteInfo()) resetForm(true); renderAll(); }
     })();
