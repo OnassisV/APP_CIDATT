@@ -2171,6 +2171,7 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
     const projectStats = await query(
       `SELECT p.id, p.name, p.status, p.start_date, p.end_date, p.daily_start_time, p.daily_end_time,
               p.concession_id, c.name AS concession_name,
+              p.project_type, p.base_project_id, bp.name AS base_project_name, p.operation_label,
               COUNT(DISTINCT r.id) AS total_records,
               COUNT(DISTINCT CASE WHEN r.operation_date = CURDATE() THEN r.id END) AS records_today,
               COUNT(DISTINCT tb.id) AS total_booths,
@@ -2178,13 +2179,14 @@ app.get('/api/dashboard/director', authenticateRequest, requireMinRole('director
               COUNT(DISTINCT CASE WHEN a.is_active = 1 THEN a.user_id END) AS active_staff
        FROM ${TABLES.projects} p
        LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+       LEFT JOIN ${TABLES.projects} bp ON bp.id = p.base_project_id
        LEFT JOIN ${TABLES.projectSites} ps ON ps.project_id = p.id AND ps.is_active = 1
        LEFT JOIN ${TABLES.stations} ts ON ts.id = ps.station_id
        LEFT JOIN ${TABLES.booths} tb ON tb.station_id = ts.id
        LEFT JOIN ${TABLES.assignments} a ON a.project_id = p.id AND a.booth_id = tb.id AND a.is_active = 1
        LEFT JOIN ${TABLES.records} r ON (r.project_id = p.id OR (r.project_id IS NULL AND r.toll_name = ts.name))
        WHERE COALESCE(p.project_type, 'operativo') = 'operativo'
-       GROUP BY p.id, p.name, p.status, p.start_date, p.end_date, p.daily_start_time, p.daily_end_time, p.concession_id, c.name
+       GROUP BY p.id, p.name, p.status, p.start_date, p.end_date, p.daily_start_time, p.daily_end_time, p.concession_id, c.name, p.project_type, p.base_project_id, bp.name, p.operation_label
        ORDER BY p.start_date DESC`
     );
 

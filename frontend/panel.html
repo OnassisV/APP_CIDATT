@@ -1119,7 +1119,7 @@
     if (!project) return false;
     if (isDefaultConcessionName(project.concession_name)) return false;
 
-    if (dashboardFilterState.projectId && String(project.id || '') !== String(dashboardFilterState.projectId)) return false;
+    if (dashboardFilterState.projectId && !projectMatchesDashboardProjectOnly(project)) return false;
 
     if (dashboardFilterState.concessionId) {
       const filter = String(dashboardFilterState.concessionId || '');
@@ -2022,6 +2022,31 @@
     return Array.isArray(project && project.stations) ? project.stations : [];
   }
 
+  function getDashboardBaseProjectName(project) {
+    return String((project && (project.base_project_name || project.baseProjectName)) || (project && project.name) || '').trim();
+  }
+
+  function getDashboardProjectFilterValue(project) {
+    const baseId = Number(project && (project.base_project_id || project.baseProjectId) || 0);
+    if (baseId) return 'base:' + baseId;
+    const projectId = Number(project && project.id || 0);
+    return projectId ? 'project:' + projectId : '';
+  }
+
+  function projectMatchesDashboardProjectOnly(project) {
+    const filter = String(dashboardFilterState.projectId || '');
+    if (!filter) return true;
+    const value = getDashboardProjectFilterValue(project);
+    if (value === filter) return true;
+    if (filter.startsWith('base:')) {
+      return String(project && (project.base_project_id || project.baseProjectId) || '') === filter.slice(5);
+    }
+    if (filter.startsWith('project:')) {
+      return String(project && project.id || '') === filter.slice(8);
+    }
+    return String(project && project.id || '') === filter;
+  }
+
   function getDashboardSelectedStationId() { return Number(dashboardFilterState.stationId || 0); }
   function getDashboardSelectedBoothId() { return Number(dashboardFilterState.boothId || 0); }
 
@@ -2044,15 +2069,15 @@
     const map = new Map();
     (dashboardRawData.projectStats || [])
       .filter((project) => projectMatchesDashboardConcessionOnly(project))
-      .filter((project) => !dashboardFilterState.projectId || String(project.id) === String(dashboardFilterState.projectId))
+      .filter(projectMatchesDashboardProjectOnly)
       .forEach((project) => {
         getProjectStationsForDashboard(project).forEach((station) => {
           if (!station || !station.id) return;
-          if (!map.has(String(station.id))) map.set(String(station.id), { id: station.id, name: station.name, projectName: project.name });
+          if (!map.has(String(station.id))) map.set(String(station.id), { id: station.id, name: station.name });
         });
       });
     const stations = Array.from(map.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'es'));
-    select.innerHTML = '<option value="">Todos los peajes</option>' + stations.map((station) => '<option value="' + esc(station.id) + '">' + esc(station.name) + (station.projectName ? ' — ' + esc(station.projectName) : '') + '</option>').join('');
+    select.innerHTML = '<option value="">Todos los peajes</option>' + stations.map((station) => '<option value="' + esc(station.id) + '">' + esc(station.name) + '</option>').join('');
     if (currentValue && stations.some((station) => String(station.id) === String(currentValue))) select.value = currentValue;
     else { select.value = ''; dashboardFilterState.stationId = ''; }
   }
@@ -2065,7 +2090,7 @@
     const map = new Map();
     (dashboardRawData.projectStats || [])
       .filter((project) => projectMatchesDashboardConcessionOnly(project))
-      .filter((project) => !dashboardFilterState.projectId || String(project.id) === String(dashboardFilterState.projectId))
+      .filter(projectMatchesDashboardProjectOnly)
       .forEach((project) => {
         getProjectStationsForDashboard(project).forEach((station) => {
           if (stationId && Number(station.id) !== stationId) return;
@@ -2120,19 +2145,22 @@
     if (!select || !dashboardRawData) return;
 
     const currentValue = select.value;
-    const projects = (dashboardRawData.projectStats || []).filter((project) => getProjectConcessionName(project));
+    const map = new Map();
+    (dashboardRawData.projectStats || [])
+      .filter((project) => getProjectConcessionName(project))
+      .filter(projectMatchesDashboardConcessionOnly)
+      .forEach((project) => {
+        const value = getDashboardProjectFilterValue(project);
+        if (!value) return;
+        const label = getDashboardBaseProjectName(project) || project.name || 'Proyecto';
+        if (!map.has(value)) map.set(value, { value, label });
+      });
 
-    const visibleProjects = projects.filter((project) => projectMatchesDashboardConcessionOnly(project));
+    const options = Array.from(map.values()).sort((a, b) => String(a.label).localeCompare(String(b.label), 'es'));
+    select.innerHTML = '<option value="">Todos los proyectos / red vial</option>' +
+      options.map((item) => `<option value="${esc(item.value)}">${esc(item.label)}</option>`).join('');
 
-    select.innerHTML =
-      '<option value="">Todos los proyectos</option>' +
-      visibleProjects.map((project) => {
-        const concessionName = getProjectConcessionName(project);
-        const label = `${project.name || 'Proyecto'}${concessionName ? ' — ' + concessionName : ''}`;
-        return `<option value="${esc(project.id)}">${esc(label)}</option>`;
-      }).join('');
-
-    if (currentValue && visibleProjects.some((project) => String(project.id) === String(currentValue))) {
+    if (currentValue && options.some((item) => String(item.value) === String(currentValue))) {
       select.value = currentValue;
     } else {
       select.value = '';
@@ -2218,7 +2246,7 @@
             const concessionName = getProjectConcessionName(p) || '—';
             return `<tr>
               <td>${esc(concessionName)}</td>
-              <td><strong>${esc(p.name)}</strong></td>
+              <td><strong>${esc(getDashboardBaseProjectName(p) || p.name)}</strong>${p.name && getDashboardBaseProjectName(p) && p.name !== getDashboardBaseProjectName(p) ? '<br><small style="color:var(--muted)">Operativo: ' + esc(p.name) + '</small>' : ''}</td>
               <td><span class="badge badge-${p.status}">${p.status}</span></td>
               <td>
                 <div>${p.staffed_booths||0}/${p.total_booths||0} personal</div>
@@ -2655,7 +2683,6 @@
           ${st ? `<strong>${esc(st.name || '')}</strong>
             <div class="param-actions" style="justify-content:flex-start;margin-top:6px;">
               <button class="btn btn-soft btn-sm" onclick="editParameterStationPrompt(${st.id})">Editar</button>
-              ${p ? `<button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteProjectStationLink(${p.id},${st.id},'${esc(st.name || '')}')">Retirar</button>` : ''}
               <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id})">Eliminar</button>
             </div>` : '<span class="param-mini">Sin peaje</span>'}
           ${p ? `<button class="btn btn-primary btn-sm" style="margin-top:6px;" onclick="createParameterStationPrompt(${p.id},${c.id})">+ Peaje</button>` : ''}
@@ -3675,7 +3702,13 @@
   window.closeModal = closeModal;
 
   document.querySelectorAll('.modal-overlay').forEach(m => {
-    m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+    m.addEventListener('click', e => {
+      // Evita que un clic accidental dentro/encima del modal cierre la edición del proyecto.
+      if (e.target === m && m.dataset.closeOnBackdrop === '1') m.classList.remove('open');
+    });
+  });
+  document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', e => e.stopPropagation());
   });
 
   function showError(e) { console.error(e); }
@@ -4032,7 +4065,7 @@
         </div>
         <div class="alert alert-info" style="margin-bottom:0;">
           <span>ℹ️</span>
-          <div>Los operativos se crean luego en Proyectos, usando esta base. Fechas, trimestre, días y horarios pertenecen al operativo, no a Parámetros.</div>
+          <div>Los operativos se crean luego en Proyectos usando esta base. Parámetros solo mantiene datos fijos: concesión, proyecto base/red vial, peaje, caseta y sentido.</div>
         </div>
       </div>
       <div class="card">
@@ -4087,7 +4120,6 @@
         <div><strong>🛣️ ${esc(st.name || '')}</strong><div class="param-mini">${booths.length} caseta(s)</div></div>
         <div class="param-actions">
           <button class="btn btn-soft btn-sm" onclick="editParameterStationPrompt(${st.id})">Editar</button>
-          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStationFromProject(${p.id},${st.id})">Retirar</button>
           <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParameterStation(${st.id})">Eliminar</button>
           <button class="btn btn-primary btn-sm" onclick="createParameterBoothPrompt(${st.id})">+ Caseta</button>
         </div>
