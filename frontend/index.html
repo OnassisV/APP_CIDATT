@@ -127,6 +127,21 @@
     .btn-ok { background: var(--ok-bg); color: var(--ok); }
     .btn-sm { padding: 6px 10px; font-size: 0.8rem; border-radius: 8px; }
     .btn-switch { background: #3b82f6; color: white; } /* Azul para destacar el switch */
+    .header-actions .btn-logout-compact {
+      min-width: 34px;
+      height: 34px;
+      padding: 5px 8px;
+      font-size: .9rem;
+      line-height: 1;
+    }
+    .record-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .record-title-row h2 { margin: 0; }
 
     .helper { color: var(--muted); font-size: 0.8rem; line-height: 1.3; margin-top: 8px; }
 
@@ -312,8 +327,11 @@
       background: var(--danger-bg);
       color: var(--danger);
       border: 1px solid rgba(185,28,28,.25);
-      font-size: .8rem;
-      padding: 7px 10px;
+      font-size: .74rem;
+      padding: 5px 8px;
+      border-radius: 9px;
+      white-space: nowrap;
+      min-height: 30px;
     }
     .btn-fuga:hover {
       opacity: .9;
@@ -332,7 +350,7 @@
       <h2 style="margin: 0; color: var(--accent); font-size: 1.15rem;">CIDATT Relevamiento</h2>
       <div class="header-actions">
         <button class="theme-toggle btn-install hidden" id="btnInstall">📲 Instalar</button>
-        <button class="theme-toggle hidden" id="btnLogoutRegister" title="Cerrar sesión / cambiar usuario">🔓 Cerrar sesión</button>
+        <button class="theme-toggle btn-logout-compact hidden" id="btnLogoutRegister" title="Cerrar sesión / cambiar usuario" aria-label="Cerrar sesión">🔓</button>
         <button class="theme-toggle" id="btnHelp" title="Ayuda">❓</button>
         <button class="theme-toggle" id="btnTheme">🌙</button>
       </div>
@@ -354,10 +372,8 @@
     <div class="site-info-bar hidden" id="siteInfoBar">
       <span class="site-info-text" id="siteInfoLabel">📍 Cargando...</span>
       <div class="site-actions">
-        <button type="button" class="btn-soft btn-sm hidden" id="btnLocalCloseShift">Cerrar turno local</button>
         <button type="button" class="btn-switch btn-sm hidden" id="btnSwitchCaseta">🔄 Cambiar</button>
         <button type="button" class="btn-soft btn-sm" id="btnCambiarDatos">⚙️ Ajustes</button>
-        <button type="button" class="btn-danger btn-sm hidden" id="btnLogoutRegisterInline">🔓 Salir</button>
       </div>
     </div>
 
@@ -457,8 +473,9 @@
 
     <div id="mainContent" class="hidden">
       <section class="card" style="padding-top:8px;">
-        <div class="section-title" style="margin-bottom:6px;">
+        <div class="record-title-row">
           <h2 id="formTitle">Nuevo registro</h2>
+          <button type="button" class="btn-fuga btn-sm" id="btnRegistrarFuga" title="Registrar vehículo fugado sin placa ni ejes">🚧 Fuga</button>
         </div>
 
         <form id="registroForm">
@@ -482,9 +499,6 @@
             </div>
           </div>
 
-          <div style="display:flex; justify-content:flex-end; margin:8px 0 10px;">
-            <button type="button" class="btn-fuga btn-sm" id="btnRegistrarFuga">🚧 Fuga</button>
-          </div>
 
           <div class="group-card" id="groupTipo">
             <label>Tipo de vehículo</label>
@@ -567,7 +581,7 @@
         </div>
 
         <div class="toolbar">
-          <button type="button" class="btn-ok" id="btnCerrarTurno">📤 Exportar registros</button>
+          <button type="button" class="btn-ok" id="btnCerrarTurno">📤 Exportar y cerrar turno</button>
           <button type="button" class="btn-soft" id="btnToggleHistorial" style="padding: 8px;">Ver todo el historial</button>
         </div>
         
@@ -622,7 +636,7 @@
           • Desliza un registro a la izquierda para ver las opciones ✏️ editar o 🗑️ eliminar<br>
           • Usa el buscador de placas para encontrar registros rápidamente</p>
 
-          <p><strong>5. Exportar registros</strong><br>
+          <p><strong>5. Exportar y cerrar turno</strong><br>
           Presiona el botón verde y elige:<br>
           • ☁️ <strong>Enviar a la nube</strong> — sincroniza con la base de datos central<br>
           • 📊 <strong>Exportar CSV</strong> — descarga el archivo para Excel<br>
@@ -686,15 +700,15 @@
     </div>
   </div>
 
-  <!-- Modal Exportar registros -->
+  <!-- Modal Exportar y cerrar turno -->
   <div id="exportOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:none; align-items:center; justify-content:center;">
     <div style="background:#fff; border-radius:16px; padding:24px; margin:16px; max-width:360px; width:100%; box-shadow:0 8px 32px rgba(0,0,0,0.25);">
-      <h3 style="margin:0 0 8px; font-size:1.1rem;">📤 Exportar registros</h3>
-      <p style="margin:0 0 16px; font-size:0.85rem; color:#666;">¿Qué deseas hacer con los registros?</p>
+      <h3 style="margin:0 0 8px; font-size:1.1rem;">📤 Exportar y cerrar turno</h3>
+      <p style="margin:0 0 16px; font-size:0.85rem; color:#666;">Al exportar se cerrará el turno local del dispositivo.</p>
       <div style="display:flex; flex-direction:column; gap:10px;">
-        <button type="button" id="btnExportCloud" style="padding:14px; border:none; border-radius:10px; background:#1a6b5a; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️ Enviar a la nube</button>
-        <button type="button" id="btnExportExcel" style="padding:14px; border:none; border-radius:10px; background:#2563eb; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">📊 Exportar Excel / CSV</button>
-        <button type="button" id="btnExportBoth" style="padding:14px; border:none; border-radius:10px; background:#7c3aed; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️📊 Ambos (nube + Excel)</button>
+        <button type="button" id="btnExportCloud" style="padding:14px; border:none; border-radius:10px; background:#1a6b5a; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️ Enviar a la nube y cerrar</button>
+        <button type="button" id="btnExportExcel" style="padding:14px; border:none; border-radius:10px; background:#2563eb; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">📊 Exportar CSV y cerrar</button>
+        <button type="button" id="btnExportBoth" style="padding:14px; border:none; border-radius:10px; background:#7c3aed; color:#fff; font-size:0.95rem; font-weight:600; cursor:pointer;">☁️📊 Ambos y cerrar</button>
         <button type="button" id="btnExportCancel" style="padding:10px; border:1px solid #ddd; border-radius:10px; background:#fff; color:#666; font-size:0.9rem; cursor:pointer; margin-top:4px;">Cancelar</button>
       </div>
     </div>
@@ -1819,19 +1833,15 @@
 
       function showPanelButtons() {
         var sessionVisible = hasStoredAuthSession() || Boolean(hasValidLicense);
-        var logoutButtons = [
-          document.getElementById('btnLogoutRegister'),
-          document.getElementById('btnLogoutRegisterInline')
-        ];
-
-        logoutButtons.forEach(function(logoutButton) {
-          if (!logoutButton) return;
+        var logoutButton = document.getElementById('btnLogoutRegister');
+        if (logoutButton) {
           logoutButton.classList.toggle('hidden', !sessionVisible);
-          logoutButton.textContent = '🔓 Cerrar sesión';
+          logoutButton.textContent = '🔓';
           logoutButton.title = 'Cerrar sesión para ingresar con otro usuario';
-        });
+          logoutButton.setAttribute('aria-label', 'Cerrar sesión');
+        }
 
-        // En la interfaz del registrador no hay botón Atrás: solo cierre de sesión, ajustes y cierre de turno.
+        // En la interfaz del registrador no hay botón Atrás ni cierre de sesión duplicado.
         var backButton = document.getElementById('btnBackToPanel');
         if (backButton) backButton.classList.add('hidden');
       }
@@ -1857,8 +1867,6 @@
       }
 
       document.getElementById('btnLogoutRegister').addEventListener('click', logoutRegisterSession);
-      var logoutInlineButton = document.getElementById('btnLogoutRegisterInline');
-      if (logoutInlineButton) logoutInlineButton.addEventListener('click', logoutRegisterSession);
 
       function redirectToPanelIfNeeded(role) {
         if (!isPanelRole(role)) return false;
@@ -2026,7 +2034,7 @@
         siteInfoBar.classList.toggle('hidden', !hasSite);
         fabSave.classList.toggle('hidden', !hasSite || showSetup);
         if (btnCancelSetupEdit) btnCancelSetupEdit.classList.toggle('hidden', !isEditingSetup);
-        if (btnLocalCloseShift) btnLocalCloseShift.classList.toggle('hidden', !hasSite);
+        if (btnLocalCloseShift) btnLocalCloseShift.classList.add('hidden');
 
         var setupTitle = setupCard ? setupCard.querySelector('h2') : null;
         if (setupTitle) setupTitle.textContent = isEditingSetup ? 'Editando configuración del turno' : 'Configuración del Turno';
@@ -2259,7 +2267,7 @@
       document.getElementById('btnCerrarTurno').addEventListener('click', async () => {
         let currentFecha = getActiveDate();
         let registrosTurno = registros.filter(r => r.fecha === currentFecha);
-        if (!registrosTurno.length) return alert('No hay registros en esta fecha para exportar.');
+        if (!registrosTurno.length) return alert('No hay registros en esta fecha para exportar y cerrar.');
 
         // Mostrar modal
         let overlay = document.getElementById('exportOverlay');
@@ -2325,12 +2333,13 @@
 
       async function postExportCleanup() {
         let currentFecha = getActiveDate();
-        setTimeout(async () => {
-          if (confirm('Operación completada.\n\n¿Deseas BORRAR los registros de este turno para limpiar el dispositivo?')) {
-            registros = registros.filter(r => r.fecha !== currentFecha);
-            await putDB(STORAGE_KEY, registros).catch(()=>{}); renderAll();
-          }
-        }, 800);
+        const shouldClearLocalRecords = confirm('Exportación completada.\n\nSe cerrará el turno local del dispositivo.\n¿Deseas BORRAR también los registros de este turno para limpiar el dispositivo?');
+        if (shouldClearLocalRecords) {
+          registros = registros.filter(r => r.fecha !== currentFecha);
+          await putDB(STORAGE_KEY, registros).catch(()=>{});
+          renderAll();
+        }
+        await closeLocalShift();
       }
 
       document.getElementById('btnExportCancel').addEventListener('click', () => {
@@ -2790,13 +2799,6 @@
           isEditingSetup = false;
           if (!populateSetupFromCurrentSiteInfo()) populateSetupFromAssignments();
           applySetupVisibility();
-        });
-      }
-
-      if (btnLocalCloseShift) {
-        btnLocalCloseShift.addEventListener('click', async function() {
-          if (!confirm('¿Cerrar el turno local de este dispositivo? Los registros no se eliminarán.')) return;
-          await closeLocalShift();
         });
       }
 
