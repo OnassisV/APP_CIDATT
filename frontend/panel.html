@@ -518,7 +518,10 @@
 
     <div class="view" id="viewCoordProject">
       <div class="topbar">
-        <h1>🗺️ Mi Proyecto</h1>
+        <div>
+          <h1 id="coordProjectTitle">🗺️ Mi Proyecto</h1>
+          <div id="coordProjectSubtitle" style="font-size:.82rem;color:var(--muted);margin-top:4px;">Selecciona un proyecto para ver sus peajes y personal.</div>
+        </div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-primary btn-sm" id="btnCoordNewStation" style="display:none">+ Agregar Peaje</button>
           <button class="btn btn-soft btn-sm" onclick="loadCoordView()">↺ Actualizar</button>
@@ -4032,7 +4035,9 @@
       const savedState = getPanelState();
       const preferredProjectId = Number(assigningProjectId || savedState.coordProjectId || 0);
       const preferredProject = projects.find(p => p.id === preferredProjectId) || projects[0];
+      setCoordProjectHeader(null);
       if (!projects.length) {
+        if (document.getElementById('btnCoordNewStation')) document.getElementById('btnCoordNewStation').style.display = 'none';
         document.getElementById('coordContent').innerHTML = '<div class="empty-state"><div class="icon">📋</div>No tienes proyectos asignados.</div>';
         return;
       }
@@ -4041,7 +4046,18 @@
         sel.innerHTML = '<option value="">— Seleccionar proyecto —</option>' +
           projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
         document.getElementById('coordProjectSelector').style.display = 'block';
-        sel.onchange = () => { if (sel.value) loadCoordProject(Number(sel.value)); };
+        sel.onchange = () => {
+          if (sel.value) {
+            loadCoordProject(Number(sel.value));
+          } else {
+            currentProjectId = null;
+            assigningProjectId = null;
+            currentProjectMeta = null;
+            setCoordProjectHeader(null);
+            if (document.getElementById('btnCoordNewStation')) document.getElementById('btnCoordNewStation').style.display = 'none';
+            document.getElementById('coordContent').innerHTML = '<div class="empty-state"><div class="icon">📋</div>Selecciona un proyecto para ver su detalle.</div>';
+          }
+        };
         loadCoordProject(preferredProject.id);
         sel.value = preferredProject.id;
       } else {
@@ -4051,6 +4067,21 @@
     } catch (e) { showError(e); }
   }
   window.loadCoordView = loadCoordView;
+
+  function setCoordProjectHeader(project) {
+    const title = document.getElementById('coordProjectTitle');
+    const subtitle = document.getElementById('coordProjectSubtitle');
+    if (!title || !subtitle) return;
+    if (!project) {
+      title.textContent = '🗺️ Mi Proyecto';
+      subtitle.textContent = 'Selecciona un proyecto para ver sus peajes y personal.';
+      return;
+    }
+    title.textContent = '🗺️ ' + (project.name || 'Proyecto');
+    subtitle.textContent = project.concession_name
+      ? 'Concesión: ' + project.concession_name
+      : 'Vista operativa del proyecto seleccionado.';
+  }
 
   function stopCoordPresencePolling() {
     if (_presenceInterval) {
@@ -4114,6 +4145,8 @@
       assigningProjectId = projectId;
       const p = data.project;
       currentProjectMeta = p || getProjectMetaById(projectId) || { id: projectId, name: '' };
+      setCoordProjectHeader(currentProjectMeta);
+      if (document.getElementById('btnCoordNewStation')) document.getElementById('btnCoordNewStation').style.display = 'inline-block';
       const presence = presenceData.presence || [];
       _projectPresenceIndex = presence.reduce((acc, item) => {
         acc[item.user_id] = item;
