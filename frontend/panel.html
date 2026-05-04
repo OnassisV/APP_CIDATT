@@ -4549,6 +4549,16 @@
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
   }
 
+    function getStationsForConcession(concessionId) {
+      const source = _parametersSnapshot || {};
+      return (source.stations || [])
+        .filter((station) => Number(station.concession_id || 0) === Number(concessionId || 0))
+        .map((station) => Object.assign({}, station, {
+          booths: (source.booths || []).filter((booth) => Number(booth.station_id || 0) === Number(station.id || 0))
+        }))
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'));
+    }
+
 
   function getStationDropdownBaseProjectId() {
     const modal = document.getElementById('modalStation');
@@ -4609,23 +4619,19 @@
     const concessionGroup = document.getElementById('pConcessionSelect')?.closest('.form-group');
     if (concessionGroup) {
       const hint = concessionGroup.querySelector('.select-hint');
-      if (hint) hint.textContent = 'Selecciona la concesión desde Parámetros. Luego se habilitan sus proyectos base/red vial.';
+      if (hint) hint.textContent = 'Selecciona la concesión desde Parámetros. Los peajes y casetas se consultan directamente desde ese catálogo.';
     }
 
-    if (projectModal && !document.getElementById('pBaseProjectSelect')) {
-      const field = document.createElement('div');
-      field.className = 'form-group';
-      field.id = 'pBaseProjectField';
-      field.innerHTML = '<label>Proyecto base / red vial *</label><select id="pBaseProjectSelect"><option value="">— Selecciona una concesión primero —</option></select><div class="select-hint">Este dato viene de Parámetros. No crea un operativo por sí solo.</div>';
-      const nameGroup = document.getElementById('pName')?.closest('.form-group');
-      if (nameGroup && nameGroup.parentNode) nameGroup.parentNode.insertBefore(field, nameGroup);
+    const baseField = document.getElementById('pBaseProjectField');
+    if (baseField) {
+      baseField.style.display = 'none';
     }
 
     if (projectModal && !document.getElementById('pStationSelectionWrap')) {
       const field = document.createElement('div');
       field.className = 'form-group';
       field.id = 'pStationSelectionWrap';
-      field.innerHTML = '<label>Peajes del operativo</label><div id="pStationSelection" style="border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);max-height:190px;overflow:auto;"><span class="param-mini">Selecciona primero el proyecto base.</span></div><div class="select-hint">Marca los peajes que se trabajarán en este operativo. Si no marcas ninguno, se heredarán todos los peajes del proyecto base.</div>';
+      field.innerHTML = '<label>Peajes del operativo</label><div id="pStationSelection" style="border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);max-height:190px;overflow:auto;"><span class="param-mini">Selecciona primero la concesión.</span></div><div class="select-hint">Marca los peajes que se trabajarán en este operativo. Si no marcas ninguno, se heredarán todos los peajes de la concesión.</div>';
       const descGroup = document.getElementById('pDesc')?.closest('.form-group');
       if (descGroup && descGroup.parentNode) descGroup.parentNode.insertBefore(field, descGroup);
     }
@@ -4644,16 +4650,10 @@
     };
 
     bindOnce('pConcessionSelect', 'change', () => {
-      renderBaseProjectOptions();
       renderProjectStationChecklist();
       syncOperationalProjectName(false);
     });
     bindOnce('pConcessionCustom', 'input', () => {
-      renderBaseProjectOptions();
-      renderProjectStationChecklist();
-      syncOperationalProjectName(false);
-    });
-    bindOnce('pBaseProjectSelect', 'change', () => {
       renderProjectStationChecklist();
       syncOperationalProjectName(false);
     });
@@ -4665,30 +4665,22 @@
   }
 
   function renderBaseProjectOptions(selectedId) {
-    const select = document.getElementById('pBaseProjectSelect');
-    if (!select) return;
-    const payload = getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom');
-    const concessionId = payload.id;
-    const projects = getBaseProjectsForConcession(concessionId);
-    select.innerHTML = '<option value="">— Seleccionar proyecto base / red vial —</option>' +
-      projects.map((p) => `<option value="${esc(p.id)}">${esc(p.name || '')}</option>`).join('');
-    if (selectedId && Array.from(select.options).some((opt) => String(opt.value) === String(selectedId))) {
-      select.value = String(selectedId);
-    }
+    const field = document.getElementById('pBaseProjectField');
+    if (field) field.style.display = 'none';
   }
 
   function renderProjectStationChecklist(selectedIds) {
     const target = document.getElementById('pStationSelection');
-    const baseSelect = document.getElementById('pBaseProjectSelect');
-    if (!target || !baseSelect) return;
+    const concessionPayload = getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom');
+    if (!target) return;
     const selected = new Set((selectedIds || []).map((id) => String(id)));
-    const stations = getStationsForBaseProject(baseSelect.value);
-    if (!baseSelect.value) {
-      target.innerHTML = '<span class="param-mini">Selecciona primero el proyecto base / red vial.</span>';
+    const stations = getStationsForConcession(concessionPayload.id);
+    if (!concessionPayload.id) {
+      target.innerHTML = '<span class="param-mini">Selecciona primero la concesión.</span>';
       return;
     }
     if (!stations.length) {
-      target.innerHTML = '<span class="param-mini">Este proyecto base aún no tiene peajes configurados en Parámetros.</span>';
+      target.innerHTML = '<span class="param-mini">Esta concesión aún no tiene peajes configurados en Parámetros.</span>';
       return;
     }
     target.innerHTML = stations.map((st) => {
@@ -4712,9 +4704,7 @@
   }
 
   function getSelectedBaseProject() {
-    const id = Number(document.getElementById('pBaseProjectSelect')?.value || 0);
-    if (!id) return null;
-    return ((_parametersSnapshot && _parametersSnapshot.projects) || []).find((p) => Number(p.id) === id) || null;
+    return null;
   }
 
   function syncOperationalProjectName(force) {
@@ -4722,23 +4712,21 @@
     if (!pName) return;
     if (pName.value && !force) return;
     const concessionPayload = getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom');
-    const baseProject = getSelectedBaseProject();
     const desc = String(document.getElementById('pDesc')?.value || '').trim();
     const label = desc || (() => {
       const q = getQuarterRange(document.getElementById('pStart')?.value || new Date().toISOString().slice(0, 10));
       return 'Trimestre ' + q.from + ' al ' + q.to;
     })();
-    const parts = ['Relevamiento', label, concessionPayload.name, baseProject && baseProject.name].filter(Boolean);
-    pName.placeholder = parts.join(' — ') || 'Ej: Relevamiento 2026-T3 — Red Vial 5';
+    const parts = ['Relevamiento', label, concessionPayload.name].filter(Boolean);
+    pName.placeholder = parts.join(' — ') || 'Ej: Relevamiento 2026-T3 — DEVIANDES';
   }
 
   function buildOperationalProjectBody() {
     const concessionPayload = getSelectedConcessionPayload('pConcessionSelect', 'pConcessionCustom');
-    const baseProject = getSelectedBaseProject();
     const operationLabel = String(document.getElementById('pDesc')?.value || '').trim();
     let projectName = String(document.getElementById('pName')?.value || '').trim();
     if (!projectName) {
-      const generatedParts = ['Relevamiento', operationLabel, concessionPayload.name, baseProject && baseProject.name].filter(Boolean);
+      const generatedParts = ['Relevamiento', operationLabel, concessionPayload.name].filter(Boolean);
       projectName = generatedParts.join(' — ');
     }
     return {
@@ -4749,7 +4737,7 @@
       end_date: document.getElementById('pEnd')?.value || null,
       concession_id: concessionPayload.id,
       concession_name: concessionPayload.name,
-      base_project_id: baseProject ? baseProject.id : null,
+      base_project_id: null,
       station_ids: getCheckedProjectStationIds(),
       max_booths_per_operator: document.getElementById('pMaxBooths') ? Math.min(2, Math.max(1, Number(document.getElementById('pMaxBooths').value || 2))) : 2,
       status: document.getElementById('pStatus')?.value || 'activo',
@@ -4770,7 +4758,6 @@
     document.getElementById('pStatus').value = project?.status || 'activo';
     if (document.getElementById('pMaxBooths')) document.getElementById('pMaxBooths').value = project?.max_booths_per_operator || 2;
     setConcessionSelectValue('pConcessionSelect', 'pConcessionCustom', project?.concession_id || '', project?.concession_name || '');
-    renderBaseProjectOptions(project?.base_project_id || '');
     renderProjectStationChecklist();
     syncProjectDescriptionSuggestion(false);
     syncOperationalProjectName(false);
@@ -4793,7 +4780,6 @@
         withLoading('btnSaveProject', async () => {
           const body = buildOperationalProjectBody();
           if (!body.concession_id && !body.concession_name) return alert('Selecciona una concesión de Parámetros.');
-          if (!body.base_project_id && !editingProjectId) return alert('Selecciona el proyecto base / red vial.');
           if (!body.name) return alert('Indica el nombre del proyecto operativo.');
           if (!body.start_date) return alert('La fecha de inicio del operativo es obligatoria.');
           try {
