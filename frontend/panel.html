@@ -2545,30 +2545,61 @@
     if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
   };
 
+  function formatProjectListDate(value) {
+    if (!value) return '—';
+    const raw = String(value);
+    const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+    return raw;
+  }
+
     function renderProjectsList(projects) {
     if (!projects.length) {
       document.getElementById('projectsListTable').innerHTML = '<div class="empty-state"><div class="icon">📋</div>No hay proyectos. Crea el primero.</div>';
       return;
     }
-    document.getElementById('projectsListTable').innerHTML = `
-      <table>
-        <thead><tr><th>Nombre</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Casetas</th><th></th></tr></thead>
-        <tbody>${projects.map(p => {
-          const canDelete = true;
-          return `<tr>
-            <td><strong>${esc(p.name)}</strong><br><small style="color:var(--muted)">${esc(p.description||'')}</small></td>
-            <td><span class="badge badge-${p.status}">${p.status}</span></td>
-            <td>${p.start_date||'—'}</td>
-            <td>${p.end_date||'—'}</td>
-            <td>${p.staffed_booths||0}/${p.total_booths||0}</td>
-            <td class="table-actions">
-              <button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Detalle</button>
-              <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}',${p.max_booths_per_operator||2},${p.concession_id||0},'${esc(p.concession_name||'')}',${p.base_project_id||0},'${esc(p.operation_label||'')}')">Editar</button>
-              <button class="btn btn-soft btn-sm danger-link-btn" ${canDelete ? '' : 'disabled'} title="Eliminar proyecto. Si hay turnos abiertos, el servidor lo bloqueara." onclick="deleteProject(${p.id},'${esc(p.name)}')">Eliminar</button>
-            </td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table>`;
+    const grouped = projects.reduce((acc, project) => {
+      const key = String(project.concession_name || 'Sin concesión');
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(project);
+      return acc;
+    }, {});
+    document.getElementById('projectsListTable').innerHTML = Object.keys(grouped)
+      .sort((a, b) => a.localeCompare(b, 'es'))
+      .map((groupName) => {
+        const rows = grouped[groupName]
+          .slice()
+          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'))
+          .map((p) => {
+            const canDelete = true;
+            return `<tr>
+              <td><strong>${esc(p.name)}</strong><br><small style="color:var(--muted)">${esc(p.description||'')}</small></td>
+              <td><span class="badge badge-${p.status}">${p.status}</span></td>
+              <td>${formatProjectListDate(p.start_date)}</td>
+              <td>${formatProjectListDate(p.end_date)}</td>
+              <td>${p.staffed_booths||0}/${p.total_booths||0}</td>
+              <td class="table-actions">
+                <button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Detalle</button>
+                <button class="btn btn-soft btn-sm" onclick="editProject(${p.id},'${esc(p.name)}','${esc(p.description||'')}','${p.start_date}','${p.end_date||''}','${p.status}',${p.max_booths_per_operator||2},${p.concession_id||0},'${esc(p.concession_name||'')}',${p.base_project_id||0},'${esc(p.operation_label||'')}')">Editar</button>
+                <button class="btn btn-soft btn-sm danger-link-btn" ${canDelete ? '' : 'disabled'} title="Eliminar proyecto. Si hay turnos abiertos, el servidor lo bloqueara." onclick="deleteProject(${p.id},'${esc(p.name)}')">Eliminar</button>
+              </td>
+            </tr>`;
+          }).join('');
+        return `<div class="card" style="margin-bottom:14px;">
+          <div class="section-header" style="margin-bottom:10px;">
+            <div>
+              <h2 style="margin:0;">${esc(groupName)}</h2>
+              <div class="param-mini">Operativos asociados a esta concesión.</div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre</th><th>Estado</th><th>Inicio</th><th>Fin</th><th>Casetas</th><th></th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+      }).join('');
   }
 
   async function deleteProject(projectId, projectName) {
@@ -4717,8 +4748,8 @@
       const q = getQuarterRange(document.getElementById('pStart')?.value || new Date().toISOString().slice(0, 10));
       return 'Trimestre ' + q.from + ' al ' + q.to;
     })();
-    const parts = ['Relevamiento', label, concessionPayload.name].filter(Boolean);
-    pName.placeholder = parts.join(' — ') || 'Ej: Relevamiento 2026-T3 — DEVIANDES';
+    const parts = ['Relevamiento', label].filter(Boolean);
+    pName.placeholder = parts.join(' — ') || 'Ej: Relevamiento — Trimestre 2026-04-01 al 2026-06-30';
   }
 
   function buildOperationalProjectBody() {
@@ -4726,7 +4757,7 @@
     const operationLabel = String(document.getElementById('pDesc')?.value || '').trim();
     let projectName = String(document.getElementById('pName')?.value || '').trim();
     if (!projectName) {
-      const generatedParts = ['Relevamiento', operationLabel, concessionPayload.name].filter(Boolean);
+      const generatedParts = ['Relevamiento', operationLabel].filter(Boolean);
       projectName = generatedParts.join(' — ');
     }
     return {
