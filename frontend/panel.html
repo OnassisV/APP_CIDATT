@@ -687,6 +687,12 @@
     <!-- Caseta -->
     <div id="paramCrudBoothFields" style="display:none;">
       <div class="form-group">
+        <label>Concesión</label>
+        <select id="paramCrudBoothConcession" onchange="_filterBoothStationsByConcession()">
+          <option value="">— Todas las concesiones —</option>
+        </select>
+      </div>
+      <div class="form-group">
         <label>Peaje *</label>
         <select id="paramCrudBoothStation">
           <option value="">— Seleccionar peaje —</option>
@@ -2968,6 +2974,18 @@
       }).join('') + `</tbody></table>`;
   };
 
+  window._filterBoothStationsByConcession = function() {
+    const concId = document.getElementById('paramCrudBoothConcession').value;
+    const stations = concId
+      ? _paramsCrudData.stations.filter((s) => String(s.concession_id) === String(concId))
+      : _paramsCrudData.stations;
+    const sel = document.getElementById('paramCrudBoothStation');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— Seleccionar peaje —</option>' +
+      stations.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    if (prev && stations.find((s) => String(s.id) === prev)) sel.value = prev;
+  };
+
   window.openParamCrud = function(type, id) {
     _paramCrudState = { type, id };
     const title = document.getElementById('modalParamCrudTitle');
@@ -2992,14 +3010,19 @@
       document.getElementById('paramCrudStationName').value = item ? item.name : '';
       if (item && item.concession_id) sel.value = String(item.concession_id);
     } else if (type === 'booth') {
-      const sel = document.getElementById('paramCrudBoothStation');
-      sel.innerHTML = '<option value="">— Seleccionar peaje —</option>' +
-        _paramsCrudData.stations.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+      const concSel = document.getElementById('paramCrudBoothConcession');
+      concSel.innerHTML = '<option value="">— Todas las concesiones —</option>' +
+        _paramsCrudData.concessions.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
       const item = id ? _paramsCrudData.booths.find((b) => b.id === id) : null;
+      if (item && item.station_id) {
+        const st = _paramsCrudData.stations.find((s) => s.id === item.station_id);
+        if (st && st.concession_id) concSel.value = String(st.concession_id);
+      }
+      _filterBoothStationsByConcession();
       document.getElementById('paramCrudBoothCode').value = item ? item.code : '';
       const dirSel = document.getElementById('paramCrudBoothDirection');
       dirSel.value = item ? (item.directions || '') : '';
-      if (item && item.station_id) sel.value = String(item.station_id);
+      if (item && item.station_id) document.getElementById('paramCrudBoothStation').value = String(item.station_id);
     }
     openModal('modalParamCrud');
   };
