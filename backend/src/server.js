@@ -2159,8 +2159,8 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
         await query(
           `UPDATE ${TABLES.assignments}
            SET is_active = 0
-           WHERE user_id = ? AND project_id = ? AND is_active = 1`,
-          [targetUserId, targetProjectId]
+           WHERE user_id = ? AND project_id = ? AND station_id = ? AND booth_id IS NULL AND is_active = 1`,
+          [targetUserId, targetProjectId, targetStationIdFromBody]
         );
       } else {
         throw badRequest('Rol no válido para asignación operativa.');

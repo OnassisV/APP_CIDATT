@@ -4231,7 +4231,7 @@
   function _renderCoordAvailable() {
     const available = _coordUsers.filter(u => u.id !== _assignSelectedUserId);
     let html = available.map(u => {
-      const warn = u.station_id ? `<span class="tag-warn">ya asignado</span>` : '';
+      const warn = u.station_id ? `<span class="tag-warn">en otro peaje</span>` : '';
       return `<div class="assign-drag-item" draggable="true"
         ondragstart="_coordDragStart(event,${u.id})"
         onclick="_coordClickSelect(${u.id})">👤 ${esc(u.full_name)}${warn}</div>`;
@@ -4276,7 +4276,7 @@
         `Personal asignado al peaje (${Object.keys(_poolMembers).length})`;
       let html = available.map((u) => {
         const presence = u.presence_state ? `<span class="tag-warn">${esc(u.presence_state)}</span>` : '';
-        const currentPool = u.station_id ? `<span class="tag-warn">ya asignado</span>` : '';
+        const currentPool = u.station_id ? `<span class="tag-warn">en otro peaje</span>` : '';
         return `<div class="assign-drag-item" draggable="true"
           ondragstart="window._poolDragStart(event,${u.id})"
           onclick="window._poolAdd(${u.id})">👤 ${esc(u.full_name)}${currentPool}${presence}</div>`;
