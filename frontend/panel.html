@@ -523,11 +523,19 @@
           </div>
           <button class="btn btn-primary btn-sm" onclick="openParamCrud('booth',null)">+ Nueva caseta</button>
         </div>
-        <div class="form-group" style="margin:8px 0 12px;">
-          <label>Filtrar por peaje</label>
-          <select id="paramBoothFilter" onchange="renderParamBooths()">
-            <option value="">Todos los peajes</option>
-          </select>
+        <div style="display:flex;gap:12px;margin:8px 0 12px;flex-wrap:wrap;">
+          <div class="form-group" style="flex:1;min-width:160px;margin:0;">
+            <label>Filtrar por concesión</label>
+            <select id="paramBoothConcessionFilter" onchange="_filterBoothListByConcession()">
+              <option value="">Todas las concesiones</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;min-width:160px;margin:0;">
+            <label>Filtrar por peaje</label>
+            <select id="paramBoothFilter" onchange="renderParamBooths()">
+              <option value="">Todos los peajes</option>
+            </select>
+          </div>
         </div>
         <div id="paramBoothList"><div class="empty-state">Cargando...</div></div>
       </div>
@@ -2912,12 +2920,32 @@
   }
 
   function _fillParamBoothFilter() {
+    const concSel = document.getElementById('paramBoothConcessionFilter');
+    if (concSel) {
+      const currentConc = concSel.value;
+      concSel.innerHTML = '<option value="">— Todas las concesiones —</option>' +
+        _paramsCrudData.concessions.map((c) => `<option value="${c.id}" ${String(c.id) === String(currentConc) ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    }
     const sel = document.getElementById('paramBoothFilter');
     if (!sel) return;
     const current = sel.value;
     sel.innerHTML = '<option value="">Todos los peajes</option>' +
       _paramsCrudData.stations.map((s) => `<option value="${s.id}" ${String(s.id) === String(current) ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
   }
+
+  window._filterBoothListByConcession = function() {
+    const concId = (document.getElementById('paramBoothConcessionFilter') || {}).value || '';
+    const sel = document.getElementById('paramBoothFilter');
+    if (!sel) return;
+    const prev = sel.value;
+    const stations = concId
+      ? _paramsCrudData.stations.filter((s) => String(s.concession_id) === String(concId))
+      : _paramsCrudData.stations;
+    sel.innerHTML = '<option value="">Todos los peajes</option>' +
+      stations.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    if (prev && stations.find((s) => String(s.id) === prev)) sel.value = prev;
+    renderParamBooths();
+  };
 
   window.renderParamConcessions = function() {
     const el = document.getElementById('paramConcessionList');
