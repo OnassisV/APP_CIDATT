@@ -1509,7 +1509,7 @@ app.put('/api/projects/:id', authenticateRequest, requireMinRole('director'), as
     const {
       name, description, start_date, end_date, daily_start_time, daily_end_time,
       status, max_booths_per_operator, concession_id, concession_name,
-      project_type, base_project_id, operation_label
+      project_type, base_project_id, operation_label, station_ids, stations
     } = req.body;
 
     const projectId = parseOptionalInt(req.params.id);
@@ -1526,6 +1526,8 @@ app.put('/api/projects/:id', authenticateRequest, requireMinRole('director'), as
 
     const nextProjectType = project_type ? normalizeProjectType(project_type) : normalizeProjectType(currentProject.project_type);
     const nextBaseProjectId = base_project_id !== undefined ? parseOptionalInt(base_project_id) : currentProject.base_project_id;
+    const shouldSyncStations = Object.prototype.hasOwnProperty.call(req.body, 'station_ids') || Object.prototype.hasOwnProperty.call(req.body, 'stations');
+    const selectedStationIds = uniquePositiveIds(station_ids || stations || []);
     const resolvedConcessionId = concession_id || concession_name
       ? await resolveConcessionId({ concessionId: concession_id, concessionName: concession_name, fallbackToDefault: false })
       : null;
@@ -1547,24 +1549,68 @@ app.put('/api/projects/:id', authenticateRequest, requireMinRole('director'), as
       }
     }
 
-    await query(
-      `UPDATE ${TABLES.projects} SET name=COALESCE(?,name), description=COALESCE(?,description),
-       start_date=COALESCE(?,start_date), end_date=COALESCE(?,end_date),
-       daily_start_time=COALESCE(?,daily_start_time), daily_end_time=COALESCE(?,daily_end_time),
-       status=COALESCE(?,status), concession_id=COALESCE(?, concession_id),
-       project_type=COALESCE(?, project_type),
-       base_project_id=?,
-       operation_label=COALESCE(?, operation_label),
-       max_booths_per_operator=COALESCE(?,max_booths_per_operator) WHERE id=?`,
-      [
-        name || null, description || null, start_date || null, end_date || null,
-        daily_start_time || null, daily_end_time || null, status || null,
-        resolvedConcessionId, nextProjectType, nextProjectType === 'base' ? null : nextBaseProjectId || null,
-        operation_label || null,
-        max_booths_per_operator != null ? sanitizeMaxBoothsPerOperator(max_booths_per_operator) : null,
-        projectId
-      ]
-    );
+    await withTransaction(async (conn) => {
+      await conn.execute(
+        `UPDATE ${TABLES.projects} SET name=COALESCE(?,name), description=COALESCE(?,description),
+         start_date=COALESCE(?,start_date), end_date=COALESCE(?,end_date),
+         daily_start_time=COALESCE(?,daily_start_time), daily_end_time=COALESCE(?,daily_end_time),
+         status=COALESCE(?,status), concession_id=COALESCE(?, concession_id),
+         project_type=COALESCE(?, project_type),
+         base_project_id=?,
+         operation_label=COALESCE(?, operation_label),
+         max_booths_per_operator=COALESCE(?,max_booths_per_operator) WHERE id=?`,
+        [
+          name || null, description || null, start_date || null, end_date || null,
+          daily_start_time || null, daily_end_time || null, status || null,
+          resolvedConcessionId, nextProjectType, nextProjectType === 'base' ? null : nextBaseProjectId || null,
+          operation_label || null,
+          max_booths_per_operator != null ? sanitizeMaxBoothsPerOperator(max_booths_per_operator) : null,
+          projectId
+        ]
+      );
+
+      if (shouldSyncStations) {
+        const targetConcessionId = Number(resolvedConcessionId || currentProject.concession_id || 0);
+        if (!targetConcessionId) throw badRequest('La concesion es obligatoria para actualizar los peajes del operativo.');
+
+        let finalStationIds = selectedStationIds;
+        if (!finalStationIds.length) {
+          const [allConcessionStations] = await conn.execute(
+            `SELECT id
+             FROM ${TABLES.stations}
+             WHERE concession_id = ?`,
+            [targetConcessionId]
+          );
+          finalStationIds = allConcessionStations.map((row) => Number(row.id || 0)).filter(Boolean);
+        }
+
+        if (finalStationIds.length) {
+          const placeholders = finalStationIds.map(() => '?').join(',');
+          const [stationRows] = await conn.execute(
+            `SELECT id, concession_id
+             FROM ${TABLES.stations}
+             WHERE id IN (${placeholders})`,
+            finalStationIds
+          );
+          if (stationRows.length !== finalStationIds.length) throw badRequest('Alguno de los peajes seleccionados no existe.');
+          for (const station of stationRows) {
+            if (Number(station.concession_id || 0) !== targetConcessionId) {
+              throw badRequest('Todos los peajes seleccionados deben pertenecer a la concesion del proyecto.');
+            }
+          }
+        }
+
+        await conn.execute(`UPDATE ${TABLES.projectSites} SET is_active = 0 WHERE project_id = ?`, [projectId]);
+        for (const stationId of finalStationIds) {
+          await conn.execute(
+            `INSERT INTO ${TABLES.projectSites} (project_id, station_id, linked_by, is_active)
+             VALUES (?, ?, ?, 1)
+             ON DUPLICATE KEY UPDATE is_active = 1, linked_by = VALUES(linked_by)`,
+            [projectId, stationId, req.authUser.user_id]
+          );
+        }
+      }
+    });
     res.json({ ok: true, projectId, projectType: nextProjectType });
   } catch (error) { next(error); }
 });

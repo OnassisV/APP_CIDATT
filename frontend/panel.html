@@ -4724,7 +4724,7 @@
     document.getElementById('pStatus').value = project?.status || 'activo';
     if (document.getElementById('pMaxBooths')) document.getElementById('pMaxBooths').value = project?.max_booths_per_operator || 2;
     setConcessionSelectValue('pConcessionSelect', 'pConcessionCustom', project?.concession_id || '', project?.concession_name || '');
-    renderProjectStationChecklist();
+    renderProjectStationChecklist(Array.isArray(project?.station_ids) ? project.station_ids : undefined);
     syncProjectDescriptionSuggestion(false);
     syncOperationalProjectName(false);
     openModal('modalProject');
@@ -4762,20 +4762,26 @@
       };
     }
 
-    window.editProject = function(id, name, desc, start, end, status, maxBooths, concessionId, concessionName, baseProjectId, operationLabel) {
-      openOperationalProjectModal({
-        id,
-        name,
-        description: desc,
-        operation_label: operationLabel || desc,
-        start_date: start,
-        end_date: end,
-        status,
-        max_booths_per_operator: maxBooths,
-        concession_id: concessionId,
-        concession_name: concessionName,
-        base_project_id: baseProjectId || null
-      });
+    window.editProject = async function(id, name, desc, start, end, status, maxBooths, concessionId, concessionName, baseProjectId, operationLabel) {
+      try {
+        const detail = await api('/projects/' + id + '/stations');
+        openOperationalProjectModal({
+          id,
+          name,
+          description: desc,
+          operation_label: operationLabel || desc,
+          start_date: start,
+          end_date: end,
+          status,
+          max_booths_per_operator: maxBooths,
+          concession_id: concessionId,
+          concession_name: concessionName,
+          base_project_id: baseProjectId || null,
+          station_ids: (detail.stations || []).map((station) => Number(station.id || 0)).filter(Boolean)
+        });
+      } catch (e) {
+        alert(e.message);
+      }
     };
 
     const stationModal = document.getElementById('modalStation');
