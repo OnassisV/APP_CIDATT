@@ -2927,6 +2927,8 @@
     const target = document.getElementById('paramHierarchyList');
     if (!target) return;
     const hierarchy = getFilteredParamConcessions();
+    const selectedConcessionId = document.getElementById('paramHierarchyConcessionFilter')?.value || '';
+    const searchTerm = normalizeParameterSearch(document.getElementById('paramHierarchySearchInput')?.value || '');
     if (!hierarchy.length) {
       target.innerHTML = '<div class="empty-state">No hay resultados para los filtros actuales.</div>';
       return;
@@ -2934,49 +2936,59 @@
     target.innerHTML = hierarchy.map((concession) => {
       const stationCount = (concession.stations || []).length;
       const boothCount = (concession.stations || []).reduce((sum, station) => sum + ((station.booths || []).length), 0);
-      return `<div class="card" style="margin-bottom:14px;border-radius:18px;overflow:hidden;">
-        <div style="padding:18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(15,118,110,.07),transparent);display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;">
-          <div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-              <h2 style="margin:0;">${esc(concession.name || '')}</h2>
-              <span class="badge ${concession.status === 'inactiva' ? 'badge-cerrado' : 'badge-activo'}">${esc(concession.status || 'activa')}</span>
-            </div>
-            <div class="param-mini" style="margin-top:6px;">${stationCount} peajes y ${boothCount} casetas configuradas.</div>
-          </div>
-          <div class="table-actions">
-            <button class="btn btn-soft btn-sm" onclick="openParamCrud('concession',${concession.id})">Editar</button>
-            <button class="btn btn-soft btn-sm" onclick="openParamStationForConcession(${concession.id})">+ Peaje</button>
-            <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamConcession(${concession.id})">Eliminar</button>
-          </div>
-        </div>
-        <div style="padding:16px;display:grid;gap:12px;">
-          ${(concession.stations || []).length ? concession.stations.map((station) => `<div style="border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.55);padding:14px;">
-            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px;">
-              <div>
-                <div style="font-weight:800;font-size:1rem;">🛣️ ${esc(station.name || '')}</div>
-                <div class="param-mini">${(station.booths || []).length} casetas asociadas.</div>
+      const concessionOpen = Boolean(selectedConcessionId || searchTerm);
+      return `<details class="card" ${concessionOpen ? 'open' : ''} style="margin-bottom:14px;border-radius:18px;overflow:hidden;">
+        <summary style="list-style:none;cursor:pointer;padding:18px;background:linear-gradient(180deg,rgba(15,118,110,.07),transparent);display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;">
+          <div style="display:flex;align-items:flex-start;gap:12px;">
+            <div style="font-size:1rem;line-height:1.2;padding-top:4px;">▸</div>
+            <div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <h2 style="margin:0;">${esc(concession.name || '')}</h2>
+                <span class="badge ${concession.status === 'inactiva' ? 'badge-cerrado' : 'badge-activo'}">${esc(concession.status || 'activa')}</span>
               </div>
-              <div class="table-actions">
-                <button class="btn btn-soft btn-sm" onclick="openParamCrud('station',${station.id})">Editar</button>
-                <button class="btn btn-soft btn-sm" onclick="openParamBoothForStation(${station.id})">+ Caseta</button>
-                <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamStation(${station.id})">Eliminar</button>
-              </div>
+              <div class="param-mini" style="margin-top:6px;">${stationCount} peajes y ${boothCount} casetas configuradas.</div>
             </div>
-            ${(station.booths || []).length ? `<div style="display:grid;gap:8px;">
-              ${station.booths.map((booth) => `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid rgba(148,163,184,.22);border-radius:12px;padding:10px 12px;background:var(--card);">
-                <div>
-                  <div style="font-weight:700;">🚦 C-${esc(booth.code || '')}</div>
-                  <div class="param-mini">${esc(booth.directions || 'Sin sentido definido')}</div>
+          </div>
+          <div class="table-actions" onclick="event.stopPropagation()">
+            <button class="btn btn-soft btn-sm" onclick="event.stopPropagation();openParamCrud('concession',${concession.id})">Editar</button>
+            <button class="btn btn-soft btn-sm" onclick="event.stopPropagation();openParamStationForConcession(${concession.id})">+ Peaje</button>
+            <button class="btn btn-soft btn-sm danger-link-btn" onclick="event.stopPropagation();deleteParamConcession(${concession.id})">Eliminar</button>
+          </div>
+        </summary>
+        <div style="padding:16px;display:grid;gap:12px;border-top:1px solid var(--line);">
+          ${(concession.stations || []).length ? concession.stations.map((station) => {
+            const stationOpen = Boolean(searchTerm);
+            return `<details ${stationOpen ? 'open' : ''} style="border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.55);overflow:hidden;">
+              <summary style="list-style:none;cursor:pointer;padding:14px;display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+                <div style="display:flex;align-items:flex-start;gap:10px;">
+                  <div style="font-size:.95rem;line-height:1.2;padding-top:4px;">▸</div>
+                  <div>
+                    <div style="font-weight:800;font-size:1rem;">🛣️ ${esc(station.name || '')}</div>
+                    <div class="param-mini">${(station.booths || []).length} casetas asociadas.</div>
+                  </div>
                 </div>
-                <div class="table-actions">
-                  <button class="btn btn-soft btn-sm" onclick="openParamCrud('booth',${booth.id})">Editar</button>
-                  <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamBooth(${booth.id})">Eliminar</button>
+                <div class="table-actions" onclick="event.stopPropagation()">
+                  <button class="btn btn-soft btn-sm" onclick="event.stopPropagation();openParamCrud('station',${station.id})">Editar</button>
+                  <button class="btn btn-soft btn-sm" onclick="event.stopPropagation();openParamBoothForStation(${station.id})">+ Caseta</button>
+                  <button class="btn btn-soft btn-sm danger-link-btn" onclick="event.stopPropagation();deleteParamStation(${station.id})">Eliminar</button>
                 </div>
-              </div>`).join('')}
-            </div>` : '<div class="empty-state" style="padding:16px 10px;">Este peaje aún no tiene casetas registradas.</div>'}
-          </div>`).join('') : '<div class="empty-state">Esta concesión aún no tiene peajes registrados.</div>'}
+              </summary>
+              <div style="padding:0 14px 14px;display:grid;gap:8px;">
+                ${(station.booths || []).length ? station.booths.map((booth) => `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid rgba(148,163,184,.22);border-radius:12px;padding:10px 12px;background:var(--card);">
+                  <div>
+                    <div style="font-weight:700;">🚦 C-${esc(booth.code || '')}</div>
+                    <div class="param-mini">${esc(booth.directions || 'Sin sentido definido')}</div>
+                  </div>
+                  <div class="table-actions">
+                    <button class="btn btn-soft btn-sm" onclick="openParamCrud('booth',${booth.id})">Editar</button>
+                    <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamBooth(${booth.id})">Eliminar</button>
+                  </div>
+                </div>`).join('') : '<div class="empty-state" style="padding:16px 10px;">Este peaje aún no tiene casetas registradas.</div>'}
+              </div>
+            </details>`;
+          }).join('') : '<div class="empty-state">Esta concesión aún no tiene peajes registrados.</div>'}
         </div>
-      </div>`;
+      </details>`;
     }).join('');
   }
   window.renderParamHierarchy = renderParamHierarchy;
