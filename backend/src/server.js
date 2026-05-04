@@ -1757,7 +1757,7 @@ app.get('/api/projects/:projectId/stations', authenticateRequest, requireMinRole
   } catch (error) { next(error); }
 });
 
-app.post('/api/projects/:projectId/stations', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+app.post('/api/projects/:projectId/stations', authenticateRequest, requireRole('coordinador'), async (req, res, next) => {
   try {
     const { name, location, daily_start_time, daily_end_time, concession_id, concession_name } = req.body;
     if (!name) throw badRequest('Nombre de estación requerido.');
@@ -1821,7 +1821,7 @@ app.post('/api/projects/:projectId/stations', authenticateRequest, requireMinRol
   } catch (error) { next(error); }
 });
 
-app.post('/api/projects/:projectId/stations/:stationId', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+app.post('/api/projects/:projectId/stations/:stationId', authenticateRequest, requireRole('coordinador'), async (req, res, next) => {
   try {
     const access = await assertProjectAccess(req.authUser, req.params.projectId);
     const stationId = parseOptionalInt(req.params.stationId);

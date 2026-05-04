@@ -2088,12 +2088,14 @@
 
     if (isCoord) {
       document.getElementById('btnSwitchToRegister').style.display = 'inline-block';
-      // Coordinadores no gestionan estaciones/casetas desde el panel
+      // El coordinador sí puede agregar peajes adicionales al proyecto, pero no crear proyectos.
       document.getElementById('btnNewProject').style.display = 'none';
-      document.getElementById('btnNewStation').style.display = 'none';
+      document.getElementById('btnNewStation').style.display = 'inline-block';
       document.getElementById('btnCloseShiftTop').style.display = 'none';
       document.getElementById('btnCloseShiftGlobal').style.display = 'none';
       if (document.getElementById('btnCloseShiftCoord')) document.getElementById('btnCloseShiftCoord').remove();
+    } else {
+      document.getElementById('btnNewStation').style.display = 'none';
     }
 
     loadDashboard();
