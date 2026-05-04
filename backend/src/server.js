@@ -2153,11 +2153,14 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
           [targetProjectId, targetStationIdFromBody]
         );
       } else if (targetUser.role === 'registrador') {
+        if ((ROLE_LEVEL[req.authUser.role] || 0) < ROLE_LEVEL.director) {
+          throw forbidden('Solo directores pueden definir el personal disponible del peaje.');
+        }
         await query(
           `UPDATE ${TABLES.assignments}
            SET is_active = 0
-           WHERE user_id = ? AND project_id = ? AND station_id = ? AND booth_id IS NULL AND is_active = 1`,
-          [targetUserId, targetProjectId, targetStationIdFromBody]
+           WHERE user_id = ? AND project_id = ? AND is_active = 1`,
+          [targetUserId, targetProjectId]
         );
       } else {
         throw badRequest('Rol no válido para asignación operativa.');
@@ -2172,6 +2175,9 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
     }
 
     if (targetUser.role !== 'registrador') throw badRequest('Solo se puede asignar casetas a registradores.');
+    if (req.authUser.role !== 'coordinador') {
+      throw forbidden('Solo el coordinador puede distribuir registradores entre casetas.');
+    }
 
     const requestedBoothIds = uniquePositiveIds(Array.isArray(booth_ids) && booth_ids.length > 0 ? booth_ids : (booth_id ? [booth_id] : []));
     if (!requestedBoothIds.length) throw badRequest('Se requiere al menos una caseta para asignar.');
@@ -2237,12 +2243,7 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
         [targetUserId, targetProjectId, targetStationId]
       );
       if (!poolRows.length) {
-        // Si el usuario está conectado, el coordinador puede incorporarlo al pool del peaje al asignarle caseta.
-        await conn.execute(
-          `INSERT INTO ${TABLES.assignments} (user_id, project_id, station_id, booth_id, assigned_by, is_active)
-           VALUES (?, ?, ?, NULL, ?, 1)`,
-          [targetUserId, targetProjectId, targetStationId, req.authUser.user_id]
-        );
+        throw forbidden('El registrador debe estar previamente asignado al peaje por un director antes de distribuirlo en casetas.');
       }
 
       if (fullReplace) {

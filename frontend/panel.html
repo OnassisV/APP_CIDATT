@@ -4219,7 +4219,11 @@
     document.getElementById('assignTabRegs').style.display  = tab === 'regs'  ? '' : 'none';
     document.getElementById('tabBtnCoord').classList.toggle('active', tab === 'coord');
     document.getElementById('tabBtnRegs').classList.toggle('active',  tab === 'regs');
-    if (tab === 'regs')  { _renderRegsAvailable(); _renderBoothSlots(); }
+    if (tab === 'regs')  {
+      _renderRegsAvailable();
+      if (_isDirectorAssign) _renderDirectorPool();
+      else _renderBoothSlots();
+    }
     if (tab === 'coord') { _renderCoordAvailable(); _renderCoordSlot(); }
   }
   window.switchAssignTab = switchAssignTab;
@@ -4264,6 +4268,23 @@
   window._coordClear = function() { _assignSelectedUserId = null; _renderCoordAvailable(); _renderCoordSlot(); };
 
   function _renderRegsAvailable() {
+    if (_isDirectorAssign) {
+      const available = (_allAvailRegs || []).filter((u) => !_poolMembers[u.id]);
+      document.getElementById('assignRegsAvailLabel').textContent =
+        `Registradores disponibles para el peaje (${available.length})`;
+      document.getElementById('assignBoothSlotsLabel').textContent =
+        `Personal asignado al peaje (${Object.keys(_poolMembers).length})`;
+      let html = available.map((u) => {
+        const presence = u.presence_state ? `<span class="tag-warn">${esc(u.presence_state)}</span>` : '';
+        const currentPool = u.station_id ? `<span class="tag-warn">ya asignado</span>` : '';
+        return `<div class="assign-drag-item" draggable="true"
+          ondragstart="window._poolDragStart(event,${u.id})"
+          onclick="window._poolAdd(${u.id})">👤 ${esc(u.full_name)}${currentPool}${presence}</div>`;
+      }).join('');
+      if (!html) html = '<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:14px 0;">No hay registradores disponibles para agregar al peaje.</div>';
+      document.getElementById('assignRegsAvailableList').innerHTML = html;
+      return;
+    }
     const maxBooths = getCurrentStationMaxBooths();
     const boothLoad = getCurrentBoothLoadMap();
     const available = (_regAvailUsers || []).filter(u => (boothLoad[u.id] || 0) < maxBooths);
@@ -4307,7 +4328,6 @@
     }).join('');
   }
   function _renderDirectorPool() {
-    // El label ya fue seteado con contador en _renderRegsAvailable (siempre se llama primero)
     const members = Object.entries(_poolMembers);
     const dropZone = `<div class="booth-assign-slot" style="width:100%;margin-top:${members.length?'8px':'0'};"
       ondragover="event.preventDefault();this.classList.add('drag-over')"
@@ -4331,8 +4351,9 @@
     _poolDragUserId = null;
     _renderRegsAvailable(); _renderDirectorPool();
   };
-  window._poolAdd = function(uid, name) {
-    if (!_poolMembers[uid]) _poolMembers[uid] = { name, assignmentId: null };
+  window._poolAdd = function(uid) {
+    const user = _allAvailRegs.find((item) => Number(item.id) === Number(uid));
+    if (user && !_poolMembers[uid]) _poolMembers[uid] = { name: user.full_name, assignmentId: null };
     _renderRegsAvailable(); _renderDirectorPool();
   };
   window._poolRemove = function(uid) {
@@ -4420,9 +4441,16 @@
     document.getElementById('modalAssignTitle').textContent = 'Asignar personal — ' + (s ? esc(s.name) : '');
     const tipTarget = document.getElementById('assignTabRegs');
     if (tipTarget && !document.getElementById('assignClickTip')) {
-      tipTarget.insertAdjacentHTML('afterbegin', '<div id="assignClickTip" class="assignment-tip">Selecciona un registrador y luego haz clic en la caseta correspondiente. También puedes arrastrar y soltar. Un registrador puede tener máximo 2 casetas.</div>');
+      tipTarget.insertAdjacentHTML('afterbegin', '<div id="assignClickTip" class="assignment-tip"></div>');
     }
+    const tip = document.getElementById('assignClickTip');
     document.getElementById('assignTabBar').style.display = _isDirectorAssign ? '' : 'none';
+    document.getElementById('tabBtnRegs').textContent = _isDirectorAssign ? '👥 Personal disponible del peaje' : '👥 Registradores por caseta';
+    if (tip) {
+      tip.textContent = _isDirectorAssign
+        ? 'El director solo define el personal disponible para todo el peaje. La distribución por caseta la hace luego el coordinador.'
+        : 'Selecciona un registrador y luego haz clic en la caseta correspondiente. También puedes arrastrar y soltar. Un registrador puede tener máximo 2 casetas.';
+    }
 
     try {
       const booths = (s || {}).booths || [];
@@ -4438,7 +4466,14 @@
         const mergedRegs = new Map();
         ((s || {}).station_regs || []).forEach((u) => mergedRegs.set(Number(u.id), u));
         (allRegsData.users || []).forEach((u) => mergedRegs.set(Number(u.id), u));
-        _regAvailUsers = Array.from(mergedRegs.values());
+        _allAvailRegs = Array.from(mergedRegs.values());
+        _poolMembers = {};
+        _poolOriginal = {};
+        ((s || {}).station_regs || []).forEach((u) => {
+          const entry = { name: u.full_name, assignmentId: u.assignment_id || null };
+          _poolMembers[u.id] = { ...entry };
+          _poolOriginal[u.id] = { ...entry };
+        });
 
         const coordData = await api('/projects/' + projectId + '/available-users?role=coordinador');
         _coordUsers = coordData.users || [];
@@ -4477,6 +4512,19 @@
             if (_assignCurrentAssignId) await api('/assignments/' + _assignCurrentAssignId, { method: 'DELETE' });
           } else {
             await api('/assignments', { method: 'POST', body: { user_id: _assignSelectedUserId, project_id: _assignProjectId, station_id: _assignStationId } });
+          }
+        } else if (_isDirectorAssign) {
+          const poolIds = new Set(Object.keys(_poolMembers).map((id) => Number(id)));
+          const originalIds = new Set(Object.keys(_poolOriginal).map((id) => Number(id)));
+          for (const uid of originalIds) {
+            if (!poolIds.has(uid) && _poolOriginal[uid] && _poolOriginal[uid].assignmentId) {
+              await api('/assignments/' + _poolOriginal[uid].assignmentId, { method: 'DELETE' });
+            }
+          }
+          for (const uid of poolIds) {
+            if (!originalIds.has(uid)) {
+              await api('/assignments', { method: 'POST', body: { user_id: uid, project_id: _assignProjectId, station_id: _assignStationId } });
+            }
           }
         } else {
           // Asignación de registradores a casetas. Se mantiene el flujo operativo original.
