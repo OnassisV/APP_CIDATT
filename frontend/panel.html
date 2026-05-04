@@ -477,58 +477,42 @@
         <h1>⚙️ Parámetros</h1>
         <button class="btn btn-soft btn-sm" onclick="loadParamsPanel()">↺ Actualizar</button>
       </div>
-      <!-- Card: Concesiones -->
       <div class="card" style="margin-bottom:16px;">
         <div class="section-header">
           <div>
-            <h2>🏢 Concesiones</h2>
-            <div class="param-mini">Organizaciones concesionarias que agrupan peajes.</div>
+            <h2>🧭 Estructura base</h2>
+            <div class="param-mini">Vista jerárquica de concesiones, peajes y casetas compartida por todos los usuarios.</div>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="openParamCrud('concession',null)">+ Nueva concesión</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" onclick="openParamCrud('concession',null)">+ Concesión</button>
+            <button class="btn btn-soft btn-sm" onclick="openParamCrud('station',null)">+ Peaje</button>
+            <button class="btn btn-soft btn-sm" onclick="openParamCrud('booth',null)">+ Caseta</button>
+          </div>
         </div>
-        <div id="paramConcessionList"><div class="empty-state">Cargando...</div></div>
+        <div id="paramSummaryCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px;">
+          <div class="empty-state">Cargando...</div>
+        </div>
       </div>
-      <!-- Card: Peajes -->
       <div class="card" style="margin-bottom:16px;">
         <div class="section-header">
           <div>
-            <h2>🛣️ Peajes</h2>
-            <div class="param-mini">Peajes de casetas asociados a una concesión.</div>
+            <h2>Jerarquía navegable</h2>
+            <div class="param-mini">Lee de arriba hacia abajo: concesión, luego peajes y luego casetas.</div>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="openParamCrud('station',null)">+ Nuevo peaje</button>
-        </div>
-        <div class="form-group" style="margin:8px 0 12px;">
-          <label>Filtrar por concesión</label>
-          <select id="paramStationFilter" onchange="renderParamStations()">
-            <option value="">Todas las concesiones</option>
-          </select>
-        </div>
-        <div id="paramStationList"><div class="empty-state">Cargando...</div></div>
-      </div>
-      <!-- Card: Casetas -->
-      <div class="card">
-        <div class="section-header">
-          <div>
-            <h2>🚦 Casetas</h2>
-            <div class="param-mini">Casetas de cobro con su sentido de circulación.</div>
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="openParamCrud('booth',null)">+ Nueva caseta</button>
         </div>
         <div style="display:flex;gap:12px;margin:8px 0 12px;flex-wrap:wrap;">
           <div class="form-group" style="flex:1;min-width:160px;margin:0;">
             <label>Filtrar por concesión</label>
-            <select id="paramBoothConcessionFilter" onchange="_filterBoothListByConcession()">
+            <select id="paramHierarchyConcessionFilter" onchange="renderParamHierarchy()">
               <option value="">Todas las concesiones</option>
             </select>
           </div>
           <div class="form-group" style="flex:1;min-width:160px;margin:0;">
-            <label>Filtrar por peaje</label>
-            <select id="paramBoothFilter" onchange="renderParamBooths()">
-              <option value="">Todos los peajes</option>
-            </select>
+            <label>Buscar</label>
+            <input id="paramHierarchySearchInput" placeholder="Buscar peaje, caseta o sentido..." oninput="renderParamHierarchy()"/>
           </div>
         </div>
-        <div id="paramBoothList"><div class="empty-state">Cargando...</div></div>
+        <div id="paramHierarchyList"><div class="empty-state">Cargando...</div></div>
       </div>
     </div>
 
@@ -2865,19 +2849,137 @@
       renderConcessionOptions('pConcessionSelect', true);
       renderConcessionOptions('sConcessionSelect', true);
       renderConcessionOptions('dashFilterConcession', false);
-      renderParamConcessions();
-      renderParamStations();
-      renderParamBooths();
-      _fillParamStationFilter();
-      _fillParamBoothFilter();
+      renderParamHierarchy();
     } catch (e) {
-      ['paramConcessionList','paramStationList','paramBoothList'].forEach((id) => {
+      ['paramSummaryCards','paramHierarchyList'].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = '<div class="alert alert-danger"><span>❌</span><div>' + esc(e.message) + '</div></div>';
       });
     }
   }
   window.loadParamsPanel = loadParamsPanel;
+
+  function renderParamHierarchySummary() {
+    const target = document.getElementById('paramSummaryCards');
+    if (!target) return;
+    const concessionCount = _paramsCrudData.concessions.length;
+    const stationCount = _paramsCrudData.stations.length;
+    const boothCount = _paramsCrudData.booths.length;
+    target.innerHTML = [
+      { label: 'Concesiones', value: concessionCount, tone: 'rgba(15,118,110,.08)', color: 'var(--accent)' },
+      { label: 'Peajes', value: stationCount, tone: 'rgba(14,116,144,.08)', color: '#0e7490' },
+      { label: 'Casetas', value: boothCount, tone: 'rgba(202,138,4,.10)', color: '#a16207' }
+    ].map((item) => `<div style="border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:${item.tone};">
+      <div class="param-mini" style="margin-bottom:6px;color:${item.color};font-weight:700;">${item.label}</div>
+      <div style="font-size:1.7rem;font-weight:800;color:var(--text);line-height:1;">${item.value}</div>
+    </div>`).join('');
+  }
+
+  function getFilteredParamConcessions() {
+    const selectedConcessionId = document.getElementById('paramHierarchyConcessionFilter')?.value || '';
+    const searchTerm = normalizeParameterSearch(document.getElementById('paramHierarchySearchInput')?.value || '');
+    const stationsByConcession = new Map();
+    _paramsCrudData.stations.forEach((station) => {
+      const key = Number(station.concession_id || 0);
+      if (!stationsByConcession.has(key)) stationsByConcession.set(key, []);
+      stationsByConcession.get(key).push(station);
+    });
+    const boothsByStation = new Map();
+    _paramsCrudData.booths.forEach((booth) => {
+      const key = Number(booth.station_id || 0);
+      if (!boothsByStation.has(key)) boothsByStation.set(key, []);
+      boothsByStation.get(key).push(booth);
+    });
+
+    return _paramsCrudData.concessions
+      .filter((concession) => !selectedConcessionId || String(concession.id) === String(selectedConcessionId))
+      .map((concession) => {
+        const stations = (stationsByConcession.get(Number(concession.id || 0)) || []).map((station) => ({
+          ...station,
+          booths: (boothsByStation.get(Number(station.id || 0)) || []).slice().sort((a, b) => String(a.code || '').localeCompare(String(b.code || ''), 'es'))
+        }));
+
+        if (!searchTerm) return { ...concession, stations };
+
+        const concessionMatches = normalizeParameterSearch(concession.name).includes(searchTerm);
+        const filteredStations = stations.map((station) => {
+          const stationMatches = normalizeParameterSearch(station.name).includes(searchTerm);
+          const filteredBooths = (station.booths || []).filter((booth) => normalizeParameterSearch([booth.code, booth.directions].filter(Boolean).join(' ')).includes(searchTerm));
+          if (concessionMatches || stationMatches) return { ...station, booths: station.booths || [] };
+          if (filteredBooths.length) return { ...station, booths: filteredBooths };
+          return null;
+        }).filter(Boolean);
+
+        if (concessionMatches) return { ...concession, stations };
+        return { ...concession, stations: filteredStations };
+      })
+      .filter((concession) => normalizeParameterSearch(concession.name).includes(searchTerm) || (concession.stations || []).length);
+  }
+
+  function renderParamHierarchy() {
+    renderParamHierarchySummary();
+    const filter = document.getElementById('paramHierarchyConcessionFilter');
+    if (filter) {
+      const current = filter.value;
+      filter.innerHTML = '<option value="">Todas las concesiones</option>' +
+        _paramsCrudData.concessions.map((c) => `<option value="${c.id}" ${String(c.id) === String(current) ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    }
+    const target = document.getElementById('paramHierarchyList');
+    if (!target) return;
+    const hierarchy = getFilteredParamConcessions();
+    if (!hierarchy.length) {
+      target.innerHTML = '<div class="empty-state">No hay resultados para los filtros actuales.</div>';
+      return;
+    }
+    target.innerHTML = hierarchy.map((concession) => {
+      const stationCount = (concession.stations || []).length;
+      const boothCount = (concession.stations || []).reduce((sum, station) => sum + ((station.booths || []).length), 0);
+      return `<div class="card" style="margin-bottom:14px;border-radius:18px;overflow:hidden;">
+        <div style="padding:18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(15,118,110,.07),transparent);display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <h2 style="margin:0;">${esc(concession.name || '')}</h2>
+              <span class="badge ${concession.status === 'inactiva' ? 'badge-cerrado' : 'badge-activo'}">${esc(concession.status || 'activa')}</span>
+            </div>
+            <div class="param-mini" style="margin-top:6px;">${stationCount} peajes y ${boothCount} casetas configuradas.</div>
+          </div>
+          <div class="table-actions">
+            <button class="btn btn-soft btn-sm" onclick="openParamCrud('concession',${concession.id})">Editar</button>
+            <button class="btn btn-soft btn-sm" onclick="openParamStationForConcession(${concession.id})">+ Peaje</button>
+            <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamConcession(${concession.id})">Eliminar</button>
+          </div>
+        </div>
+        <div style="padding:16px;display:grid;gap:12px;">
+          ${(concession.stations || []).length ? concession.stations.map((station) => `<div style="border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.55);padding:14px;">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px;">
+              <div>
+                <div style="font-weight:800;font-size:1rem;">🛣️ ${esc(station.name || '')}</div>
+                <div class="param-mini">${(station.booths || []).length} casetas asociadas.</div>
+              </div>
+              <div class="table-actions">
+                <button class="btn btn-soft btn-sm" onclick="openParamCrud('station',${station.id})">Editar</button>
+                <button class="btn btn-soft btn-sm" onclick="openParamBoothForStation(${station.id})">+ Caseta</button>
+                <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamStation(${station.id})">Eliminar</button>
+              </div>
+            </div>
+            ${(station.booths || []).length ? `<div style="display:grid;gap:8px;">
+              ${station.booths.map((booth) => `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid rgba(148,163,184,.22);border-radius:12px;padding:10px 12px;background:var(--card);">
+                <div>
+                  <div style="font-weight:700;">🚦 C-${esc(booth.code || '')}</div>
+                  <div class="param-mini">${esc(booth.directions || 'Sin sentido definido')}</div>
+                </div>
+                <div class="table-actions">
+                  <button class="btn btn-soft btn-sm" onclick="openParamCrud('booth',${booth.id})">Editar</button>
+                  <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamBooth(${booth.id})">Eliminar</button>
+                </div>
+              </div>`).join('')}
+            </div>` : '<div class="empty-state" style="padding:16px 10px;">Este peaje aún no tiene casetas registradas.</div>'}
+          </div>`).join('') : '<div class="empty-state">Esta concesión aún no tiene peajes registrados.</div>'}
+        </div>
+      </div>`;
+    }).join('');
+  }
+  window.renderParamHierarchy = renderParamHierarchy;
 
   function _fillParamStationFilter() {
     const sel = document.getElementById('paramStationFilter');
@@ -2980,6 +3082,24 @@
     sel.innerHTML = '<option value="">— Seleccionar peaje —</option>' +
       stations.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
     if (prev && stations.find((s) => String(s.id) === prev)) sel.value = prev;
+  };
+
+  window.openParamStationForConcession = function(concessionId) {
+    openParamCrud('station', null);
+    const sel = document.getElementById('paramCrudStationConcession');
+    if (sel && concessionId) sel.value = String(concessionId);
+  };
+
+  window.openParamBoothForStation = function(stationId) {
+    openParamCrud('booth', null);
+    const station = _paramsCrudData.stations.find((item) => Number(item.id) === Number(stationId));
+    const concSel = document.getElementById('paramCrudBoothConcession');
+    if (station && concSel && station.concession_id) {
+      concSel.value = String(station.concession_id);
+      _filterBoothStationsByConcession();
+    }
+    const stationSel = document.getElementById('paramCrudBoothStation');
+    if (stationSel && stationId) stationSel.value = String(stationId);
   };
 
   window.openParamCrud = function(type, id) {
