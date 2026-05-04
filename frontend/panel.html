@@ -520,6 +520,7 @@
       <div class="topbar">
         <h1>🗺️ Mi Proyecto</h1>
         <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary btn-sm" id="btnCoordNewStation" style="display:none">+ Agregar Peaje</button>
           <button class="btn btn-soft btn-sm" onclick="loadCoordView()">↺ Actualizar</button>
           <button class="btn btn-blue btn-sm" id="btnSwitchToRegister" style="display:none">📝 Modo Registro</button>
         </div>
@@ -2091,11 +2092,13 @@
       // El coordinador sí puede agregar peajes adicionales al proyecto, pero no crear proyectos.
       document.getElementById('btnNewProject').style.display = 'none';
       document.getElementById('btnNewStation').style.display = 'inline-block';
+      if (document.getElementById('btnCoordNewStation')) document.getElementById('btnCoordNewStation').style.display = 'inline-block';
       document.getElementById('btnCloseShiftTop').style.display = 'none';
       document.getElementById('btnCloseShiftGlobal').style.display = 'none';
       if (document.getElementById('btnCloseShiftCoord')) document.getElementById('btnCloseShiftCoord').remove();
     } else {
       document.getElementById('btnNewStation').style.display = 'none';
+      if (document.getElementById('btnCoordNewStation')) document.getElementById('btnCoordNewStation').style.display = 'none';
     }
 
     loadDashboard();
@@ -3850,6 +3853,11 @@
     openModal('modalStation');
   };
 
+  const btnCoordNewStation = document.getElementById('btnCoordNewStation');
+  if (btnCoordNewStation) {
+    btnCoordNewStation.onclick = () => document.getElementById('btnNewStation').click();
+  }
+
   window.editStation = function(id, name, location, ts, te, concessionName) {
     editingStationId = id;
     document.getElementById('modalStationTitle').textContent = 'Editar Peaje';
@@ -4102,8 +4110,10 @@
         api('/dashboard/coordinator/' + projectId),
         api('/projects/' + projectId + '/presence').catch(() => ({ presence: [] }))
       ]);
+      currentProjectId = projectId;
       assigningProjectId = projectId;
       const p = data.project;
+      currentProjectMeta = p || getProjectMetaById(projectId) || { id: projectId, name: '' };
       const presence = presenceData.presence || [];
       _projectPresenceIndex = presence.reduce((acc, item) => {
         acc[item.user_id] = item;
