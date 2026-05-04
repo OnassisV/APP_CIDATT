@@ -442,10 +442,21 @@
     <div class="view" id="viewProjects">
       <div class="topbar">
         <h1>📋 Proyectos</h1>
-        <button class="btn btn-primary" id="btnNewProject">+ Nuevo Proyecto</button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <div style="display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;">
+            <button class="btn btn-sm" id="tabBtnOperativos" onclick="switchProjectsTab('operativos')" style="border-radius:0;border:0;background:var(--accent);color:#fff;padding:6px 14px;">Operativos</button>
+            <button class="btn btn-sm btn-soft" id="tabBtnCatalogo" onclick="switchProjectsTab('catalogo')" style="border-radius:0;border:0;padding:6px 14px;">Catálogo base</button>
+          </div>
+          <button class="btn btn-primary" id="btnNewProject">+ Nuevo Proyecto</button>
+        </div>
       </div>
-      <div class="card">
-        <div class="table-wrap" id="projectsListTable"></div>
+      <div id="projectsTabOperativos">
+        <div class="card">
+          <div class="table-wrap" id="projectsListTable"></div>
+        </div>
+      </div>
+      <div id="projectsTabCatalogo" style="display:none;">
+        <div id="catalogContent"></div>
       </div>
     </div>
 
@@ -472,13 +483,54 @@
 
     <div class="view" id="viewParameters">
       <div class="topbar">
-        <div>
-          <h1>⚙️ Parámetros operativos</h1>
-          <div class="param-mini">Resumen editable de concesiones, proyectos, peajes y casetas. Esta información alimenta desplegables, dashboard y asignaciones.</div>
-        </div>
-        <button class="btn btn-soft btn-sm" onclick="loadParameters()">↺ Actualizar</button>
+        <h1>⚙️ Parámetros</h1>
+        <button class="btn btn-soft btn-sm" onclick="loadParamsPanel()">↺ Actualizar</button>
       </div>
-      <div id="parametersContent"></div>
+      <!-- Card: Concesiones -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-header">
+          <div>
+            <h2>🏢 Concesiones</h2>
+            <div class="param-mini">Organizaciones concesionarias que agrupan peajes.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openParamCrud('concession',null)">+ Nueva concesión</button>
+        </div>
+        <div id="paramConcessionList"><div class="empty-state">Cargando...</div></div>
+      </div>
+      <!-- Card: Peajes -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-header">
+          <div>
+            <h2>🛣️ Peajes</h2>
+            <div class="param-mini">Peajes de casetas asociados a una concesión.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openParamCrud('station',null)">+ Nuevo peaje</button>
+        </div>
+        <div class="form-group" style="margin:8px 0 12px;">
+          <label>Filtrar por concesión</label>
+          <select id="paramStationFilter" onchange="renderParamStations()">
+            <option value="">Todas las concesiones</option>
+          </select>
+        </div>
+        <div id="paramStationList"><div class="empty-state">Cargando...</div></div>
+      </div>
+      <!-- Card: Casetas -->
+      <div class="card">
+        <div class="section-header">
+          <div>
+            <h2>🚦 Casetas</h2>
+            <div class="param-mini">Casetas de cobro con su sentido de circulación.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openParamCrud('booth',null)">+ Nueva caseta</button>
+        </div>
+        <div class="form-group" style="margin:8px 0 12px;">
+          <label>Filtrar por peaje</label>
+          <select id="paramBoothFilter" onchange="renderParamBooths()">
+            <option value="">Todos los peajes</option>
+          </select>
+        </div>
+        <div id="paramBoothList"><div class="empty-state">Cargando...</div></div>
+      </div>
     </div>
 
     <div class="view" id="viewCoordProject">
@@ -583,11 +635,84 @@
     </div>
     <div class="form-group" id="paramDirectionGroup" style="display:none;">
       <label>Sentido</label>
-      <input id="paramDirection" placeholder="Ej: Norte a Sur, Sur a Norte, Ingreso, Salida"/>
+      <select id="paramDirection">
+        <option value="">— Seleccionar sentido —</option>
+        <option value="Norte a Sur">Norte a Sur</option>
+        <option value="Sur a Norte">Sur a Norte</option>
+        <option value="Este a Oeste">Este a Oeste</option>
+        <option value="Oeste a Este">Oeste a Este</option>
+        <option value="Ingreso">Ingreso</option>
+        <option value="Salida">Salida</option>
+        <option value="Ambos sentidos">Ambos sentidos</option>
+      </select>
     </div>
     <div class="modal-actions">
       <button class="btn btn-soft" onclick="closeModal('modalParameter')">Cancelar</button>
       <button class="btn btn-primary" id="btnSaveParameter">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal nuevo para CRUD de Parámetros (concesión, peaje, caseta) -->
+<div class="modal-overlay" id="modalParamCrud">
+  <div class="modal">
+    <div class="modal-title" id="modalParamCrudTitle">Nuevo registro</div>
+    <!-- Concesión -->
+    <div id="paramCrudConcessionFields">
+      <div class="form-group">
+        <label>Nombre de la concesión *</label>
+        <input id="paramCrudConcessionName" placeholder="Ej: Norvial, IIRSA Norte"/>
+      </div>
+      <div class="form-group">
+        <label>Estado</label>
+        <select id="paramCrudConcessionStatus">
+          <option value="activa">Activa</option>
+          <option value="inactiva">Inactiva</option>
+        </select>
+      </div>
+    </div>
+    <!-- Peaje -->
+    <div id="paramCrudStationFields" style="display:none;">
+      <div class="form-group">
+        <label>Concesión *</label>
+        <select id="paramCrudStationConcession">
+          <option value="">— Seleccionar concesión —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Nombre del peaje *</label>
+        <input id="paramCrudStationName" placeholder="Ej: Peaje Corcona"/>
+      </div>
+    </div>
+    <!-- Caseta -->
+    <div id="paramCrudBoothFields" style="display:none;">
+      <div class="form-group">
+        <label>Peaje *</label>
+        <select id="paramCrudBoothStation">
+          <option value="">— Seleccionar peaje —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Número / Código de caseta *</label>
+        <input id="paramCrudBoothCode" placeholder="Ej: 01, C-01"/>
+      </div>
+      <div class="form-group">
+        <label>Sentido de circulación</label>
+        <select id="paramCrudBoothDirection">
+          <option value="">— Sin especificar —</option>
+          <option value="Norte a Sur">Norte a Sur</option>
+          <option value="Sur a Norte">Sur a Norte</option>
+          <option value="Este a Oeste">Este a Oeste</option>
+          <option value="Oeste a Este">Oeste a Este</option>
+          <option value="Ingreso">Ingreso</option>
+          <option value="Salida">Salida</option>
+          <option value="Ambos sentidos">Ambos sentidos</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-soft" onclick="closeModal('modalParamCrud')">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveParamCrud" onclick="saveParamCrud()">Guardar</button>
     </div>
   </div>
 </div>
@@ -2001,9 +2126,9 @@
     const navId = navMap[id];
     if (navId && document.getElementById(navId)) document.getElementById(navId).classList.add('active');
 
-    if (id === 'viewProjects')     loadProjectsList();
+    if (id === 'viewProjects')     { if (_projectsActiveTab === 'catalogo') loadCatalogTab(); else loadProjectsList(); }
     if (id === 'viewUsers')        loadUsers();
-    if (id === 'viewParameters')   loadParameters();
+    if (id === 'viewParameters')   loadParamsPanel();
     if (id === 'viewAlerts')       loadAlerts();
     if (id === 'viewCoordProject') loadCoordView();
     if (id !== 'viewCoordProject') stopCoordPresencePolling();
@@ -2319,6 +2444,92 @@
       renderProjectsList(data.projects);
     } catch (e) { showError(e); }
   }
+
+  var _projectsActiveTab = 'operativos';
+
+  function switchProjectsTab(tab) {
+    _projectsActiveTab = tab;
+    const tabOp = document.getElementById('projectsTabOperativos');
+    const tabCat = document.getElementById('projectsTabCatalogo');
+    const btnOp = document.getElementById('tabBtnOperativos');
+    const btnCat = document.getElementById('tabBtnCatalogo');
+    const btnNew = document.getElementById('btnNewProject');
+    if (tab === 'catalogo') {
+      tabOp.style.display = 'none';
+      tabCat.style.display = '';
+      btnOp.style.background = '';
+      btnOp.style.color = '';
+      btnOp.classList.add('btn-soft');
+      btnCat.style.background = 'var(--accent)';
+      btnCat.style.color = '#fff';
+      btnCat.classList.remove('btn-soft');
+      if (btnNew) btnNew.style.display = 'none';
+      loadCatalogTab();
+    } else {
+      tabOp.style.display = '';
+      tabCat.style.display = 'none';
+      btnOp.style.background = 'var(--accent)';
+      btnOp.style.color = '#fff';
+      btnOp.classList.remove('btn-soft');
+      btnCat.style.background = '';
+      btnCat.style.color = '';
+      btnCat.classList.add('btn-soft');
+      if (btnNew) btnNew.style.display = '';
+      loadProjectsList();
+    }
+  }
+
+  async function loadCatalogTab() {
+    const target = document.getElementById('catalogContent');
+    if (!target) return;
+    target.innerHTML = '<div class="card"><div class="empty-state">Cargando catálogo...</div></div>';
+    try {
+      const data = await api('/catalog/structure');
+      _parametersSnapshot = data;
+      concessionsCache = (data.concessions || [])
+        .map((item) => Object.assign({}, item, { name: canonicalConcessionName(item.name) }))
+        .filter((item) => item.name && !isDefaultConcessionName(item.name));
+      buildStationCatalogFromStructure(data);
+      renderCatalogContent(data, target);
+      renderConcessionOptions('pConcessionSelect', true);
+      renderConcessionOptions('sConcessionSelect', true);
+      renderConcessionOptions('dashFilterConcession', false);
+    } catch (e) {
+      target.innerHTML = '<div class="alert alert-danger"><span>❌</span><div>' + esc(e.message) + '</div></div>';
+    }
+  }
+
+  function renderCatalogContent(data, container) {
+    const target = container || document.getElementById('catalogContent');
+    if (!target) return;
+    const hierarchy = filterParameterHierarchy(getParameterHierarchy(data));
+    target.innerHTML = `
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-header">
+          <div>
+            <h2>Catálogo base de estructura</h2>
+            <div class="param-mini">Concesión → Proyecto base → Peaje → Caseta. Esta estructura alimenta los operativos y los desplegables del registrador.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="createParameterConcessionPrompt()">+ Concesión</button>
+        </div>
+        <div class="form-group" style="margin-top:12px;margin-bottom:0;">
+          <label>Buscar</label>
+          <input id="catalogSearchInput" value="${esc(parameterSearchTerm)}" placeholder="Buscar concesión, proyecto base, peaje o caseta..." oninput="setCatalogSearchTerm(this.value)"/>
+        </div>
+      </div>
+      <div class="card">
+        <div class="hierarchy-list">
+          ${hierarchy.map(renderParameterConcessionBlock).join('') || '<div class="empty-state">No hay catálogo configurado.</div>'}
+        </div>
+      </div>`;
+  }
+
+  window.setCatalogSearchTerm = function(value) {
+    parameterSearchTerm = String(value || '');
+    renderCatalogContent(_parametersSnapshot);
+    const input = document.getElementById('catalogSearchInput');
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  };
 
     function renderProjectsList(projects) {
     if (!projects.length) {
@@ -2656,11 +2867,223 @@
   }
   window.closeAllOpenSessions = closeAllOpenSessions;
 
-  // ── PARÁMETROS OPERATIVOS ─────────────────────────────────────────────────
+  // ── PARÁMETROS – NUEVO PANEL CRUD ─────────────────────────────────────────
+  var _paramsCrudData = { concessions: [], stations: [], booths: [] };
+  var _paramCrudState = { type: null, id: null };
+
+  async function loadParamsPanel() {
+    try {
+      const data = await api('/catalog/structure');
+      _parametersSnapshot = data;
+      _paramsCrudData.concessions = (data.concessions || []).filter((c) => !isDefaultConcessionName(c.name));
+      _paramsCrudData.stations = data.stations || [];
+      _paramsCrudData.booths = data.booths || [];
+      concessionsCache = _paramsCrudData.concessions.map((c) => Object.assign({}, c, { name: canonicalConcessionName(c.name) }));
+      buildStationCatalogFromStructure(data);
+      renderConcessionOptions('pConcessionSelect', true);
+      renderConcessionOptions('sConcessionSelect', true);
+      renderConcessionOptions('dashFilterConcession', false);
+      renderParamConcessions();
+      renderParamStations();
+      renderParamBooths();
+      _fillParamStationFilter();
+      _fillParamBoothFilter();
+    } catch (e) {
+      ['paramConcessionList','paramStationList','paramBoothList'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '<div class="alert alert-danger"><span>❌</span><div>' + esc(e.message) + '</div></div>';
+      });
+    }
+  }
+  window.loadParamsPanel = loadParamsPanel;
+
+  function _fillParamStationFilter() {
+    const sel = document.getElementById('paramStationFilter');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Todas las concesiones</option>' +
+      _paramsCrudData.concessions.map((c) => `<option value="${c.id}" ${String(c.id) === String(current) ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  }
+
+  function _fillParamBoothFilter() {
+    const sel = document.getElementById('paramBoothFilter');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Todos los peajes</option>' +
+      _paramsCrudData.stations.map((s) => `<option value="${s.id}" ${String(s.id) === String(current) ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+  }
+
+  window.renderParamConcessions = function() {
+    const el = document.getElementById('paramConcessionList');
+    if (!el) return;
+    const list = _paramsCrudData.concessions;
+    if (!list.length) { el.innerHTML = '<div class="empty-state">No hay concesiones registradas.</div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Nombre</th><th>Estado</th><th></th></tr></thead><tbody>` +
+      list.map((c) => `<tr>
+        <td><strong>${esc(c.name)}</strong></td>
+        <td><span class="badge ${c.status === 'inactiva' ? 'badge-cerrado' : 'badge-activo'}">${esc(c.status || 'activa')}</span></td>
+        <td class="table-actions">
+          <button class="btn btn-soft btn-sm" onclick="openParamCrud('concession',${c.id})">Editar</button>
+          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamConcession(${c.id})">Eliminar</button>
+        </td></tr>`).join('') + `</tbody></table>`;
+  };
+
+  window.renderParamStations = function() {
+    const el = document.getElementById('paramStationList');
+    if (!el) return;
+    const filterConcId = document.getElementById('paramStationFilter') ? document.getElementById('paramStationFilter').value : '';
+    const list = filterConcId
+      ? _paramsCrudData.stations.filter((s) => String(s.concession_id) === String(filterConcId))
+      : _paramsCrudData.stations;
+    if (!list.length) { el.innerHTML = '<div class="empty-state">No hay peajes registrados.</div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Peaje</th><th>Concesión</th><th></th></tr></thead><tbody>` +
+      list.map((s) => `<tr>
+        <td><strong>${esc(s.name)}</strong></td>
+        <td>${esc(s.concession_name || '—')}</td>
+        <td class="table-actions">
+          <button class="btn btn-soft btn-sm" onclick="openParamCrud('station',${s.id})">Editar</button>
+          <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamStation(${s.id})">Eliminar</button>
+        </td></tr>`).join('') + `</tbody></table>`;
+  };
+
+  window.renderParamBooths = function() {
+    const el = document.getElementById('paramBoothList');
+    if (!el) return;
+    const filterStId = document.getElementById('paramBoothFilter') ? document.getElementById('paramBoothFilter').value : '';
+    const list = filterStId
+      ? _paramsCrudData.booths.filter((b) => String(b.station_id) === String(filterStId))
+      : _paramsCrudData.booths;
+    if (!list.length) { el.innerHTML = '<div class="empty-state">No hay casetas registradas.</div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Código</th><th>Peaje</th><th>Sentido</th><th></th></tr></thead><tbody>` +
+      list.map((b) => {
+        const st = _paramsCrudData.stations.find((s) => s.id === b.station_id);
+        return `<tr>
+          <td><strong>C-${esc(b.code || '')}</strong></td>
+          <td>${esc(st ? st.name : '—')}</td>
+          <td>${esc(b.directions || '—')}</td>
+          <td class="table-actions">
+            <button class="btn btn-soft btn-sm" onclick="openParamCrud('booth',${b.id})">Editar</button>
+            <button class="btn btn-soft btn-sm danger-link-btn" onclick="deleteParamBooth(${b.id})">Eliminar</button>
+          </td></tr>`;
+      }).join('') + `</tbody></table>`;
+  };
+
+  window.openParamCrud = function(type, id) {
+    _paramCrudState = { type, id };
+    const title = document.getElementById('modalParamCrudTitle');
+    const action = id ? 'Editar' : 'Nuevo';
+    const labels = { concession: 'concesión', station: 'peaje', booth: 'caseta' };
+    title.textContent = action + ' ' + (labels[type] || type);
+
+    document.getElementById('paramCrudConcessionFields').style.display = type === 'concession' ? '' : 'none';
+    document.getElementById('paramCrudStationFields').style.display = type === 'station' ? '' : 'none';
+    document.getElementById('paramCrudBoothFields').style.display = type === 'booth' ? '' : 'none';
+
+    if (type === 'concession') {
+      const item = id ? _paramsCrudData.concessions.find((c) => c.id === id) : null;
+      document.getElementById('paramCrudConcessionName').value = item ? item.name : '';
+      const statusSel = document.getElementById('paramCrudConcessionStatus');
+      statusSel.value = item ? (item.status || 'activa') : 'activa';
+    } else if (type === 'station') {
+      const sel = document.getElementById('paramCrudStationConcession');
+      sel.innerHTML = '<option value="">— Seleccionar concesión —</option>' +
+        _paramsCrudData.concessions.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+      const item = id ? _paramsCrudData.stations.find((s) => s.id === id) : null;
+      document.getElementById('paramCrudStationName').value = item ? item.name : '';
+      if (item && item.concession_id) sel.value = String(item.concession_id);
+    } else if (type === 'booth') {
+      const sel = document.getElementById('paramCrudBoothStation');
+      sel.innerHTML = '<option value="">— Seleccionar peaje —</option>' +
+        _paramsCrudData.stations.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+      const item = id ? _paramsCrudData.booths.find((b) => b.id === id) : null;
+      document.getElementById('paramCrudBoothCode').value = item ? item.code : '';
+      const dirSel = document.getElementById('paramCrudBoothDirection');
+      dirSel.value = item ? (item.directions || '') : '';
+      if (item && item.station_id) sel.value = String(item.station_id);
+    }
+    openModal('modalParamCrud');
+  };
+
+  window.saveParamCrud = async function() {
+    const { type, id } = _paramCrudState;
+    const btn = document.getElementById('btnSaveParamCrud');
+    btn.disabled = true;
+    try {
+      if (type === 'concession') {
+        const name = document.getElementById('paramCrudConcessionName').value.trim();
+        const status = document.getElementById('paramCrudConcessionStatus').value;
+        if (!name) { alert('El nombre de la concesión es obligatorio.'); return; }
+        if (id) {
+          await api('/concessions/' + id, { method: 'PUT', body: { name, status } });
+        } else {
+          const res = await api('/concessions', { method: 'POST', body: { name } });
+          if (res.concessionId && status === 'inactiva') await api('/concessions/' + res.concessionId, { method: 'PUT', body: { name, status } });
+        }
+      } else if (type === 'station') {
+        const name = document.getElementById('paramCrudStationName').value.trim();
+        const concessionId = document.getElementById('paramCrudStationConcession').value;
+        if (!name) { alert('El nombre del peaje es obligatorio.'); return; }
+        if (id) {
+          await api('/stations/' + id, { method: 'PUT', body: { name, concession_id: concessionId || null } });
+        } else {
+          await api('/stations', { method: 'POST', body: { name, concession_id: concessionId || null } });
+        }
+      } else if (type === 'booth') {
+        const code = document.getElementById('paramCrudBoothCode').value.trim();
+        const stationId = document.getElementById('paramCrudBoothStation').value;
+        const directions = document.getElementById('paramCrudBoothDirection').value;
+        if (!code) { alert('El código de caseta es obligatorio.'); return; }
+        if (!stationId) { alert('Debe seleccionar un peaje.'); return; }
+        if (id) {
+          await api('/booths/' + id, { method: 'PUT', body: { code, directions, station_id: stationId } });
+        } else {
+          await api('/stations/' + stationId + '/booths', { method: 'POST', body: { code, directions } });
+        }
+      }
+      closeModal('modalParamCrud');
+      await loadParamsPanel();
+      await loadConcessions(true);
+      await loadDashboard();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  window.deleteParamConcession = async function(id) {
+    const item = _paramsCrudData.concessions.find((c) => c.id === id);
+    if (!confirm('¿Eliminar la concesión "' + (item ? item.name : '') + '"? Solo se permite si no tiene operativos activos.')) return;
+    try {
+      await api('/concessions/' + id, { method: 'DELETE' });
+      await loadParamsPanel();
+      await loadConcessions(true);
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteParamStation = async function(id) {
+    const item = _paramsCrudData.stations.find((s) => s.id === id);
+    if (!confirm('¿Eliminar el peaje "' + (item ? item.name : '') + '"?')) return;
+    try {
+      await api('/stations/' + id, { method: 'DELETE' });
+      await loadParamsPanel();
+    } catch (e) { alert(e.message); }
+  };
+
+  window.deleteParamBooth = async function(id) {
+    const item = _paramsCrudData.booths.find((b) => b.id === id);
+    if (!confirm('¿Eliminar la caseta "C-' + (item ? item.code : '') + '"?')) return;
+    try {
+      await api('/booths/' + id, { method: 'DELETE' });
+      await loadParamsPanel();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── PARÁMETROS OPERATIVOS (catálogo – ahora usado en tab Proyectos) ────────
   async function loadParameters() {
-    const target = document.getElementById('parametersContent');
+    const target = document.getElementById('catalogContent') || document.getElementById('parametersContent');
     if (!target) return;
-    target.innerHTML = '<div class="card"><div class="empty-state">Cargando parámetros...</div></div>';
+    target.innerHTML = '<div class="card"><div class="empty-state">Cargando catálogo...</div></div>';
     try {
       const data = await api('/catalog/structure');
       _parametersSnapshot = data;
@@ -2668,7 +3091,7 @@
         .map((item) => Object.assign({}, item, { name: canonicalConcessionName(item.name) }))
         .filter((item) => item.name && !isDefaultConcessionName(item.name));
       buildStationCatalogFromStructure(data);
-      renderParameters(data);
+      renderCatalogContent(data, target);
       renderConcessionOptions('pConcessionSelect', true);
       renderConcessionOptions('sConcessionSelect', true);
       renderConcessionOptions('dashFilterConcession', false);
@@ -2703,7 +3126,7 @@
   }
 
   function renderParametersLegacy(data) {
-    const content = document.getElementById('parametersContent');
+    const content = document.getElementById('catalogContent') || document.getElementById('parametersContent');
     if (!content) return;
     const hierarchy = getParameterHierarchyLegacy(data);
     const rows = [];
@@ -2846,6 +3269,8 @@
 
   async function refreshParametersEverywhere() {
     await loadParameters();
+    if (currentViewId === 'viewParameters') await loadParamsPanel();
+    if (currentViewId === 'viewProjects' && _projectsActiveTab === 'catalogo') await loadCatalogTab();
     await loadConcessions(true);
     await loadDashboard();
     if (currentProjectId) await openProjectDetail(currentProjectId);
@@ -3353,7 +3778,8 @@
       await api('/projects/' + currentProjectId + '/stations/' + id, { method: 'DELETE' });
       openProjectDetail(currentProjectId);
       loadDashboard();
-      if (currentViewId === 'viewParameters') loadParameters();
+      if (currentViewId === 'viewParameters') loadParamsPanel();
+      if (currentViewId === 'viewProjects' && _projectsActiveTab === 'catalogo') loadCatalogTab();
     } catch (e) { alert(e.message); }
   };
 
@@ -4418,7 +4844,7 @@
   }
 
   function renderParameters(data) {
-    const content = document.getElementById('parametersContent');
+    const content = document.getElementById('catalogContent') || document.getElementById('parametersContent');
     if (!content) return;
     const hierarchy = filterParameterHierarchy(getParameterHierarchy(data));
     content.innerHTML = `
@@ -4449,8 +4875,8 @@
 
   window.setParameterSearchTerm = function(value) {
     parameterSearchTerm = String(value || '');
-    renderParameters(_parametersSnapshot);
-    const input = document.getElementById('parameterSearchInput');
+    renderCatalogContent(_parametersSnapshot);
+    const input = document.getElementById('catalogSearchInput') || document.getElementById('parameterSearchInput');
     if (input) {
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
