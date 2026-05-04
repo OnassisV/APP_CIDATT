@@ -443,20 +443,11 @@
       <div class="topbar">
         <h1>📋 Proyectos</h1>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <div style="display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;">
-            <button class="btn btn-sm" id="tabBtnOperativos" onclick="switchProjectsTab('operativos')" style="border-radius:0;border:0;background:var(--accent);color:#fff;padding:6px 14px;">Operativos</button>
-            <button class="btn btn-sm btn-soft" id="tabBtnCatalogo" onclick="switchProjectsTab('catalogo')" style="border-radius:0;border:0;padding:6px 14px;">Catálogo base</button>
-          </div>
           <button class="btn btn-primary" id="btnNewProject">+ Nuevo Proyecto</button>
         </div>
       </div>
-      <div id="projectsTabOperativos">
-        <div class="card">
-          <div class="table-wrap" id="projectsListTable"></div>
-        </div>
-      </div>
-      <div id="projectsTabCatalogo" style="display:none;">
-        <div id="catalogContent"></div>
+      <div class="card">
+        <div class="table-wrap" id="projectsListTable"></div>
       </div>
     </div>
 
@@ -2140,7 +2131,7 @@
     const navId = navMap[id];
     if (navId && document.getElementById(navId)) document.getElementById(navId).classList.add('active');
 
-    if (id === 'viewProjects')     { if (_projectsActiveTab === 'catalogo') loadCatalogTab(); else loadProjectsList(); }
+    if (id === 'viewProjects')     { loadProjectsList(); }
     if (id === 'viewUsers')        loadUsers();
     if (id === 'viewParameters')   loadParamsPanel();
     if (id === 'viewAlerts')       loadAlerts();
@@ -2457,60 +2448,6 @@
       const data = await api('/projects');
       renderProjectsList(data.projects);
     } catch (e) { showError(e); }
-  }
-
-  var _projectsActiveTab = 'operativos';
-
-  function switchProjectsTab(tab) {
-    _projectsActiveTab = tab;
-    const tabOp = document.getElementById('projectsTabOperativos');
-    const tabCat = document.getElementById('projectsTabCatalogo');
-    const btnOp = document.getElementById('tabBtnOperativos');
-    const btnCat = document.getElementById('tabBtnCatalogo');
-    const btnNew = document.getElementById('btnNewProject');
-    if (tab === 'catalogo') {
-      tabOp.style.display = 'none';
-      tabCat.style.display = '';
-      btnOp.style.background = '';
-      btnOp.style.color = '';
-      btnOp.classList.add('btn-soft');
-      btnCat.style.background = 'var(--accent)';
-      btnCat.style.color = '#fff';
-      btnCat.classList.remove('btn-soft');
-      if (btnNew) btnNew.style.display = 'none';
-      loadCatalogTab();
-    } else {
-      tabOp.style.display = '';
-      tabCat.style.display = 'none';
-      btnOp.style.background = 'var(--accent)';
-      btnOp.style.color = '#fff';
-      btnOp.classList.remove('btn-soft');
-      btnCat.style.background = '';
-      btnCat.style.color = '';
-      btnCat.classList.add('btn-soft');
-      if (btnNew) btnNew.style.display = '';
-      loadProjectsList();
-    }
-  }
-
-  async function loadCatalogTab() {
-    const target = document.getElementById('catalogContent');
-    if (!target) return;
-    target.innerHTML = '<div class="card"><div class="empty-state">Cargando catálogo...</div></div>';
-    try {
-      const data = await api('/catalog/structure');
-      _parametersSnapshot = data;
-      concessionsCache = (data.concessions || [])
-        .map((item) => Object.assign({}, item, { name: canonicalConcessionName(item.name) }))
-        .filter((item) => item.name && !isDefaultConcessionName(item.name));
-      buildStationCatalogFromStructure(data);
-      renderCatalogContent(data, target);
-      renderConcessionOptions('pConcessionSelect', true);
-      renderConcessionOptions('sConcessionSelect', true);
-      renderConcessionOptions('dashFilterConcession', false);
-    } catch (e) {
-      target.innerHTML = '<div class="alert alert-danger"><span>❌</span><div>' + esc(e.message) + '</div></div>';
-    }
   }
 
   function renderCatalogContent(data, container) {
@@ -3352,7 +3289,6 @@
   async function refreshParametersEverywhere() {
     await loadParameters();
     if (currentViewId === 'viewParameters') await loadParamsPanel();
-    if (currentViewId === 'viewProjects' && _projectsActiveTab === 'catalogo') await loadCatalogTab();
     await loadConcessions(true);
     await loadDashboard();
     if (currentProjectId) await openProjectDetail(currentProjectId);
@@ -3861,7 +3797,6 @@
       openProjectDetail(currentProjectId);
       loadDashboard();
       if (currentViewId === 'viewParameters') loadParamsPanel();
-      if (currentViewId === 'viewProjects' && _projectsActiveTab === 'catalogo') loadCatalogTab();
     } catch (e) { alert(e.message); }
   };
 
