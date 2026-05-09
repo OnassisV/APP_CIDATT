@@ -4484,10 +4484,10 @@
         switchAssignTab('coord');
       } else {
         const poolUsers = (s || {}).station_regs || [];
-        _regAvailUsers = poolUsers.filter((user) => {
-          const presence = _projectPresenceIndex[user.id];
-          return presence && presence.presence_state !== 'offline';
-        });
+        // Mostrar a todos los registradores del pool del peaje, aunque aun no
+        // hayan reportado presencia. Antes se filtraban por presencia online,
+        // lo que dejaba la lista vacia para usuarios recien asignados.
+        _regAvailUsers = poolUsers.slice();
         switchAssignTab('regs');
       }
     } catch (e) { alert(e.message); return; }
