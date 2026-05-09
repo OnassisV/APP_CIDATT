@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
   
-  <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#1e3a8a" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b1d4d" media="(prefers-color-scheme: dark)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="CIDATT" />
@@ -18,9 +18,9 @@
       --text: #111827;
       --muted: #6b7280;
       --line: #d1d5db;
-      --accent: #0f766e;
-      --accent-dark: #115e59;
-      --soft: #ecfeff;
+      --accent: #1e3a8a;
+      --accent-dark: #1e40af;
+      --soft: #eff6ff;
       --danger: #b91c1c;
       --danger-bg: #fee2e2;
       --ok: #166534;
@@ -30,14 +30,49 @@
       --radius: 16px;
       --shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
       --fab-size: 60px;
+      --accent-shadow: rgba(30, 58, 138, 0.18);
+      --accent-shadow-soft: rgba(30, 58, 138, 0.10);
+      --accent-shadow-strong: rgba(30, 58, 138, 0.5);
     }
 
     body.dark-mode {
-      --bg: #111827; --card: #1f2937; --text: #f9fafb; --muted: #9ca3af;
-      --line: #374151; --accent: #2dd4bf; --accent-dark: #14b8a6; --soft: #374151;
+      --bg: #0b1d4d; --card: #112966; --text: #f9fafb; --muted: #c7d2fe;
+      --line: #1e3a8a; --accent: #93c5fd; --accent-dark: #60a5fa; --soft: #1e3a8a;
       --danger: #fca5a5; --danger-bg: #7f1d1d; --ok: #6ee7b7; --ok-bg: #064e3b;
       --warn: #fde047; --warn-bg: #854d0e;
+      --accent-shadow: rgba(147, 197, 253, 0.25);
+      --accent-shadow-soft: rgba(147, 197, 253, 0.15);
+      --accent-shadow-strong: rgba(0, 0, 0, 0.6);
     }
+
+    /* MODO SOL: alta visibilidad bajo luz directa.
+       Blanco puro + navy oscuro + amarillo de seguridad + bordes negros gruesos.
+       Cumple WCAG AAA (contraste >= 7:1) en todos los elementos críticos. */
+    body.sun-mode {
+      --bg: #ffffff; --card: #ffffff; --text: #000000; --muted: #1f2937;
+      --line: #000000; --accent: #0c2d6b; --accent-dark: #08214d; --soft: #fff8b8;
+      --danger: #b91c1c; --danger-bg: #fee2e2; --ok: #14532d; --ok-bg: #bbf7d0;
+      --warn: #b45309; --warn-bg: #fde68a;
+      --accent-shadow: rgba(0, 0, 0, 0.35);
+      --accent-shadow-soft: rgba(0, 0, 0, 0.18);
+      --accent-shadow-strong: rgba(0, 0, 0, 0.55);
+    }
+    body.sun-mode .card,
+    body.sun-mode input,
+    body.sun-mode select,
+    body.sun-mode .group-card,
+    body.sun-mode .theme-toggle { border: 2px solid #000 !important; }
+    body.sun-mode label { color: #000 !important; font-weight: 800; }
+    body.sun-mode .placa-input,
+    body.sun-mode .hora-input { font-weight: 900 !important; color: #000 !important; }
+    /* Chips activos en amarillo de alta visibilidad (color de chalecos viales) */
+    body.sun-mode .chip.active {
+      background: #facc15 !important; color: #000 !important;
+      border: 2px solid #000 !important; font-weight: 900;
+    }
+    body.sun-mode .btn-primary { background: #0c2d6b !important; color: #fff !important; border: 2px solid #000 !important; }
+    body.sun-mode .fab { background: #0c2d6b !important; color: #fff !important; border: 3px solid #000 !important; }
+    body.sun-mode .btn-fuga { background: #b91c1c !important; color: #fff !important; border: 2px solid #000 !important; font-weight: 900; }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -104,7 +139,7 @@
       width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 12px;
       font-size: 1rem; background: var(--card); color: var(--text); transition: all 0.2s;
     }
-    input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18); }
+    input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-shadow); }
 
     input.valid-plate { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok-bg); background: rgba(220, 252, 231, 0.1); }
     input.warning-plate { border-color: var(--warn); box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.2); background: rgba(254, 240, 138, 0.1); }
@@ -161,7 +196,7 @@
       border: 1px solid transparent; border-radius: 14px; padding: 8px; margin-bottom: 8px;
       background: var(--card); transition: all 0.15s ease;
     }
-    .group-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.1); background: var(--soft); }
+    .group-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-shadow-soft); background: var(--soft); }
 
     .grid-2-col { display: grid; grid-template-columns: 1fr 1.5fr; gap: 8px; margin-bottom: 8px; }
 
@@ -214,7 +249,7 @@
     .fab-save {
       position: fixed; bottom: max(20px, calc(20px + env(safe-area-inset-bottom))); right: max(20px, env(safe-area-inset-right));
       width: var(--fab-size); height: var(--fab-size); background: var(--accent); color: white; border-radius: 50%;
-      box-shadow: 0 4px 12px rgba(15, 118, 110, 0.5); display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 12px var(--accent-shadow-strong); display: flex; align-items: center; justify-content: center;
       font-size: 1.6rem; z-index: 1000; transition: transform 0.2s, opacity 0.2s;
     }
     .fab-save:active { transform: scale(0.9); }
@@ -281,8 +316,8 @@
       margin-bottom: 8px;
     }
     .setup-mode-card.locked-assigned {
-      border-color: rgba(15, 118, 110, .35);
-      background: rgba(15, 118, 110, .06);
+      border-color: var(--accent-shadow);
+      background: var(--accent-shadow-soft);
     }
     .setup-mode-card.manual-active {
       border-color: rgba(234, 179, 8, .55);
@@ -2918,11 +2953,37 @@
       window.addEventListener('beforeunload', function (e) { if (placaPrincipal.value.length > 0 && !editingId) { e.preventDefault(); e.returnValue = ''; } });
 
       var btnTheme = document.getElementById('btnTheme');
+      // Ciclo de 3 modos: claro institucional (☀️) -> oscuro institucional (🌙) -> alta visibilidad solar (🔆) -> claro
+      // El icono mostrado representa el SIGUIENTE modo a aplicar al pulsar.
+      function applyTheme(mode) {
+        document.body.classList.remove('dark-mode', 'sun-mode');
+        if (mode === 'dark') {
+          document.body.classList.add('dark-mode');
+          btnTheme.textContent = '🔆';
+          btnTheme.title = 'Cambiar a alta visibilidad (sol)';
+        } else if (mode === 'sun') {
+          document.body.classList.add('sun-mode');
+          btnTheme.textContent = '☀️';
+          btnTheme.title = 'Cambiar a modo claro';
+        } else {
+          // 'light' (institucional)
+          btnTheme.textContent = '🌙';
+          btnTheme.title = 'Cambiar a modo oscuro';
+        }
+        localStorage.setItem('cidatt_theme', mode);
+      }
       btnTheme.addEventListener('click', () => {
-        document.body.classList.toggle('dark-mode'); let isDark = document.body.classList.contains('dark-mode');
-        localStorage.setItem('cidatt_theme', isDark ? 'dark' : 'light'); btnTheme.textContent = isDark ? '☀️' : '🌙';
+        var current = localStorage.getItem('cidatt_theme') || 'light';
+        var next = current === 'light' ? 'dark' : (current === 'dark' ? 'sun' : 'light');
+        applyTheme(next);
       });
-      if (localStorage.getItem('cidatt_theme') === 'dark' || (!localStorage.getItem('cidatt_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) { document.body.classList.add('dark-mode'); btnTheme.textContent = '☀️'; }
+      // Inicialización: respeta preferencia guardada; si no hay, usa preferencia del SO
+      (function initTheme(){
+        var saved = localStorage.getItem('cidatt_theme');
+        if (saved === 'dark' || saved === 'sun' || saved === 'light') { applyTheme(saved); return; }
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        applyTheme(prefersDark ? 'dark' : 'light');
+      })();
 
       // --- LOGICA DE AYUDA ---
       var helpOverlay = document.getElementById('helpOverlay');

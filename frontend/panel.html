@@ -6,7 +6,8 @@
   <title>CIDATT — Panel de Gestión</title>
   <style>
     :root {
-      --accent: #1a6b5a; --accent2: #2563eb; --danger: #dc2626; --warn: #d97706;
+      --accent: #1e3a8a; --accent-dark: #1e40af; --accent-soft: #dbeafe;
+      --accent2: #2563eb; --danger: #dc2626; --warn: #d97706;
       --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b;
       --line: #e2e8f0; --success: #16a34a; --success-bg: #f0fdf4;
       --radius: 14px; --shadow: 0 2px 12px rgba(0,0,0,.08);
@@ -142,8 +143,8 @@
     .booth-assign-row:last-child { border-bottom: none; }
     .booth-assign-info { flex: 1; min-width: 0; }
     .booth-assign-slot { width: 155px; flex-shrink: 0; min-height: 46px; border: 2px dashed var(--line); border-radius: 8px; padding: 5px; display: flex; align-items: center; justify-content: center; text-align: center; transition: border-color .15s, background .15s; font-size: .78rem; cursor: pointer; }
-    .booth-assign-slot.drag-over { border-color: var(--accent); background: #e8f5f0; }
-    .booth-assign-slot.has-user  { border-color: var(--accent); background: #e8f5f0; border-style: solid; }
+    .booth-assign-slot.drag-over { border-color: var(--accent); background: var(--accent-soft); }
+    .booth-assign-slot.has-user  { border-color: var(--accent); background: var(--accent-soft); border-style: solid; }
     /* ── BOOTH CARD STATUS ── */
     .booth-card.active-shift   { border-color: #16a34a; background: #dcfce7; }
     .booth-card.inactive-shift { border-color: var(--warn); background: #fffbeb; }
@@ -156,13 +157,13 @@
     .assign-available-list.drag-over { border-color: var(--muted); background: #f8fffe; }
     .assign-role-group { font-size: .67rem; font-weight: 700; color: var(--muted); padding: 5px 4px 2px; text-transform: uppercase; letter-spacing: .05em; }
     .assign-drag-item { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 7px; font-size: .84rem; cursor: grab; background: var(--bg); border: 1px solid var(--line); margin-bottom: 4px; user-select: none; transition: background .15s, border-color .15s; }
-    .assign-drag-item:hover { background: #e8f5f0; border-color: var(--accent); }
+    .assign-drag-item:hover { background: var(--accent-soft); border-color: var(--accent); }
     .assign-drag-item:active { cursor: grabbing; }
     .assign-drag-item .tag-warn { font-size: .65rem; color: var(--warn); margin-left: auto; }
     .assign-slot-wrap { width: 160px; flex-shrink: 0; }
     .assign-slot { min-height: 90px; border: 2px dashed var(--line); border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: center; text-align: center; transition: border-color .2s, background .2s; }
-    .assign-slot.drag-over { border-color: var(--accent); background: #e8f5f0; }
-    .assign-slot.has-user { border-color: var(--accent); background: #e8f5f0; }
+    .assign-slot.drag-over { border-color: var(--accent); background: var(--accent-soft); }
+    .assign-slot.has-user { border-color: var(--accent); background: var(--accent-soft); }
     .assign-slot-hint { font-size: .78rem; color: var(--muted); }
     .assign-slot-name { font-size: .88rem; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
     .assign-arrow { display: flex; align-items: center; padding-top: 38px; color: var(--muted); font-size: 1.3rem; flex-shrink: 0; }
@@ -311,8 +312,8 @@
     /* ── PANEL V2: CONTROL OPERATIVO ── */
     .assign-drag-item.selected {
       border-color: var(--accent);
-      background: #e8f5f0;
-      box-shadow: 0 0 0 2px rgba(26,107,90,.12);
+      background: var(--accent-soft);
+      box-shadow: 0 0 0 2px rgba(30,58,138,.12);
     }
     .booth-assign-slot.assign-clickable:hover {
       border-color: var(--accent);
@@ -352,7 +353,7 @@
     .btn-assign-primary {
       background: #ecfeff;
       color: var(--accent);
-      border: 1px solid rgba(26,107,90,.25);
+      border: 1px solid rgba(30,58,138,.25);
     }
 
     /* ── MOBILE ── */
@@ -2416,7 +2417,7 @@
     if (!types || !types.length) return;
     const total = types.reduce((s, t) => s + t.count, 0);
     const labels = { L:'Ligeros', C:'Camiones', M2:'Van/Mini', O:'Ómnibus', PNP:'Policía', A:'Ambulancia', FUGA:'Fuga' };
-    const colors = { L:'#1a6b5a', C:'#2563eb', M2:'#7c3aed', O:'#d97706', PNP:'#dc2626', A:'#0891b2', FUGA:'#111827' };
+    const colors = { L:'#1e3a8a', C:'#2563eb', M2:'#7c3aed', O:'#d97706', PNP:'#dc2626', A:'#0891b2', FUGA:'#111827' };
     document.getElementById('vehicleTypeChart').innerHTML = types.map(t => {
       const pct = Math.round((t.count / total) * 100);
       return `
@@ -2705,7 +2706,7 @@
     const htmlEscape = (v) => String(v == null ? '' : v)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const sheetName = 'Registros';
-    const thead = '<tr>' + headers.map(h => `<th style="background:#0f766e;color:#fff;font-weight:bold;border:1px solid #999;">${htmlEscape(h)}</th>`).join('') + '</tr>';
+    const thead = '<tr>' + headers.map(h => `<th style="background:#1e3a8a;color:#fff;font-weight:bold;border:1px solid #999;">${htmlEscape(h)}</th>`).join('') + '</tr>';
     const tbody = data.map(row =>
       '<tr>' + row.map(c => `<td style="border:1px solid #ccc;mso-number-format:'\\@';">${htmlEscape(c)}</td>`).join('') + '</tr>'
     ).join('');
@@ -2764,7 +2765,7 @@
         ? `<span style="font-size:.78rem;background:#eef2ff;color:#1d4ed8;padding:2px 8px;border-radius:20px;font-weight:600;">🏢 ${esc(s.concession_name)}</span>`
         : '';
       const coordChip = s.coord_name
-        ? `<span style="font-size:.78rem;background:var(--accent-soft,#e8f5f0);color:var(--accent);padding:2px 8px;border-radius:20px;font-weight:600;">👤 Coord: ${esc(s.coord_name)}</span>`
+        ? `<span style="font-size:.78rem;background:var(--accent-soft,#dbeafe);color:var(--accent);padding:2px 8px;border-radius:20px;font-weight:600;">👤 Coord: ${esc(s.coord_name)}</span>`
         : `<span style="font-size:.78rem;color:var(--muted);">⬜ Sin coordinador</span>`;
       return `
       <div class="card" style="margin-bottom:16px;">
