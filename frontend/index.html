@@ -489,11 +489,13 @@
           
           <div class="grid-2-col">
             <div class="group-card" id="groupHora" style="margin: 0; padding: 6px;">
-              <label style="display:flex; justify-content:space-between; align-items:center;">
-                Hora 
-                <button type="button" class="btn-soft btn-sm" id="btnAhora" style="padding: 2px 6px; font-size: 0.7rem;">⌚ Ahora</button>
-              </label>
-              <input id="horaPaso" type="tel" class="hora-input" placeholder="14:30" maxlength="8" required style="padding: 9px;" autocomplete="off"/>
+              <label>Hora</label>
+              <div style="display:flex; gap:6px; align-items:stretch;">
+                <input id="horaPaso" type="text" class="hora-input" placeholder="14:30" maxlength="8" required readonly
+                       style="padding: 9px; flex:1; background:#f3f4f6; cursor:not-allowed;" autocomplete="off" inputmode="none" tabindex="-1"/>
+                <button type="button" class="btn-soft" id="btnAhora"
+                        style="padding: 0 14px; font-size: 1rem; font-weight:700; white-space:nowrap;">⌚ Ahora</button>
+              </div>
             </div>
 
             <div class="group-card" id="groupPlacaPrincipal" style="margin: 0; padding: 6px;">
@@ -2852,18 +2854,42 @@
         function stopRecording() {
           isRecording = false;
           if (recognition) {
-            recognition.abort();
+            // .stop() (no .abort()) procesa el audio pendiente y dispara onresult
+            // con la transcripcion final, para que la placa dictada se cargue al soltar.
+            try { recognition.stop(); } catch(e) { try { recognition.abort(); } catch(_){} }
             recognition = null;
           }
           btnMic.classList.remove('recording');
           btnMic.textContent = '🎤';
-          statusEl.textContent = '';
           statusEl.classList.remove('active');
+          // Mantener brevemente el ultimo estado y luego limpiar
+          setTimeout(function(){ if (!isRecording) statusEl.textContent = ''; }, 1200);
         }
 
-        btnMic.addEventListener('click', function() {
-          if (isRecording) { stopRecording(); } else { startRecording(); }
-        });
+        // Push-to-talk: graba SOLO mientras se mantiene presionado el boton.
+        // Al soltar (o al salir del boton) se detiene y la placa dictada se carga sola.
+        var pressing = false;
+        function onPress(ev) {
+          if (pressing) return;
+          pressing = true;
+          ev.preventDefault();
+          if (!isRecording) startRecording();
+        }
+        function onRelease(ev) {
+          if (!pressing) return;
+          pressing = false;
+          if (ev) ev.preventDefault();
+          if (isRecording) stopRecording();
+        }
+        btnMic.addEventListener('pointerdown', onPress);
+        btnMic.addEventListener('pointerup', onRelease);
+        btnMic.addEventListener('pointerleave', onRelease);
+        btnMic.addEventListener('pointercancel', onRelease);
+        // Fallback teclado (Enter/Space) por accesibilidad
+        btnMic.addEventListener('keydown', function(e){ if (e.key === ' ' || e.key === 'Enter') onPress(e); });
+        btnMic.addEventListener('keyup',   function(e){ if (e.key === ' ' || e.key === 'Enter') onRelease(e); });
+        // Evitar que el click sintetico dispare nada
+        btnMic.addEventListener('click', function(e){ e.preventDefault(); });
       }
 
       setupVoiceDictation(document.getElementById('btnMicPrincipal'), placaPrincipal);
