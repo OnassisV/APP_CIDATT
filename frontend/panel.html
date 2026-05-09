@@ -457,14 +457,24 @@
           <button class="btn btn-soft btn-sm" onclick="showView('viewProjects')">← Volver</button>
           <h1 id="projectDetailTitle" style="margin-top:8px;">Proyecto</h1>
         </div>
+        <button class="btn btn-primary" id="btnNewStation">+ Agregar Peaje</button>
+      </div>
+      <div id="projectDetailContent"></div>
+    </div>
+
+    <div class="view" id="viewProjectData">
+      <div class="topbar">
+        <div>
+          <button class="btn btn-soft btn-sm" onclick="showView('viewDashboard')">← Volver al Dashboard</button>
+          <h1 id="projectDataTitle" style="margin-top:8px;">Datos del proyecto</h1>
+        </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button class="btn btn-soft btn-sm" id="btnProjectConfigToggle" onclick="toggleProjectConfig()">⚙️ Configurar</button>
-          <button class="btn btn-primary" id="btnNewStation">+ Agregar Peaje</button>
-          <button class="btn btn-primary" id="btnExportProjectRecords" onclick="exportProjectRecordsCSV()">📅 Descargar Excel</button>
+          <button class="btn btn-soft btn-sm" onclick="loadProjectRecords(currentProjectId)">↺ Actualizar</button>
+          <button class="btn btn-primary" onclick="exportProjectRecordsExcel()">📄 Descargar Excel</button>
+          <button class="btn btn-soft btn-sm" onclick="exportProjectRecordsCSV()">📄 CSV</button>
         </div>
       </div>
       <div id="projectDataContent"></div>
-      <div id="projectDetailContent" style="display:none;"></div>
     </div>
 
     <div class="view" id="viewProcessing">
@@ -2133,6 +2143,7 @@
       viewDashboard: 'nav-dashboard', viewAlerts: 'nav-alerts',
       viewProcessing: 'nav-processing',
       viewProjects: 'nav-projects', viewProjectDetail: 'nav-projects',
+      viewProjectData: 'nav-dashboard',
       viewUsers: 'nav-users', viewParameters: 'nav-parameters', viewCoordProject: 'nav-coord'
     };
     const navId = navMap[id];
@@ -2441,7 +2452,7 @@
               </td>
               <td>${p.records_today||0}</td>
               <td>${(p.total_records||0).toLocaleString()}</td>
-              <td><button class="btn btn-soft btn-sm" onclick="openProjectDetail(${p.id})">Ver →</button></td>
+              <td><button class="btn btn-soft btn-sm" onclick="openProjectData(${p.id})">Ver →</button></td>
             </tr>`;
           }).join('')}</tbody>
         </table>
@@ -2559,21 +2570,10 @@
 
 
   let _projectRecordsCache = [];
-  let _projectConfigVisible = false;
 
   async function openProjectDetail(projectId, skipHashSync) {
     currentProjectId = projectId;
     showView('viewProjectDetail', skipHashSync);
-    // Reiniciar a vista de datos por defecto
-    _projectConfigVisible = false;
-    document.getElementById('projectDataContent').style.display = '';
-    document.getElementById('projectDetailContent').style.display = 'none';
-    const cfgBtn = document.getElementById('btnProjectConfigToggle');
-    if (cfgBtn) cfgBtn.textContent = '⚙️ Configurar';
-    const newStBtn = document.getElementById('btnNewStation');
-    if (newStBtn) newStBtn.style.display = 'none';
-    const expBtn = document.getElementById('btnExportProjectRecords');
-    if (expBtn) expBtn.style.display = '';
     try {
       const data = await api('/projects/' + projectId + '/stations');
       currentProjectMeta = data.project || getProjectMetaById(projectId) || { id: projectId, name: data.projectName || '' };
@@ -2581,34 +2581,24 @@
       savePanelState({ projectId: projectId });
       routeToHash(skipHashSync);
       renderProjectDetail(data.stations);
-      await loadProjectRecords(projectId);
     } catch (e) { showError(e); }
   }
   window.openProjectDetail = openProjectDetail;
 
-  function toggleProjectConfig() {
-    _projectConfigVisible = !_projectConfigVisible;
-    const dataEl = document.getElementById('projectDataContent');
-    const cfgEl  = document.getElementById('projectDetailContent');
-    const cfgBtn = document.getElementById('btnProjectConfigToggle');
-    const newStBtn = document.getElementById('btnNewStation');
-    const expBtn = document.getElementById('btnExportProjectRecords');
-    if (_projectConfigVisible) {
-      dataEl.style.display = 'none';
-      cfgEl.style.display = '';
-      if (cfgBtn) cfgBtn.textContent = '📊 Ver datos';
-      if (newStBtn) newStBtn.style.display = (currentUser && currentUser.role === 'coordinador') ? 'inline-block' : 'none';
-      if (expBtn) expBtn.style.display = 'none';
-    } else {
-      dataEl.style.display = '';
-      cfgEl.style.display = 'none';
-      if (cfgBtn) cfgBtn.textContent = '⚙️ Configurar';
-      if (newStBtn) newStBtn.style.display = 'none';
-      if (expBtn) expBtn.style.display = '';
-      if (currentProjectId) loadProjectRecords(currentProjectId);
-    }
+  // Vista de DATOS recopilados del proyecto (entrada desde el Dashboard)
+  async function openProjectData(projectId, skipHashSync) {
+    currentProjectId = projectId;
+    showView('viewProjectData', skipHashSync);
+    try {
+      // Cargar metadata del proyecto para mostrar el titulo correctamente
+      const meta = getProjectMetaById(projectId);
+      if (meta) currentProjectMeta = meta;
+      const titleEl = document.getElementById('projectDataTitle');
+      if (titleEl) titleEl.textContent = '📊 Datos — ' + ((currentProjectMeta && currentProjectMeta.name) || ('Proyecto ' + projectId));
+      await loadProjectRecords(projectId);
+    } catch (e) { showError(e); }
   }
-  window.toggleProjectConfig = toggleProjectConfig;
+  window.openProjectData = openProjectData;
 
   async function loadProjectRecords(projectId) {
     const cont = document.getElementById('projectDataContent');
@@ -2655,54 +2645,110 @@
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
           <div style="font-size:.85rem;color:var(--muted);">Total registros: <strong>${rows.length}</strong></div>
-          <button class="btn btn-soft btn-sm" onclick="loadProjectRecords(currentProjectId)">↺ Actualizar</button>
         </div>
         <div class="table-wrap"><table class="data-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>
       </div>`;
   }
   window.loadProjectRecords = loadProjectRecords;
 
-  function exportProjectRecordsCSV() {
+  function _projectExportFilename(ext) {
+    const projName = (currentProjectMeta && currentProjectMeta.name)
+      ? currentProjectMeta.name.replace(/[^\w\-]+/g,'_')
+      : ('proyecto_' + currentProjectId);
+    const fecha = new Date().toISOString().slice(0,10);
+    return `registros_${projName}_${fecha}.${ext}`;
+  }
+
+  function _projectExportRows() {
     const rows = _projectRecordsCache || [];
-    if (!rows.length) { alert('No hay registros para exportar.'); return; }
     const headers = ['Fecha','Hora','Peaje','Caseta','Sentido','Operador','Placa principal','Tipo','Ejes principales','Placa secundaria','Ejes secundarios','Total ejes','Es fuga','Estado sync'];
+    const data = rows.map(r => [
+      r.operation_date || '',
+      (r.passed_at || '').slice(0,8),
+      r.toll_name || '',
+      r.booth_number || '',
+      r.direction || '',
+      r.operator_name || '',
+      r.main_plate || '',
+      r.vehicle_type || '',
+      r.main_axles || 0,
+      r.secondary_plate || '',
+      r.secondary_axles || 0,
+      r.total_axles || 0,
+      Number(r.is_fugitive) ? 'SI' : 'NO',
+      r.sync_status || ''
+    ]);
+    return { headers, data };
+  }
+
+  function exportProjectRecordsCSV() {
+    const { headers, data } = _projectExportRows();
+    if (!data.length) { alert('No hay registros para exportar.'); return; }
     const csvEscape = (v) => {
       const s = (v === null || v === undefined) ? '' : String(v);
       if (/[",;\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
       return s;
     };
     const lines = [headers.join(';')];
-    rows.forEach(r => {
-      lines.push([
-        r.operation_date || '',
-        (r.passed_at || '').slice(0,8),
-        r.toll_name || '',
-        r.booth_number || '',
-        r.direction || '',
-        r.operator_name || '',
-        r.main_plate || '',
-        r.vehicle_type || '',
-        r.main_axles || 0,
-        r.secondary_plate || '',
-        r.secondary_axles || 0,
-        r.total_axles || 0,
-        Number(r.is_fugitive) ? 'SI' : 'NO',
-        r.sync_status || ''
-      ].map(csvEscape).join(';'));
-    });
+    data.forEach(row => lines.push(row.map(csvEscape).join(';')));
     // BOM UTF-8 para que Excel reconozca acentos
     const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    _triggerDownload(blob, _projectExportFilename('csv'));
+  }
+  window.exportProjectRecordsCSV = exportProjectRecordsCSV;
+
+  // Genera un .xls "real" para Excel usando el formato HTML que Excel reconoce
+  // de forma nativa (no requiere librerias externas y funciona offline).
+  function exportProjectRecordsExcel() {
+    const { headers, data } = _projectExportRows();
+    if (!data.length) { alert('No hay registros para exportar.'); return; }
+    const htmlEscape = (v) => String(v == null ? '' : v)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sheetName = 'Registros';
+    const thead = '<tr>' + headers.map(h => `<th style="background:#0f766e;color:#fff;font-weight:bold;border:1px solid #999;">${htmlEscape(h)}</th>`).join('') + '</tr>';
+    const tbody = data.map(row =>
+      '<tr>' + row.map(c => `<td style="border:1px solid #ccc;mso-number-format:'\\@';">${htmlEscape(c)}</td>`).join('') + '</tr>'
+    ).join('');
+    const xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:x="urn:schemas-microsoft-com:office:excel"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="UTF-8" />
+  <!--[if gte mso 9]>
+  <xml>
+    <x:ExcelWorkbook>
+      <x:ExcelWorksheets>
+        <x:ExcelWorksheet>
+          <x:Name>${htmlEscape(sheetName)}</x:Name>
+          <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+        </x:ExcelWorksheet>
+      </x:ExcelWorksheets>
+    </x:ExcelWorkbook>
+  </xml>
+  <![endif]-->
+</head>
+<body>
+  <table border="1" cellspacing="0" cellpadding="4">
+    <thead>${thead}</thead>
+    <tbody>${tbody}</tbody>
+  </table>
+</body></html>`;
+    const blob = new Blob(['\ufeff' + xml], { type: 'application/vnd.ms-excel' });
+    _triggerDownload(blob, _projectExportFilename('xls'));
+  }
+  window.exportProjectRecordsExcel = exportProjectRecordsExcel;
+
+  function _triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const projName = (currentProjectMeta && currentProjectMeta.name) ? currentProjectMeta.name.replace(/[^\w\-]+/g,'_') : ('proyecto_' + currentProjectId);
-    const fecha = new Date().toISOString().slice(0,10);
     a.href = url;
-    a.download = `registros_${projName}_${fecha}.csv`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
   }
-  window.exportProjectRecordsCSV = exportProjectRecordsCSV;
 
   function renderProjectDetail(stations) {
     if (!stations.length) {
