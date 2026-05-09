@@ -457,9 +457,26 @@
           <button class="btn btn-soft btn-sm" onclick="showView('viewProjects')">← Volver</button>
           <h1 id="projectDetailTitle" style="margin-top:8px;">Proyecto</h1>
         </div>
-        <button class="btn btn-primary" id="btnNewStation">+ Agregar Peaje</button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-soft btn-sm" id="btnProjectConfigToggle" onclick="toggleProjectConfig()">⚙️ Configurar</button>
+          <button class="btn btn-primary" id="btnNewStation">+ Agregar Peaje</button>
+          <button class="btn btn-primary" id="btnExportProjectRecords" onclick="exportProjectRecordsCSV()">📅 Descargar Excel</button>
+        </div>
       </div>
-      <div id="projectDetailContent"></div>
+      <div id="projectDataContent"></div>
+      <div id="projectDetailContent" style="display:none;"></div>
+    </div>
+
+    <div class="view" id="viewProcessing">
+      <div class="topbar">
+        <h1>🔄 Procesamiento</h1>
+      </div>
+      <div class="card">
+        <div class="empty-state">
+          <div class="icon">🚧</div>
+          Módulo en construcción. Aquí se gestionarán los procesos sobre la data registrada.
+        </div>
+      </div>
     </div>
 
     <div class="view" id="viewUsers">
@@ -2067,6 +2084,9 @@
       <div class="nav-item" onclick="showView('viewAlerts')" id="nav-alerts">
         <span class="icon">⚠️</span> Alertas de Personal
       </div>
+      <div class="nav-item" onclick="showView('viewProcessing')" id="nav-processing">
+        <span class="icon">🔄</span> Procesamiento
+      </div>
       <div class="nav-section">Gestión</div>
       <div class="nav-item" onclick="showView('viewProjects')" id="nav-projects">
         <span class="icon">📋</span> Proyectos
@@ -2111,6 +2131,7 @@
     document.getElementById(id).classList.add('active');
     const navMap = {
       viewDashboard: 'nav-dashboard', viewAlerts: 'nav-alerts',
+      viewProcessing: 'nav-processing',
       viewProjects: 'nav-projects', viewProjectDetail: 'nav-projects',
       viewUsers: 'nav-users', viewParameters: 'nav-parameters', viewCoordProject: 'nav-coord'
     };
@@ -2537,9 +2558,22 @@
   window.deleteProject = deleteProject;
 
 
+  let _projectRecordsCache = [];
+  let _projectConfigVisible = false;
+
   async function openProjectDetail(projectId, skipHashSync) {
     currentProjectId = projectId;
     showView('viewProjectDetail', skipHashSync);
+    // Reiniciar a vista de datos por defecto
+    _projectConfigVisible = false;
+    document.getElementById('projectDataContent').style.display = '';
+    document.getElementById('projectDetailContent').style.display = 'none';
+    const cfgBtn = document.getElementById('btnProjectConfigToggle');
+    if (cfgBtn) cfgBtn.textContent = '⚙️ Configurar';
+    const newStBtn = document.getElementById('btnNewStation');
+    if (newStBtn) newStBtn.style.display = 'none';
+    const expBtn = document.getElementById('btnExportProjectRecords');
+    if (expBtn) expBtn.style.display = '';
     try {
       const data = await api('/projects/' + projectId + '/stations');
       currentProjectMeta = data.project || getProjectMetaById(projectId) || { id: projectId, name: data.projectName || '' };
@@ -2547,9 +2581,128 @@
       savePanelState({ projectId: projectId });
       routeToHash(skipHashSync);
       renderProjectDetail(data.stations);
+      await loadProjectRecords(projectId);
     } catch (e) { showError(e); }
   }
   window.openProjectDetail = openProjectDetail;
+
+  function toggleProjectConfig() {
+    _projectConfigVisible = !_projectConfigVisible;
+    const dataEl = document.getElementById('projectDataContent');
+    const cfgEl  = document.getElementById('projectDetailContent');
+    const cfgBtn = document.getElementById('btnProjectConfigToggle');
+    const newStBtn = document.getElementById('btnNewStation');
+    const expBtn = document.getElementById('btnExportProjectRecords');
+    if (_projectConfigVisible) {
+      dataEl.style.display = 'none';
+      cfgEl.style.display = '';
+      if (cfgBtn) cfgBtn.textContent = '📊 Ver datos';
+      if (newStBtn) newStBtn.style.display = (currentUser && currentUser.role === 'coordinador') ? 'inline-block' : 'none';
+      if (expBtn) expBtn.style.display = 'none';
+    } else {
+      dataEl.style.display = '';
+      cfgEl.style.display = 'none';
+      if (cfgBtn) cfgBtn.textContent = '⚙️ Configurar';
+      if (newStBtn) newStBtn.style.display = 'none';
+      if (expBtn) expBtn.style.display = '';
+      if (currentProjectId) loadProjectRecords(currentProjectId);
+    }
+  }
+  window.toggleProjectConfig = toggleProjectConfig;
+
+  async function loadProjectRecords(projectId) {
+    const cont = document.getElementById('projectDataContent');
+    cont.innerHTML = '<div class="card"><div class="empty-state"><div class="icon">⏳</div>Cargando registros…</div></div>';
+    try {
+      const resp = await api('/records?projectId=' + encodeURIComponent(projectId));
+      _projectRecordsCache = resp.rows || [];
+      renderProjectRecordsTable(_projectRecordsCache);
+    } catch (e) {
+      cont.innerHTML = '<div class="card"><div class="empty-state"><div class="icon">⚠️</div>'+esc(e.message||'Error al cargar registros')+'</div></div>';
+    }
+  }
+
+  function renderProjectRecordsTable(rows) {
+    const cont = document.getElementById('projectDataContent');
+    if (!rows || !rows.length) {
+      cont.innerHTML = '<div class="card"><div class="empty-state"><div class="icon">📭</div>Aún no hay registros cargados para este proyecto.</div></div>';
+      return;
+    }
+    const head = `
+      <tr>
+        <th>Fecha</th><th>Hora</th><th>Peaje</th><th>Caseta</th><th>Sentido</th>
+        <th>Operador</th><th>Placa</th><th>Tipo</th><th>Ejes</th>
+        <th>Placa 2</th><th>Ejes 2</th><th>Total ejes</th><th>Fuga</th><th>Sync</th>
+      </tr>`;
+    const body = rows.map(r => `
+      <tr>
+        <td>${esc(r.operation_date||'')}</td>
+        <td>${esc((r.passed_at||'').slice(0,8))}</td>
+        <td>${esc(r.toll_name||'')}</td>
+        <td>${esc(r.booth_number||'')}</td>
+        <td>${esc(r.direction||'')}</td>
+        <td>${esc(r.operator_name||'')}</td>
+        <td><strong>${esc(r.main_plate||'')}</strong></td>
+        <td>${esc(r.vehicle_type||'')}</td>
+        <td style="text-align:right;">${esc(r.main_axles||0)}</td>
+        <td>${esc(r.secondary_plate||'')}</td>
+        <td style="text-align:right;">${esc(r.secondary_axles||0)}</td>
+        <td style="text-align:right;"><strong>${esc(r.total_axles||0)}</strong></td>
+        <td style="text-align:center;">${Number(r.is_fugitive)?'🚧':''}</td>
+        <td style="font-size:.7rem;color:var(--muted);">${esc(r.sync_status||'')}</td>
+      </tr>`).join('');
+    cont.innerHTML = `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:.85rem;color:var(--muted);">Total registros: <strong>${rows.length}</strong></div>
+          <button class="btn btn-soft btn-sm" onclick="loadProjectRecords(currentProjectId)">↺ Actualizar</button>
+        </div>
+        <div class="table-wrap"><table class="data-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+      </div>`;
+  }
+  window.loadProjectRecords = loadProjectRecords;
+
+  function exportProjectRecordsCSV() {
+    const rows = _projectRecordsCache || [];
+    if (!rows.length) { alert('No hay registros para exportar.'); return; }
+    const headers = ['Fecha','Hora','Peaje','Caseta','Sentido','Operador','Placa principal','Tipo','Ejes principales','Placa secundaria','Ejes secundarios','Total ejes','Es fuga','Estado sync'];
+    const csvEscape = (v) => {
+      const s = (v === null || v === undefined) ? '' : String(v);
+      if (/[",;\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+    const lines = [headers.join(';')];
+    rows.forEach(r => {
+      lines.push([
+        r.operation_date || '',
+        (r.passed_at || '').slice(0,8),
+        r.toll_name || '',
+        r.booth_number || '',
+        r.direction || '',
+        r.operator_name || '',
+        r.main_plate || '',
+        r.vehicle_type || '',
+        r.main_axles || 0,
+        r.secondary_plate || '',
+        r.secondary_axles || 0,
+        r.total_axles || 0,
+        Number(r.is_fugitive) ? 'SI' : 'NO',
+        r.sync_status || ''
+      ].map(csvEscape).join(';'));
+    });
+    // BOM UTF-8 para que Excel reconozca acentos
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const projName = (currentProjectMeta && currentProjectMeta.name) ? currentProjectMeta.name.replace(/[^\w\-]+/g,'_') : ('proyecto_' + currentProjectId);
+    const fecha = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `registros_${projName}_${fecha}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+  }
+  window.exportProjectRecordsCSV = exportProjectRecordsCSV;
 
   function renderProjectDetail(stations) {
     if (!stations.length) {
