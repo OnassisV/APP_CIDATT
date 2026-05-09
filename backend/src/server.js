@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { query, withTransaction } from './db.js';
+import { buildTemplateBuffer } from './processing/template.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -28,7 +29,9 @@ const TABLES = {
   booths:      'cidatt_toll_booths',
   projectSites:'cidatt_project_sites',
   assignments: 'cidatt_user_assignments',
-  presence:    'cidatt_device_presence'
+  presence:    'cidatt_device_presence',
+  processingRuns:      'cidatt_processing_runs',
+  processingIncidents: 'cidatt_processing_incidents'
 };
 
 // Jerarquía de roles
@@ -2914,6 +2917,33 @@ app.delete('/api/records/:id', authenticateRequest, async (req, res, next) => {
 
 // ─── CATCH-ALL FRONTEND ───────────────────────────────────────────────────────
 
+// ===== PROCESAMIENTO (Director) ============================================
+// GET /api/processing/template → descarga la plantilla Excel oficial.
+app.get('/api/processing/template', authenticateRequest, requireMinRole('director'), (_req, res, next) => {
+  try {
+    const buf = buildTemplateBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="plantilla_relevamiento_cidatt.xlsx"');
+    res.send(buf);
+  } catch (e) { next(e); }
+});
+
+// GET /api/processing/projects → lista proyectos con totales para procesar.
+app.get('/api/processing/projects', authenticateRequest, requireMinRole('director'), async (_req, res, next) => {
+  try {
+    const rows = await query(
+      `SELECT p.id, p.name, p.status, p.start_date, p.end_date,
+              c.name AS concession_name,
+              (SELECT COUNT(*) FROM ${TABLES.records} r WHERE r.project_id = p.id) AS total_records,
+              (SELECT COUNT(DISTINCT r.station_id) FROM ${TABLES.records} r WHERE r.project_id = p.id AND r.station_id IS NOT NULL) AS total_stations
+         FROM ${TABLES.projects} p
+         LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
+        ORDER BY p.created_at DESC`
+    );
+    res.json({ projects: rows });
+  } catch (e) { next(e); }
+});
+
 app.get(/^\/(?!api).*/, (_req, res) => {
   res.sendFile(path.join(frontendDir, 'index.html'));
 });
@@ -3303,6 +3333,52 @@ async function runMigrations() {
          r.booth_id = COALESCE(r.booth_id, tb.id)
      WHERE r.station_id IS NULL OR r.booth_id IS NULL`
   );
+
+  // ── Tablas de procesamiento (informe / Excel) ────────────────────────────
+  await query(`
+    CREATE TABLE IF NOT EXISTS ${TABLES.processingRuns} (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      run_uuid CHAR(36) NOT NULL,
+      source_type ENUM('internal','external') NOT NULL,
+      project_id INT UNSIGNED NULL,
+      external_filename VARCHAR(255) NULL,
+      director_user_id BIGINT UNSIGNED NOT NULL,
+      concession_label VARCHAR(160) NULL,
+      period_label VARCHAR(160) NULL,
+      total_input INT NOT NULL DEFAULT 0,
+      total_output INT NOT NULL DEFAULT 0,
+      total_fixed INT NOT NULL DEFAULT 0,
+      total_deleted INT NOT NULL DEFAULT 0,
+      total_pending INT NOT NULL DEFAULT 0,
+      rules_config_json JSON NULL,
+      summary_json JSON NULL,
+      output_zip_path VARCHAR(500) NULL,
+      status ENUM('analyzing','reviewing','completed','aborted') NOT NULL DEFAULT 'analyzing',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_processing_runs_uuid (run_uuid),
+      KEY idx_processing_runs_director (director_user_id, created_at),
+      KEY idx_processing_runs_project (project_id)
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS ${TABLES.processingIncidents} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      run_id INT UNSIGNED NOT NULL,
+      record_ref VARCHAR(80) NULL,
+      rule_key VARCHAR(60) NOT NULL,
+      severity ENUM('info','warning','error') NOT NULL DEFAULT 'warning',
+      payload_json JSON NULL,
+      resolution ENUM('pending','auto_fix','manual_edit','delete','accept') NOT NULL DEFAULT 'pending',
+      resolved_by BIGINT UNSIGNED NULL,
+      resolved_at DATETIME NULL,
+      PRIMARY KEY (id),
+      KEY idx_processing_incidents_run (run_id, rule_key),
+      CONSTRAINT fk_processing_incidents_run FOREIGN KEY (run_id) REFERENCES ${TABLES.processingRuns} (id) ON DELETE CASCADE
+    )
+  `);
 
   const seedUsers = [
     { username: 'admin',            full_name: 'Administrador CIDATT',  role: 'admin',        password: 'CIDATT2026!' },
