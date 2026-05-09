@@ -2201,12 +2201,11 @@ app.post('/api/assignments', authenticateRequest, requireMinRole('coordinador'),
 
     await assertProjectAccess(req.authUser, targetProjectId, { stationId: targetStationId });
 
-    if (req.authUser.role === 'coordinador') {
-      const presenceState = await getPresenceStateForUserProject(targetUserId, targetProjectId);
-      if (presenceState === 'offline') {
-        throw forbidden('El coordinador solo puede asignar casetas a registradores conectados.');
-      }
-    }
+    // Nota: antes se exigia que el registrador estuviera "conectado" para
+    // permitir al coordinador asignarle una caseta. Se elimino esa restriccion
+    // porque la asignacion debe poder realizarse aunque el registrador no
+    // tenga internet en ese momento; cuando se conecte vera su asignacion y
+    // podra trabajar offline (cache) sincronizando al recuperar conexion.
 
     const currentRows = await query(
       `SELECT a.id, a.booth_id, COALESCE(a.station_id, tb.station_id) AS station_id
