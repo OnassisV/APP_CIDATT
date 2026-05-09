@@ -2744,9 +2744,17 @@
                 break;
               }
             }
-            // Si no matchea, intentar como carácter individual si es 1 letra/dígito
-            if (!found && word.length === 1 && /[a-z0-9]/i.test(word)) {
-              result += word.toUpperCase();
+            // Fallback: si no matchea como palabra completa, recorrer caracter
+            // por caracter y aceptar letras A-Z y digitos 0-9. Esto cubre el
+            // caso en que el motor de voz devuelve la placa corrida, p.ej.
+            // "abc123", "abc 123", "ABC-123" o numeros agrupados como "123".
+            if (!found) {
+              for (var k = 0; k < word.length; k++) {
+                var ch = word.charAt(k);
+                if (/[a-z0-9]/i.test(ch)) {
+                  result += ch.toUpperCase();
+                }
+              }
             }
             i++;
           }
