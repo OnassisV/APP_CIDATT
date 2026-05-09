@@ -491,10 +491,11 @@
             <div class="group-card" id="groupHora" style="margin: 0; padding: 6px;">
               <label>Hora</label>
               <div style="display:flex; gap:6px; align-items:stretch;">
-                <input id="horaPaso" type="text" class="hora-input" placeholder="14:30" maxlength="8" required readonly
-                       style="padding: 9px; flex:1; background:#f3f4f6; cursor:not-allowed;" autocomplete="off" inputmode="none" tabindex="-1"/>
+                <input id="horaPaso" type="text" class="hora-input" placeholder="14:30" maxlength="5" required readonly
+                       style="flex:1 1 0; min-width:0; padding:8px 4px; font-size:1rem; letter-spacing:0; background:#f3f4f6; cursor:not-allowed;"
+                       autocomplete="off" inputmode="none" tabindex="-1"/>
                 <button type="button" class="btn-soft" id="btnAhora"
-                        style="padding: 0 14px; font-size: 1rem; font-weight:700; white-space:nowrap;">⌚ Ahora</button>
+                        style="flex:0 0 auto; padding:0 10px; font-size:.9rem; font-weight:700; white-space:nowrap;">⌚ Ahora</button>
               </div>
             </div>
 
@@ -1049,7 +1050,7 @@
 
       function pad(val) { return String(val).padStart(2, '0'); }
       function todayDate() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
-      function currentTime() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+      function currentTime() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
       function isFixedTwoAxlesType(type) { return ['L', 'M2', 'PNP', 'A'].includes(String(type || '').toUpperCase()); }
       function isNumericLeadingPlate(value) { return /^[0-9]/.test(String(value || '')); }
       function goBackFromRegister() {
@@ -1060,15 +1061,13 @@
 
       // --- HORA INTELIGENTE (Digitación) ---
       function formatSmartTime(val) {
-        let v = val.replace(/\D/g, ''); // Quita todo lo que no sea numero
+        let v = String(val || '').replace(/\D/g, ''); // Quita todo lo que no sea numero
         if(!v) return currentTime();
         let h = v.substring(0,2).padStart(2, '0');
         let m = v.substring(2,4).padEnd(2, '0');
-        let s = v.substring(4,6).padEnd(2, '0');
         if (parseInt(h) > 23) h = '23';
         if (parseInt(m) > 59) m = '59';
-        if (parseInt(s) > 59) s = '59';
-        return `${h}:${m}:${s}`;
+        return `${h}:${m}`;
       }
 
       horaPaso.addEventListener('blur', () => {
