@@ -5825,8 +5825,9 @@
 
     if (incidents.length === 0) {
       html.push('<div class="empty-state" style="color:#15803d;">✅ Sin incidencias. Datos limpios.</div>');
-      html.push('<div style="margin-top:12px;text-align:right;">');
-      html.push('<button class="btn btn-primary" onclick="generateProcessingOutputs()" disabled title="Disponible en el siguiente paso">📦 Generar entregables</button>');
+      html.push('<div style="margin-top:12px;text-align:right;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">');
+      html.push('<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Descargar Excel</button>');
+      html.push('<button class="btn btn-primary" onclick="generateProcessingOutputs()" disabled title="Disponible en el siguiente paso">📦 Generar entregables (ZIP + Word)</button>');
       html.push('</div>');
     } else {
       // Agrupar por regla
@@ -5857,8 +5858,10 @@
 
       html.push('<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;flex-wrap:wrap;">');
       html.push('<button class="btn btn-soft" onclick="saveProcessingResolutions()">💾 Guardar avances</button>');
+      html.push('<div style="display:flex;gap:8px;flex-wrap:wrap;">');
+      html.push('<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Descargar Excel</button>');
       html.push('<button class="btn btn-primary" onclick="saveAndGenerateOutputs()">📦 Guardar y generar entregables</button>');
-      html.push('</div>');
+      html.push('</div></div>');
     }
 
     document.getElementById('processingResultCard').style.display = 'block';
@@ -6014,6 +6017,39 @@
     alert('Disponible en el siguiente paso.');
   }
   window.generateProcessingOutputs = generateProcessingOutputs;
+
+  async function downloadProcessingExcel() {
+    if (!_processingCurrentRun || !_processingCurrentRun.run) {
+      alert('No hay análisis activo.');
+      return;
+    }
+    // Guardar resoluciones primero para que se reflejen en la descarga
+    if (Object.keys(_processingPendingChanges || {}).length) {
+      await saveProcessingResolutions();
+    }
+    const runId = _processingCurrentRun.run.id;
+    try {
+      const res = await fetch(API + '/processing/runs/' + runId + '/excel', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Error al generar el Excel.');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'unidad_run' + runId + '.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+  window.downloadProcessingExcel = downloadProcessingExcel;
 
   // ── INIT ──────────────────────────────────────────────────────────────────
   init();

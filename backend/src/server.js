@@ -12,6 +12,8 @@ import { buildTemplateBuffer } from './processing/template.js';
 import { parseExternalWorkbook } from './processing/externalReader.js';
 import { loadInternalProject } from './processing/internalReader.js';
 import { validateRecords, RULE_LABELS } from './processing/validator.js';
+import { applyResolutions } from './processing/applyResolutions.js';
+import { buildUnitBuffer } from './processing/excelBuilder.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -3173,6 +3175,84 @@ app.patch('/api/processing/runs/:id/incidents', authenticateRequest, requireMinR
     });
 
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// Helper: carga records + incidents + metadatos de un run.
+async function loadRunForOutput(runId) {
+  const runs = await query(
+    `SELECT id, source_type, project_id, external_filename, concession_label, period_label,
+            summary_json, records_json, status
+       FROM ${TABLES.processingRuns} WHERE id = ? LIMIT 1`,
+    [runId]
+  );
+  if (!runs.length) throw badRequest('Run no encontrado.');
+  const run = runs[0];
+  const incidents = await query(
+    `SELECT id, record_ref AS ref, rule_key, severity, payload_json, override_json, resolution
+       FROM ${TABLES.processingIncidents} WHERE run_id = ?`,
+    [runId]
+  );
+  const parseJson = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'object') return v;
+    try { return JSON.parse(v); } catch { return null; }
+  };
+  const records = parseJson(run.records_json) || [];
+  const incs = incidents.map(inc => ({
+    ...inc,
+    payload: parseJson(inc.payload_json) || {},
+    override: parseJson(inc.override_json) || null
+  }));
+  return { run, records, incidents: incs };
+}
+
+// GET /api/processing/runs/:id/excel/:unit?  → descarga el .xlsx final de una unidad.
+// Si el run es interno y el proyecto tiene varias unidades, el path /excel/<station_id>
+// genera el de esa unidad; sin parámetro genera el primero (por defecto).
+app.get('/api/processing/runs/:id/excel', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runId = parseInt(req.params.id, 10);
+    const { run, records, incidents } = await loadRunForOutput(runId);
+    const { records: finalRecords } = applyResolutions(records, incidents);
+
+    // Resolver etiquetas de la unidad
+    let unitLabel = 'UNIDAD';
+    let concession = run.concession_label || '';
+    if (run.source_type === 'internal' && run.project_id) {
+      const stations = await query(
+        `SELECT DISTINCT ts.id, ts.name
+           FROM ${TABLES.stations} ts
+           INNER JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id AND ps.project_id = ?
+          ORDER BY ts.name`,
+        [run.project_id]
+      );
+      if (stations.length) unitLabel = `UNIDAD DE PEAJE ${stations[0].name.toUpperCase()}`;
+      const conc = await query(
+        `SELECT c.name FROM ${TABLES.concessions} c
+           INNER JOIN ${TABLES.projects} p ON p.concession_id = c.id
+          WHERE p.id = ? LIMIT 1`,
+        [run.project_id]
+      );
+      if (conc.length) concession = `CONCESIONARIA ${conc[0].name.toUpperCase()}`;
+    }
+    if (run.source_type === 'external') {
+      unitLabel = run.external_filename ? run.external_filename.replace(/\.xlsx$/i, '').toUpperCase() : 'UNIDAD';
+      if (concession && !/^CONCESIONARIA/i.test(concession)) concession = `CONCESIONARIA ${concession.toUpperCase()}`;
+    }
+
+    const directions = Array.from(new Set(finalRecords.map(r => r.sentido).filter(Boolean))).slice(0, 2);
+    const buf = buildUnitBuffer({
+      unitLabel,
+      concession,
+      periodLabel: run.period_label || '',
+      records: finalRecords,
+      directions
+    });
+    const safeName = unitLabel.replace(/[^A-Z0-9]+/gi, '_').replace(/^_|_$/g, '');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName || 'unidad'}.xlsx"`);
+    res.send(buf);
   } catch (e) { next(e); }
 });
 
