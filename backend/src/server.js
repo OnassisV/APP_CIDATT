@@ -13,7 +13,7 @@ import { parseExternalWorkbook } from './processing/externalReader.js';
 import { loadInternalProject } from './processing/internalReader.js';
 import { validateRecords, RULE_LABELS } from './processing/validator.js';
 import { applyResolutions } from './processing/applyResolutions.js';
-import { buildUnitBuffer } from './processing/excelBuilder.js';
+import { buildUnitBuffer, inferPeriodLabel } from './processing/excelBuilder.js';
 import { buildReportBuffer } from './processing/wordBuilder.js';
 import { buildZipBuffer } from './processing/zipBuilder.js';
 
@@ -3246,7 +3246,10 @@ async function resolveRunDeliverables(runId) {
   const fechaMin = fechas[0] || null;
   const fechaMax = fechas[fechas.length - 1] || null;
 
-  return { run, records: finalRecords, applied, unitLabel, concession, directions, safeName, fechaMin, fechaMax };
+  // Período automático según los datos ("Primer/Segundo/... Trimestre del año YYYY").
+  const autoPeriodLabel = inferPeriodLabel(finalRecords, run.period_label || '');
+
+  return { run, records: finalRecords, applied, unitLabel, concession, directions, safeName, fechaMin, fechaMax, autoPeriodLabel };
 }
 
 // GET /api/processing/runs/:id/excel  → descarga el .xlsx final de la unidad.
@@ -3254,10 +3257,10 @@ app.get('/api/processing/runs/:id/excel', authenticateRequest, requireMinRole('d
   try {
     const runId = parseInt(req.params.id, 10);
     const d = await resolveRunDeliverables(runId);
-    const buf = buildUnitBuffer({
+    const buf = await buildUnitBuffer({
       unitLabel: d.unitLabel,
       concession: d.concession,
-      periodLabel: d.run.period_label || '',
+      periodLabel: d.autoPeriodLabel,
       records: d.records,
       directions: d.directions
     });
@@ -3277,7 +3280,7 @@ app.get('/api/processing/runs/:id/word', authenticateRequest, requireMinRole('di
     const buf = await buildReportBuffer({
       unitLabel: d.unitLabel,
       concession: d.concession,
-      periodLabel: d.run.period_label || '',
+      periodLabel: d.autoPeriodLabel,
       records: d.records,
       directions: d.directions,
       runSummary: summary,
@@ -3294,17 +3297,19 @@ app.get('/api/processing/runs/:id/preview', authenticateRequest, requireMinRole(
   try {
     const runId = parseInt(req.params.id, 10);
     const d = await resolveRunDeliverables(runId);
-    const periodLabel = d.run.period_label || '';
+    const declaredPeriod = d.run.period_label || '';
+    const autoPeriod = d.autoPeriodLabel || '';
     const periodAlert =
-      (d.fechaMin && periodLabel && !periodLabel.toLowerCase().includes(String(d.fechaMin).slice(0, 4)))
-        ? `El período declarado ("${periodLabel}") no coincide con el rango real de los datos (${d.fechaMin} a ${d.fechaMax}).`
+      (declaredPeriod && autoPeriod && declaredPeriod.trim().toLowerCase() !== autoPeriod.trim().toLowerCase())
+        ? `El período declarado en el proyecto ("${declaredPeriod}") difiere del calculado a partir de los datos ("${autoPeriod}", rango ${d.fechaMin} a ${d.fechaMax}). Se usará el calculado en los entregables.`
         : null;
 
     res.json({
       ok: true,
       unitLabel: d.unitLabel,
       concession: d.concession,
-      periodLabel,
+      periodLabel: autoPeriod,
+      declaredPeriod,
       directions: d.directions,
       fechaMin: d.fechaMin,
       fechaMax: d.fechaMax,
@@ -3354,7 +3359,7 @@ function buildPreviewHtml(d) {
 
   let out = `<div style="font-family:Calibri,Segoe UI,sans-serif;color:#0f172a">`;
   out += `<h2 style="text-align:center;margin:4px 0">Reporte de Muestra de Flujo Vehicular</h2>`;
-  out += `<p style="text-align:center;margin:4px 0;font-style:italic">Correspondiente al ${d.run.period_label || ''}</p>`;
+  out += `<p style="text-align:center;margin:4px 0;font-style:italic">Correspondiente al ${d.autoPeriodLabel || ''}</p>`;
   out += `<p style="text-align:center;margin:4px 0;font-weight:700">${d.unitLabel}</p>`;
   out += `<p style="text-align:center;margin:4px 0">${d.concession}</p>`;
   for (const dir of d.directions) {
@@ -3376,14 +3381,14 @@ app.get('/api/processing/runs/:id/zip', authenticateRequest, requireMinRole('dir
     const d = await resolveRunDeliverables(runId);
     let summary = null;
     try { summary = d.run.summary_json ? (typeof d.run.summary_json === 'object' ? d.run.summary_json : JSON.parse(d.run.summary_json)) : null; } catch {}
-    const xlsxBuf = buildUnitBuffer({
+    const xlsxBuf = await buildUnitBuffer({
       unitLabel: d.unitLabel, concession: d.concession,
-      periodLabel: d.run.period_label || '',
+      periodLabel: d.autoPeriodLabel,
       records: d.records, directions: d.directions
     });
     const docxBuf = await buildReportBuffer({
       unitLabel: d.unitLabel, concession: d.concession,
-      periodLabel: d.run.period_label || '',
+      periodLabel: d.autoPeriodLabel,
       records: d.records, directions: d.directions,
       runSummary: summary,
       incidentsSummary: { applied: d.applied }
