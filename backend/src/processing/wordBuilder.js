@@ -187,6 +187,48 @@ function sumBy(records, group, aggregator) {
   return acc;
 }
 
+// Tabla detalle: un registro por fila con todas las columnas operativas.
+// Refleja el reporte histórico de muestra (Id, Caseta, Sentido, Fecha,
+// Hora de Paso, Placa Principal, Tipo de Vehículo, N° Ejes, Placa Semi
+// Remolque, N° Ejes, Placa Semi-Remolque, N° Ejes, N° Total de Ejes).
+function detailTable(records) {
+  const head = (txt) => tableCell(txt, { bold: true, shade: '1F4E78', color: 'FFFFFF', size: 16 });
+  const rows = [
+    new TableRow({
+      tableHeader: true,
+      children: [
+        head('Id'), head('Caseta'), head('Sentido'), head('Fecha'),
+        head('Hora de Paso'), head('Placa Principal'), head('Tipo de Vehículo'),
+        head('N° Ejes'), head('Placa Semi Remolque'), head('N° Ejes'),
+        head('Placa Semi-Remolque'), head('N° Ejes'), head('N° Total de Ejes')
+      ]
+    })
+  ];
+  const cell = (v) => tableCell(v == null ? '' : v, { size: 16 });
+  let i = 1;
+  for (const r of (records || [])) {
+    const hp = String(r.hora_paso || '').slice(0, 5);
+    rows.push(new TableRow({
+      children: [
+        cell(i++),
+        cell(r.caseta || ''),
+        cell(r.sentido || ''),
+        cell(formatDate(r.fecha)),
+        cell(hp),
+        cell(r.placa_principal || ''),
+        cell(r.tipo_vehiculo || ''),
+        cell(r.ejes_principal != null ? r.ejes_principal : ''),
+        cell(r.placa_semi1 || ''),
+        cell(r.ejes_semi1 ? r.ejes_semi1 : ''),
+        cell(r.placa_semi2 || ''),
+        cell(r.ejes_semi2 ? r.ejes_semi2 : ''),
+        cell(r.total_ejes != null ? r.total_ejes : '')
+      ]
+    }));
+  }
+  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows });
+}
+
 function formatDate(yyyymmdd) {
   if (!yyyymmdd) return '';
   const m = String(yyyymmdd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -223,10 +265,31 @@ function institutionalHeader({ unitLabel, concession, periodLabel, tableTitle })
 
 // ── Documento principal ───────────────────────────────────────────────────
 
-export async function buildReportBuffer({ unitLabel, concession, periodLabel, records, directions, runSummary, incidentsSummary, sampleInfo, concessionMeta }) {
-  const dirs = (directions && directions.length ? directions : ['Sentido único']).slice(0, 4);
+export async function buildReportBuffer({ unitLabel, concession, periodLabel, records, directions, runSummary, incidentsSummary, sampleInfo, concessionMeta, stations }) {
   const concName = uppercaseClean(concession);
-  const unitName = uppercaseClean(unitLabel);
+  // Lista de peajes a iterar. Si no se pasa `stations`, se construye uno solo
+  // a partir de los parámetros legacy (compatibilidad hacia atrás).
+  const stationList = (Array.isArray(stations) && stations.length)
+    ? stations.map(s => ({
+        label: s.label || s.name || unitLabel || '',
+        records: s.records || [],
+        directions: s.directions || directions || [],
+        sampleInfo: s.sampleInfo || null,
+        photo: s.photo, photo_mime: s.photo_mime,
+        map:   s.map,   map_mime:   s.map_mime
+      }))
+    : [{
+        label: unitLabel || '',
+        records: records || [],
+        directions: directions || [],
+        sampleInfo: sampleInfo || null,
+        photo: (concessionMeta || {}).photo, photo_mime: (concessionMeta || {}).photo_mime,
+        map:   (concessionMeta || {}).map,   map_mime:   (concessionMeta || {}).map_mime
+      }];
+  // Para las páginas globales (intro, títulos) se usan los datos del primer peaje.
+  const firstSt = stationList[0];
+  const dirs = (firstSt.directions && firstSt.directions.length ? firstSt.directions : ['Sentido único']).slice(0, 4);
+  const unitName = uppercaseClean(firstSt.label || unitLabel);
   // Detectar si es Unidad de Conteo (vs Peaje) por nombre.
   const isConteo = /CONTEO|TICLIO/.test(unitName);
   // Nombre corto del peaje/conteo sin el prefijo institucional.
@@ -236,7 +299,10 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   const meta = Object.assign({
     legal_name: null, project_description: null, invitation_date: null, carta_number: null
   }, concessionMeta || {});
-  const fechasUnicas = Array.from(new Set((records || []).map(r => r.fecha).filter(Boolean))).sort();
+  // Fechas únicas globales: unión de fechas de TODOS los peajes (para los textos
+  // introductorios). Cada peaje recalcula sus propias fechas en su bloque.
+  const allRecords = stationList.flatMap(s => s.records || []);
+  const fechasUnicas = Array.from(new Set(allRecords.map(r => r.fecha).filter(Boolean))).sort();
   const fechaIni = fechasUnicas[0] || '';
   const fechaFin = fechasUnicas[fechasUnicas.length - 1] || '';
   // Texto legible con las fechas reales: un día, dos días o un rango.
@@ -252,15 +318,24 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     fechaCampoTexto = `${formatLongDate(fechaIni)} al ${formatLongDate(fechaFin)}`;
     fechaCampoFrase = `entre el ${formatLongDate(fechaIni)} y el ${formatLongDate(fechaFin)}`;
   }
-  const muestraInfo = sampleInfo || {
-    ubicacion: '',
-    fechaCampo: fechasUnicas.length === 1
-      ? formatDate(fechaIni)
-      : (fechasUnicas.length ? `${formatDate(fechaIni)} – ${formatDate(fechaFin)}` : ''),
-    turno: '08:00 – 20:00',
-    sentidoCirc: 'Ambos sentidos',
-    garitas: 'Todas'
-  };
+  // Helper: construye sampleInfo por peaje a partir de sus propios records.
+  function buildSampleInfo(st) {
+    if (st.sampleInfo) return st.sampleInfo;
+    const fs = Array.from(new Set((st.records || []).map(r => r.fecha).filter(Boolean))).sort();
+    const fi = fs[0] || '';
+    const ff = fs[fs.length - 1] || '';
+    return {
+      ubicacion: '',
+      fechaCampo: fs.length === 1
+        ? formatDate(fi)
+        : (fs.length ? `${formatDate(fi)} – ${formatDate(ff)}` : ''),
+      turno: '08:00 – 20:00',
+      sentidoCirc: 'Ambos sentidos',
+      garitas: 'Todas'
+    };
+  }
+  // Compat: muestraInfo del primer peaje, usado por textos legacy.
+  const muestraInfo = sampleInfo || buildSampleInfo(firstSt);
 
   const children = [];
 
@@ -370,49 +445,48 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   children.push(P('En la siguiente tabla se detalla la información de la muestra relevada en campo:'));
   children.push(P('Tabla 1: Tamaño de la muestra', { bold: true, size: 22, afterSpacing: 80 }));
 
-  const sampleTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({
-        tableHeader: true,
-        children: [
-          tableCell('Nº',                 { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
-          tableCell('Unidad de Peaje',    { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
-          tableCell('Ubicación',          { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
-          tableCell('Fecha de Campo',     { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
-          tableCell('Turno',              { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
-          tableCell('Sentido de Circulación', { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
-          tableCell('Garitas de Peaje',   { bold: true, shade: '1F4E78', color: 'FFFFFF' })
-        ]
-      }),
-      new TableRow({
-        children: [
-          tableCell('1'),
-          tableCell(isConteo ? unitShort.charAt(0) + unitShort.slice(1).toLowerCase() : unitName),
-          tableCell(muestraInfo.ubicacion || (isConteo ? '{{KM_UBICACION}}' : '—')),
-          tableCell(muestraInfo.fechaCampo || '—'),
-          tableCell(muestraInfo.turno || '—'),
-          tableCell(muestraInfo.sentidoCirc || 'Ambos sentidos'),
-          tableCell(muestraInfo.garitas || 'Todas')
-        ]
-      })
-    ]
+  // Una fila por peaje (multi-peaje en serie).
+  const sampleRows = [
+    new TableRow({
+      tableHeader: true,
+      children: [
+        tableCell('Nº',                 { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+        tableCell('Unidad de Peaje',    { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+        tableCell('Ubicación',          { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+        tableCell('Fecha de Campo',     { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+        tableCell('Turno',              { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+        tableCell('Sentido de Circulación', { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+        tableCell('Garitas de Peaje',   { bold: true, shade: '1F4E78', color: 'FFFFFF' })
+      ]
+    })
+  ];
+  stationList.forEach((st, idx) => {
+    const si = buildSampleInfo(st);
+    const stName = uppercaseClean(st.label);
+    const stShort = stName.replace(/^UNIDAD DE (PEAJE|CONTEO)\s+/i, '').trim() || stName;
+    sampleRows.push(new TableRow({
+      children: [
+        tableCell(String(idx + 1)),
+        tableCell(/CONTEO|TICLIO/.test(stName) ? stShort.charAt(0) + stShort.slice(1).toLowerCase() : stName),
+        tableCell(si.ubicacion || '—'),
+        tableCell(si.fechaCampo || '—'),
+        tableCell(si.turno || '—'),
+        tableCell(si.sentidoCirc || 'Ambos sentidos'),
+        tableCell(si.garitas || 'Todas')
+      ]
+    }));
   });
-  children.push(sampleTable);
+  children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: sampleRows }));
   children.push(P(''));
   children.push(new Paragraph({ children: [new PageBreak()] }));
 
-  // ─── PORTADA DE LA UNIDAD ────────────────────────────────────────────────
-  children.push(P('AUDITORIA FLUJO VEHICULAR A LA',
-    { align: AlignmentType.CENTER, bold: true, size: 28, color: '1F4E78', beforeSpacing: 1200, afterSpacing: 80 }));
-  children.push(P((unitLabel || '').toUpperCase(),
-    { align: AlignmentType.CENTER, bold: true, size: 32, color: '1F4E78', afterSpacing: 600 }));
-  if (muestraInfo.ubicacion) {
-    children.push(P(muestraInfo.ubicacion, { align: AlignmentType.CENTER, italic: true, size: 24 }));
-  }
-
-  // Tabla 1×2 con foto del peaje + mapa, si la concesión tiene imágenes guardadas.
-  // Detecta el formato real por bytes mágicos (no confiar en el MIME guardado).
+  // ─── BLOQUE POR PEAJE (en serie) ─────────────────────────────────────────
+  // Para cada peaje del array stationList se genera:
+  //   1) Portada con nombre del peaje + foto + mapa
+  //   2) Tabla 1 (vehículos) por sentido
+  //   3) Tabla 2 (ejes) por sentido
+  //   4) Tabla detalle (un registro por fila)
+  // Entre peajes se intercala un PageBreak.
   const toBuf = (v) => (v && Buffer.isBuffer(v)) ? v : (v ? Buffer.from(v) : null);
   const sniff = (buf) => {
     if (!buf || buf.length < 8) return null;
@@ -420,73 +494,106 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'jpg';
     if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'gif';
     if (buf[0] === 0x42 && buf[1] === 0x4D) return 'bmp';
-    return null; // WebP u otros: Word no los renderiza de forma fiable
+    return null;
   };
-  const photoBuf = toBuf(meta.photo);
-  const mapBuf   = toBuf(meta.map);
-  const photoFmt = sniff(photoBuf);
-  const mapFmt   = sniff(mapBuf);
-  if ((photoBuf && photoFmt) || (mapBuf && mapFmt)) {
-    const imgCell = (buf, fmt) => {
-      const run = (buf && fmt)
-        ? new ImageRun({
-            data: buf,
-            transformation: { width: 280, height: 200 },
-            type: fmt,
-            altText: { id: nextDocPrId(), title: 'Imagen', description: 'clic derecho → Cambiar imagen', name: `imagen_${nextDocPrId()}` }
-          })
-        : new TextRun({ text: '', size: 20 });
-      return new TableCell({
-        width: { size: 50, type: WidthType.PERCENTAGE },
-        verticalAlign: VerticalAlign.CENTER,
-        margins: { top: 80, bottom: 80, left: 80, right: 80 },
-        children: [ new Paragraph({ alignment: AlignmentType.CENTER, children: [run] }) ]
-      });
-    };
-    children.push(new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: [ new TableRow({ children: [ imgCell(photoBuf, photoFmt), imgCell(mapBuf, mapFmt) ] }) ]
-    }));
-  }
 
-  children.push(new Paragraph({ children: [new PageBreak()] }));
+  for (let stIdx = 0; stIdx < stationList.length; stIdx++) {
+    const st = stationList[stIdx];
+    const stLabel = st.label || '';
+    const stDirs = (st.directions && st.directions.length ? st.directions : ['Sentido único']).slice(0, 4);
+    const stRecords = st.records || [];
+    const stSample = buildSampleInfo(st);
 
-  // ─── TABLA 1 (vehículos) por sentido ─────────────────────────────────────
-  for (let i = 0; i < dirs.length; i++) {
-    const dir = dirs[i];
-    institutionalHeader({
-      unitLabel, concession, periodLabel,
-      tableTitle: 'Tabla 1: Resumen de total de vehículos por hora según tipo y sentido de control'
-    }).forEach(p => children.push(p));
-    children.push(P([
-      new TextRun({ text: 'Sentido: ', bold: true, font: 'Arial', size: 22 }),
-      new TextRun({ text: dir, font: 'Arial', size: 22 })
-    ], { align: AlignmentType.LEFT, afterSpacing: 120 }));
-    children.push(pivotTable({
-      records: records.filter(r => (r.sentido || '') === dir),
-      aggregator: 'count'
-    }));
-    children.push(P('SIATRA', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
+    // (1) Portada de la unidad
+    children.push(P('AUDITORIA FLUJO VEHICULAR A LA',
+      { align: AlignmentType.CENTER, bold: true, size: 28, color: '1F4E78', beforeSpacing: 1200, afterSpacing: 80 }));
+    children.push(P(stLabel.toUpperCase(),
+      { align: AlignmentType.CENTER, bold: true, size: 32, color: '1F4E78', afterSpacing: 600 }));
+    if (stSample.ubicacion) {
+      children.push(P(stSample.ubicacion, { align: AlignmentType.CENTER, italic: true, size: 24 }));
+    }
+
+    // Tabla 1×2 con foto del peaje + mapa (formato detectado por bytes mágicos).
+    const photoBuf = toBuf(st.photo);
+    const mapBuf   = toBuf(st.map);
+    const photoFmt = sniff(photoBuf);
+    const mapFmt   = sniff(mapBuf);
+    if ((photoBuf && photoFmt) || (mapBuf && mapFmt)) {
+      const imgCell = (buf, fmt) => {
+        const run = (buf && fmt)
+          ? new ImageRun({
+              data: buf,
+              transformation: { width: 280, height: 200 },
+              type: fmt,
+              altText: { id: nextDocPrId(), title: 'Imagen', description: 'clic derecho → Cambiar imagen', name: `imagen_${nextDocPrId()}` }
+            })
+          : new TextRun({ text: '', size: 20 });
+        return new TableCell({
+          width: { size: 50, type: WidthType.PERCENTAGE },
+          verticalAlign: VerticalAlign.CENTER,
+          margins: { top: 80, bottom: 80, left: 80, right: 80 },
+          children: [ new Paragraph({ alignment: AlignmentType.CENTER, children: [run] }) ]
+        });
+      };
+      children.push(new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [ new TableRow({ children: [ imgCell(photoBuf, photoFmt), imgCell(mapBuf, mapFmt) ] }) ]
+      }));
+    }
     children.push(new Paragraph({ children: [new PageBreak()] }));
-  }
 
-  // ─── TABLA 2 (ejes) por sentido ──────────────────────────────────────────
-  for (let i = 0; i < dirs.length; i++) {
-    const dir = dirs[i];
+    // (2) Tabla 1 (vehículos) por sentido
+    for (let i = 0; i < stDirs.length; i++) {
+      const dir = stDirs[i];
+      institutionalHeader({
+        unitLabel: stLabel, concession, periodLabel,
+        tableTitle: 'Tabla 1: Resumen de total de vehículos por hora según tipo y sentido de control'
+      }).forEach(p => children.push(p));
+      children.push(P([
+        new TextRun({ text: 'Sentido: ', bold: true, font: 'Arial', size: 22 }),
+        new TextRun({ text: dir, font: 'Arial', size: 22 })
+      ], { align: AlignmentType.LEFT, afterSpacing: 120 }));
+      children.push(pivotTable({
+        records: stRecords.filter(r => (r.sentido || '') === dir),
+        aggregator: 'count'
+      }));
+      children.push(P('SIATRA', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+    }
+
+    // (3) Tabla 2 (ejes) por sentido
+    for (let i = 0; i < stDirs.length; i++) {
+      const dir = stDirs[i];
+      institutionalHeader({
+        unitLabel: stLabel, concession, periodLabel,
+        tableTitle: 'Tabla 2: Resumen de total de ejes por hora según tipo y sentido de control'
+      }).forEach(p => children.push(p));
+      children.push(P([
+        new TextRun({ text: 'Sentido: ', bold: true, font: 'Arial', size: 22 }),
+        new TextRun({ text: dir, font: 'Arial', size: 22 })
+      ], { align: AlignmentType.LEFT, afterSpacing: 120 }));
+      children.push(pivotTable({
+        records: stRecords.filter(r => (r.sentido || '') === dir),
+        aggregator: 'axles'
+      }));
+      children.push(P('SIATRA', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+    }
+
+    // (4) Tabla detalle (registro por fila) — la "data recogida"
     institutionalHeader({
-      unitLabel, concession, periodLabel,
-      tableTitle: 'Tabla 2: Resumen de total de ejes por hora según tipo y sentido de control'
+      unitLabel: stLabel, concession, periodLabel,
+      tableTitle: null
     }).forEach(p => children.push(p));
-    children.push(P([
-      new TextRun({ text: 'Sentido: ', bold: true, font: 'Arial', size: 22 }),
-      new TextRun({ text: dir, font: 'Arial', size: 22 })
-    ], { align: AlignmentType.LEFT, afterSpacing: 120 }));
-    children.push(pivotTable({
-      records: records.filter(r => (r.sentido || '') === dir),
-      aggregator: 'axles'
-    }));
+    children.push(P('Reporte de Muestra de Flujo Vehicular Relevada en campo',
+      { align: AlignmentType.CENTER, bold: true, italic: true, size: 22, afterSpacing: 120 }));
+    children.push(detailTable(stRecords));
     children.push(P('SIATRA', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
-    if (i < dirs.length - 1) children.push(new Paragraph({ children: [new PageBreak()] }));
+
+    // Salto de página entre peajes.
+    if (stIdx < stationList.length - 1) {
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+    }
   }
 
   // ─── (Sección "Observaciones del Procesamiento" eliminada por solicitud) ─
