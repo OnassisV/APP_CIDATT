@@ -5827,7 +5827,7 @@
       html.push('<div class="empty-state" style="color:#15803d;">✅ Sin incidencias. Datos limpios.</div>');
       html.push('<div style="margin-top:12px;text-align:right;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">');
       html.push('<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Descargar Excel</button>');
-      html.push('<button class="btn btn-primary" onclick="generateProcessingOutputs()" disabled title="Disponible en el siguiente paso">📦 Generar entregables (ZIP + Word)</button>');
+      html.push('<button class="btn btn-primary" onclick="generateProcessingOutputs()">📦 Generar entregables (ZIP + Word)</button>');
       html.push('</div>');
     } else {
       // Agrupar por regla
@@ -6009,38 +6009,37 @@
 
   async function saveAndGenerateOutputs() {
     await saveProcessingResolutions();
-    alert('Generación de entregables disponible en el siguiente paso.');
+    await openProcessingPreview();
   }
   window.saveAndGenerateOutputs = saveAndGenerateOutputs;
 
   function generateProcessingOutputs() {
-    alert('Disponible en el siguiente paso.');
+    openProcessingPreview();
   }
   window.generateProcessingOutputs = generateProcessingOutputs;
 
-  async function downloadProcessingExcel() {
+  async function _downloadProcessingFile(suffix, filenameFallback, ext) {
     if (!_processingCurrentRun || !_processingCurrentRun.run) {
       alert('No hay análisis activo.');
       return;
     }
-    // Guardar resoluciones primero para que se reflejen en la descarga
     if (Object.keys(_processingPendingChanges || {}).length) {
       await saveProcessingResolutions();
     }
     const runId = _processingCurrentRun.run.id;
     try {
-      const res = await fetch(API + '/processing/runs/' + runId + '/excel', {
+      const res = await fetch(API + '/processing/runs/' + runId + '/' + suffix, {
         headers: { 'Authorization': 'Bearer ' + token }
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Error al generar el Excel.');
+        throw new Error(err.error || 'Error al generar el archivo.');
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'unidad_run' + runId + '.xlsx';
+      a.download = filenameFallback + '_run' + runId + '.' + ext;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -6049,7 +6048,64 @@
       alert('Error: ' + e.message);
     }
   }
+
+  async function downloadProcessingExcel() { return _downloadProcessingFile('excel', 'unidad', 'xlsx'); }
+  async function downloadProcessingWord()  { return _downloadProcessingFile('word', 'Informe', 'docx'); }
+  async function downloadProcessingZip()   { return _downloadProcessingFile('zip', 'Entregables', 'zip'); }
   window.downloadProcessingExcel = downloadProcessingExcel;
+  window.downloadProcessingWord  = downloadProcessingWord;
+  window.downloadProcessingZip   = downloadProcessingZip;
+
+  async function openProcessingPreview() {
+    if (!_processingCurrentRun || !_processingCurrentRun.run) {
+      alert('No hay análisis activo.');
+      return;
+    }
+    const runId = _processingCurrentRun.run.id;
+    try {
+      const res = await fetch(API + '/processing/runs/' + runId + '/preview', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo generar la vista previa.');
+
+      const modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px;z-index:9999;overflow:auto';
+      const box = document.createElement('div');
+      box.style.cssText = 'background:#fff;border-radius:12px;max-width:1100px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.35)';
+      let header = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">';
+      header += '<h2 style="margin:0;color:#1e3a8a">Vista previa de los entregables</h2>';
+      header += '<button class="btn btn-soft" onclick="this.closest(\'.preview-modal\').remove()">✕ Cerrar</button>';
+      header += '</div>';
+      let alertHtml = '';
+      if (data.periodAlert) {
+        alertHtml = '<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;padding:10px 14px;border-radius:8px;margin-bottom:12px"><strong>⚠ Atención:</strong> ' + data.periodAlert + '</div>';
+      }
+      const applied = data.applied || {};
+      const summary = '<div style="background:#f1f5f9;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#334155">' +
+        'Resoluciones aplicadas — auto-corregidas: <strong>' + (applied.auto_fix||0) + '</strong>, ' +
+        'edición manual: <strong>' + (applied.manual_edit||0) + '</strong>, ' +
+        'eliminadas: <strong>' + (applied.deleted||0) + '</strong>, ' +
+        'aceptadas: <strong>' + (applied.accepted||0) + '</strong>, ' +
+        'pendientes: <strong>' + (applied.pending||0) + '</strong>.' +
+        '</div>';
+      const actions = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0">' +
+        '<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Descargar Excel</button>' +
+        '<button class="btn btn-soft" onclick="downloadProcessingWord()">⬇ Descargar Word</button>' +
+        '<button class="btn btn-primary" onclick="downloadProcessingZip()">📦 Descargar ZIP completo</button>' +
+        '</div>';
+      box.innerHTML = header + alertHtml + summary +
+        '<div style="max-height:55vh;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:14px;background:#fafafa">' +
+        data.previewHtml + '</div>' + actions;
+      modal.className = 'preview-modal';
+      modal.appendChild(box);
+      modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+      document.body.appendChild(modal);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+  window.openProcessingPreview = openProcessingPreview;
 
   // ── INIT ──────────────────────────────────────────────────────────────────
   init();

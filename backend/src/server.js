@@ -14,6 +14,8 @@ import { loadInternalProject } from './processing/internalReader.js';
 import { validateRecords, RULE_LABELS } from './processing/validator.js';
 import { applyResolutions } from './processing/applyResolutions.js';
 import { buildUnitBuffer } from './processing/excelBuilder.js';
+import { buildReportBuffer } from './processing/wordBuilder.js';
+import { buildZipBuffer } from './processing/zipBuilder.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -3207,52 +3209,192 @@ async function loadRunForOutput(runId) {
   return { run, records, incidents: incs };
 }
 
-// GET /api/processing/runs/:id/excel/:unit?  → descarga el .xlsx final de una unidad.
-// Si el run es interno y el proyecto tiene varias unidades, el path /excel/<station_id>
-// genera el de esa unidad; sin parámetro genera el primero (por defecto).
+// Helper: resuelve unitLabel + concession + records finales para un run.
+async function resolveRunDeliverables(runId) {
+  const { run, records, incidents } = await loadRunForOutput(runId);
+  const { records: finalRecords, applied } = applyResolutions(records, incidents);
+
+  let unitLabel = 'UNIDAD';
+  let concession = run.concession_label || '';
+  if (run.source_type === 'internal' && run.project_id) {
+    const stations = await query(
+      `SELECT DISTINCT ts.id, ts.name
+         FROM ${TABLES.stations} ts
+         INNER JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id AND ps.project_id = ?
+        ORDER BY ts.name`,
+      [run.project_id]
+    );
+    if (stations.length) unitLabel = `UNIDAD DE PEAJE ${stations[0].name.toUpperCase()}`;
+    const conc = await query(
+      `SELECT c.name FROM ${TABLES.concessions} c
+         INNER JOIN ${TABLES.projects} p ON p.concession_id = c.id
+        WHERE p.id = ? LIMIT 1`,
+      [run.project_id]
+    );
+    if (conc.length) concession = `CONCESIONARIA ${conc[0].name.toUpperCase()}`;
+  }
+  if (run.source_type === 'external') {
+    unitLabel = run.external_filename ? run.external_filename.replace(/\.xlsx$/i, '').toUpperCase() : 'UNIDAD';
+    if (concession && !/^CONCESIONARIA/i.test(concession)) concession = `CONCESIONARIA ${concession.toUpperCase()}`;
+  }
+
+  const directions = Array.from(new Set(finalRecords.map(r => r.sentido).filter(Boolean))).slice(0, 2);
+  const safeName = unitLabel.replace(/[^A-Z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'unidad';
+
+  // Detectar período real cubierto por los datos (para alertar si difiere del declarado)
+  const fechas = finalRecords.map(r => r.fecha).filter(Boolean).sort();
+  const fechaMin = fechas[0] || null;
+  const fechaMax = fechas[fechas.length - 1] || null;
+
+  return { run, records: finalRecords, applied, unitLabel, concession, directions, safeName, fechaMin, fechaMax };
+}
+
+// GET /api/processing/runs/:id/excel  → descarga el .xlsx final de la unidad.
 app.get('/api/processing/runs/:id/excel', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
     const runId = parseInt(req.params.id, 10);
-    const { run, records, incidents } = await loadRunForOutput(runId);
-    const { records: finalRecords } = applyResolutions(records, incidents);
-
-    // Resolver etiquetas de la unidad
-    let unitLabel = 'UNIDAD';
-    let concession = run.concession_label || '';
-    if (run.source_type === 'internal' && run.project_id) {
-      const stations = await query(
-        `SELECT DISTINCT ts.id, ts.name
-           FROM ${TABLES.stations} ts
-           INNER JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id AND ps.project_id = ?
-          ORDER BY ts.name`,
-        [run.project_id]
-      );
-      if (stations.length) unitLabel = `UNIDAD DE PEAJE ${stations[0].name.toUpperCase()}`;
-      const conc = await query(
-        `SELECT c.name FROM ${TABLES.concessions} c
-           INNER JOIN ${TABLES.projects} p ON p.concession_id = c.id
-          WHERE p.id = ? LIMIT 1`,
-        [run.project_id]
-      );
-      if (conc.length) concession = `CONCESIONARIA ${conc[0].name.toUpperCase()}`;
-    }
-    if (run.source_type === 'external') {
-      unitLabel = run.external_filename ? run.external_filename.replace(/\.xlsx$/i, '').toUpperCase() : 'UNIDAD';
-      if (concession && !/^CONCESIONARIA/i.test(concession)) concession = `CONCESIONARIA ${concession.toUpperCase()}`;
-    }
-
-    const directions = Array.from(new Set(finalRecords.map(r => r.sentido).filter(Boolean))).slice(0, 2);
+    const d = await resolveRunDeliverables(runId);
     const buf = buildUnitBuffer({
-      unitLabel,
-      concession,
-      periodLabel: run.period_label || '',
-      records: finalRecords,
-      directions
+      unitLabel: d.unitLabel,
+      concession: d.concession,
+      periodLabel: d.run.period_label || '',
+      records: d.records,
+      directions: d.directions
     });
-    const safeName = unitLabel.replace(/[^A-Z0-9]+/gi, '_').replace(/^_|_$/g, '');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${safeName || 'unidad'}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${d.safeName}.xlsx"`);
     res.send(buf);
+  } catch (e) { next(e); }
+});
+
+// GET /api/processing/runs/:id/word  → descarga el informe .docx editable.
+app.get('/api/processing/runs/:id/word', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runId = parseInt(req.params.id, 10);
+    const d = await resolveRunDeliverables(runId);
+    let summary = null;
+    try { summary = d.run.summary_json ? (typeof d.run.summary_json === 'object' ? d.run.summary_json : JSON.parse(d.run.summary_json)) : null; } catch {}
+    const buf = await buildReportBuffer({
+      unitLabel: d.unitLabel,
+      concession: d.concession,
+      periodLabel: d.run.period_label || '',
+      records: d.records,
+      directions: d.directions,
+      runSummary: summary,
+      incidentsSummary: { applied: d.applied }
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="Informe_${d.safeName}.docx"`);
+    res.send(buf);
+  } catch (e) { next(e); }
+});
+
+// GET /api/processing/runs/:id/preview  → vista previa HTML (Tabla 1 y Tabla 2) para mostrar antes del ZIP.
+app.get('/api/processing/runs/:id/preview', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runId = parseInt(req.params.id, 10);
+    const d = await resolveRunDeliverables(runId);
+    const periodLabel = d.run.period_label || '';
+    const periodAlert =
+      (d.fechaMin && periodLabel && !periodLabel.toLowerCase().includes(String(d.fechaMin).slice(0, 4)))
+        ? `El período declarado ("${periodLabel}") no coincide con el rango real de los datos (${d.fechaMin} a ${d.fechaMax}).`
+        : null;
+
+    res.json({
+      ok: true,
+      unitLabel: d.unitLabel,
+      concession: d.concession,
+      periodLabel,
+      directions: d.directions,
+      fechaMin: d.fechaMin,
+      fechaMax: d.fechaMax,
+      periodAlert,
+      applied: d.applied,
+      previewHtml: buildPreviewHtml(d)
+    });
+  } catch (e) { next(e); }
+});
+
+function buildPreviewHtml(d) {
+  const HOURS = Array.from({ length: 12 }, (_, i) => i + 8);
+  const sumBy = (records, group, agg) => {
+    let acc = 0;
+    for (const r of records) {
+      if ((r.tipo_grupo || '') !== group) continue;
+      acc += agg === 'count' ? 1 : (Number(r.total_ejes) || 0);
+    }
+    return acc;
+  };
+  const tableFor = (records, agg) => {
+    const byDate = new Map();
+    for (const r of records) {
+      if (!r.fecha) continue;
+      if (!byDate.has(r.fecha)) byDate.set(r.fecha, []);
+      byDate.get(r.fecha).push(r);
+    }
+    const fechas = Array.from(byDate.keys()).sort();
+    let gL = 0, gP = 0, gM = 0;
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px">';
+    html += '<thead><tr style="background:#1e3a8a;color:#fff"><th style="padding:6px;border:1px solid #1e3a8a">Fecha y Hora</th><th style="padding:6px;border:1px solid #1e3a8a">Ligeros</th><th style="padding:6px;border:1px solid #1e3a8a">Pesados</th><th style="padding:6px;border:1px solid #1e3a8a">M2</th><th style="padding:6px;border:1px solid #1e3a8a">Total general</th></tr></thead><tbody>';
+    for (const fecha of fechas) {
+      const rs = byDate.get(fecha);
+      const dL = sumBy(rs, 'Ligeros', agg), dP = sumBy(rs, 'Pesados', agg), dM = sumBy(rs, 'M2', agg);
+      gL += dL; gP += dP; gM += dM;
+      html += `<tr style="background:#dbeafe;font-weight:600"><td style="padding:5px;border:1px solid #cbd5e1">${fecha}</td><td style="padding:5px;border:1px solid #cbd5e1;text-align:center">${dL}</td><td style="padding:5px;border:1px solid #cbd5e1;text-align:center">${dP}</td><td style="padding:5px;border:1px solid #cbd5e1;text-align:center">${dM}</td><td style="padding:5px;border:1px solid #cbd5e1;text-align:center">${dL+dP+dM}</td></tr>`;
+      for (const h of HOURS) {
+        const hr = rs.filter(r => Number(r.hora_bloque) === h);
+        const hL = sumBy(hr, 'Ligeros', agg), hP = sumBy(hr, 'Pesados', agg), hM = sumBy(hr, 'M2', agg);
+        html += `<tr><td style="padding:4px;border:1px solid #e2e8f0;text-align:center">${h}</td><td style="padding:4px;border:1px solid #e2e8f0;text-align:center">${hL}</td><td style="padding:4px;border:1px solid #e2e8f0;text-align:center">${hP}</td><td style="padding:4px;border:1px solid #e2e8f0;text-align:center">${hM}</td><td style="padding:4px;border:1px solid #e2e8f0;text-align:center">${hL+hP+hM}</td></tr>`;
+      }
+    }
+    html += `<tr style="background:#fef3c7;font-weight:700"><td style="padding:6px;border:1px solid #cbd5e1">Total general</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${gL}</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${gP}</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${gM}</td><td style="padding:6px;border:1px solid #cbd5e1;text-align:center">${gL+gP+gM}</td></tr>`;
+    html += '</tbody></table>';
+    return html;
+  };
+
+  let out = `<div style="font-family:Calibri,Segoe UI,sans-serif;color:#0f172a">`;
+  out += `<h2 style="text-align:center;margin:4px 0">Reporte de Muestra de Flujo Vehicular</h2>`;
+  out += `<p style="text-align:center;margin:4px 0;font-style:italic">Correspondiente al ${d.run.period_label || ''}</p>`;
+  out += `<p style="text-align:center;margin:4px 0;font-weight:700">${d.unitLabel}</p>`;
+  out += `<p style="text-align:center;margin:4px 0">${d.concession}</p>`;
+  for (const dir of d.directions) {
+    const dr = d.records.filter(r => (r.sentido || '') === dir);
+    out += `<h3 style="color:#1e3a8a;margin-top:18px">Sentido: ${dir}</h3>`;
+    out += `<p style="margin:6px 0;font-weight:600">Tabla 1: Vehículos por hora</p>`;
+    out += tableFor(dr, 'count');
+    out += `<p style="margin:6px 0;font-weight:600">Tabla 2: Ejes por hora</p>`;
+    out += tableFor(dr, 'axles');
+  }
+  out += `</div>`;
+  return out;
+}
+
+// GET /api/processing/runs/:id/zip  → descarga el ZIP con Excel + Word del run.
+app.get('/api/processing/runs/:id/zip', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runId = parseInt(req.params.id, 10);
+    const d = await resolveRunDeliverables(runId);
+    let summary = null;
+    try { summary = d.run.summary_json ? (typeof d.run.summary_json === 'object' ? d.run.summary_json : JSON.parse(d.run.summary_json)) : null; } catch {}
+    const xlsxBuf = buildUnitBuffer({
+      unitLabel: d.unitLabel, concession: d.concession,
+      periodLabel: d.run.period_label || '',
+      records: d.records, directions: d.directions
+    });
+    const docxBuf = await buildReportBuffer({
+      unitLabel: d.unitLabel, concession: d.concession,
+      periodLabel: d.run.period_label || '',
+      records: d.records, directions: d.directions,
+      runSummary: summary,
+      incidentsSummary: { applied: d.applied }
+    });
+    const zipBuf = await buildZipBuffer([
+      { name: `${d.safeName}.xlsx`, buffer: xlsxBuf },
+      { name: `Informe_${d.safeName}.docx`, buffer: docxBuf }
+    ]);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="Entregables_${d.safeName}.zip"`);
+    res.send(zipBuf);
   } catch (e) { next(e); }
 });
 
