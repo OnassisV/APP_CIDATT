@@ -3249,7 +3249,33 @@ async function resolveRunDeliverables(runId) {
         ORDER BY ts.name`,
       [run.project_id]
     );
-    if (stations.length) unitLabel = `UNIDAD DE PEAJE ${stations[0].name.toUpperCase()}`;
+    // Elegir la estación más representada en los registros (no alfabético)
+    let chosenStation = stations[0] || null;
+    if (stations.length > 1) {
+      const counts = new Map();
+      for (const r of finalRecords) {
+        const k = r._station_id || r._toll_name || '';
+        if (k) counts.set(String(k), (counts.get(String(k)) || 0) + 1);
+      }
+      // Buscar por id primero
+      let bestId = null, bestCnt = -1;
+      for (const s of stations) {
+        const c = counts.get(String(s.id)) || 0;
+        if (c > bestCnt) { bestCnt = c; bestId = s.id; }
+      }
+      if (bestId && bestCnt > 0) {
+        chosenStation = stations.find(s => s.id === bestId) || chosenStation;
+      } else {
+        // Fallback: buscar por nombre (toll_name)
+        let bestName = null; bestCnt = -1;
+        for (const s of stations) {
+          const c = counts.get(s.name.toUpperCase()) || counts.get(s.name) || 0;
+          if (c > bestCnt) { bestCnt = c; bestName = s.name; }
+        }
+        if (bestName) chosenStation = stations.find(s => s.name === bestName) || chosenStation;
+      }
+    }
+    if (chosenStation) unitLabel = `UNIDAD DE PEAJE ${chosenStation.name.toUpperCase()}`;
     const conc = await query(
       `SELECT c.name, c.legal_name, c.project_description, c.invitation_date, c.carta_number
          FROM ${TABLES.concessions} c
