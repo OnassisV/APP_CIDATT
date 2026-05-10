@@ -3425,31 +3425,66 @@
       const del = document.getElementById('paramCrudConcession' + cap + 'Delete');
       const file = document.getElementById('paramCrudConcession' + cap + 'File');
       const url = '/api/concessions/' + concessionId + '/' + kind + '?t=' + cb;
-      img.onload  = () => { img.style.display = ''; ph.style.display = 'none'; del.style.display = ''; };
-      img.onerror = () => { img.style.display = 'none'; ph.style.display = ''; del.style.display = 'none'; };
-      img.src = url;
+      // Verificar con HEAD/GET con auth si existe imagen
+      fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(r => r.ok ? r.blob() : Promise.reject())
+        .then(b => {
+          img.src = URL.createObjectURL(b);
+          img.style.display = '';
+          ph.style.display = 'none';
+          del.style.display = '';
+        })
+        .catch(() => {
+          img.removeAttribute('src');
+          img.style.display = 'none';
+          ph.textContent = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
+          ph.style.display = '';
+          del.style.display = 'none';
+        });
       file.onchange = async () => {
         const f = file.files && file.files[0];
         if (!f) return;
         if (f.size > 7 * 1024 * 1024) { alert('Máximo 7 MB.'); file.value = ''; return; }
+        // 1) Vista previa LOCAL inmediata (no esperamos al servidor)
+        const localUrl = URL.createObjectURL(f);
+        img.src = localUrl;
+        img.style.display = '';
+        ph.style.display = 'none';
+        ph.textContent = 'Subiendo…';
+        // 2) Subir al servidor
         const reader = new FileReader();
         reader.onload = async () => {
           try {
             await api('/concessions/' + concessionId + '/' + kind, {
               method: 'PUT',
-              body: { data: reader.result, mime: f.type }
+              body: { data: reader.result, mime: f.type || 'image/png' }
             });
-            _setupConcessionImagesUI(concessionId);
-          } catch (e) { alert('Error subiendo imagen: ' + (e.message || e)); }
+            del.style.display = '';
+            ph.style.display = 'none';
+            ph.textContent = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
+          } catch (e) {
+            alert('Error subiendo imagen: ' + (e.message || e));
+            // Restaurar estado: si falla, ocultar preview local
+            img.removeAttribute('src');
+            img.style.display = 'none';
+            ph.textContent = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
+            ph.style.display = '';
+            del.style.display = 'none';
+          }
           file.value = '';
         };
+        reader.onerror = () => { alert('No se pudo leer el archivo.'); file.value = ''; };
         reader.readAsDataURL(f);
       };
       del.onclick = async () => {
         if (!confirm('¿Quitar esta imagen?')) return;
         try {
           await api('/concessions/' + concessionId + '/' + kind, { method: 'DELETE' });
-          _setupConcessionImagesUI(concessionId);
+          img.removeAttribute('src');
+          img.style.display = 'none';
+          ph.textContent = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
+          ph.style.display = '';
+          del.style.display = 'none';
         } catch (e) { alert('Error: ' + (e.message || e)); }
       };
     });
