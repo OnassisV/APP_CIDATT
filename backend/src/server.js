@@ -1366,8 +1366,17 @@ function decodeImagePayload(body) {
         `UPDATE ${TABLES.concessions} SET ${kind}_blob = ?, ${kind}_mime = ? WHERE id = ?`,
         [decoded.buf, decoded.mime, id]
       );
-      console.log(`[concession-image] PUT /${kind} id=${id} — guardado ${decoded.buf.length} bytes (${decoded.mime}) affected=${result && result.affectedRows}`);
-      res.json({ ok: true, size: decoded.buf.length, mime: decoded.mime, affected: result && result.affectedRows });
+      const affected = result && result.affectedRows;
+      console.log(`[concession-image] PUT /${kind} id=${id} — guardado ${decoded.buf.length} bytes (${decoded.mime}) affected=${affected}`);
+      if (!affected) throw badRequest(`No se encontró la concesión id=${id} para guardar la imagen.`);
+      // Verificación de lectura inmediata
+      const [check] = await query(
+        `SELECT IFNULL(OCTET_LENGTH(${kind}_blob), 0) AS sz FROM ${TABLES.concessions} WHERE id = ? LIMIT 1`,
+        [id]
+      );
+      const stored = check ? Number(check.sz) : 0;
+      console.log(`[concession-image] verificación id=${id} ${kind}_blob=${stored} bytes`);
+      res.json({ ok: true, size: decoded.buf.length, stored, mime: decoded.mime, affected });
     } catch (error) { next(error); }
   });
 

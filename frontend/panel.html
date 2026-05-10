@@ -3421,54 +3421,77 @@
     _pendingConcessionImages = { photo: null, map: null };
     if (!concessionId) { block.style.display = 'none'; return; }
     block.style.display = '';
-    const cb = Date.now();
-    ['photo', 'map'].forEach((kind) => {
-      const cap = kind.charAt(0).toUpperCase() + kind.slice(1);
-      const img = document.getElementById('paramCrudConcession' + cap + 'Preview');
-      const ph  = document.getElementById('paramCrudConcession' + cap + 'Placeholder');
-      const del = document.getElementById('paramCrudConcession' + cap + 'Delete');
-      const file = document.getElementById('paramCrudConcession' + cap + 'File');
-      const url = '/api/concessions/' + concessionId + '/' + kind + '?t=' + cb;
-      const labelEmpty = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
-      // Cargar la imagen guardada (GET es público, sin auth)
-      fetch(url)
-        .then(r => r.ok ? r.blob() : Promise.reject())
+
+    // 1) Consultar estado real desde el backend (bytes guardados por concesión)
+    api('/concessions/_image-status').then((status) => {
+      const conc = (status && status.concessions || []).find(c => Number(c.id) === Number(concessionId));
+      const photoBytes = conc ? Number(conc.photo_bytes || 0) : 0;
+      const mapBytes   = conc ? Number(conc.map_bytes   || 0) : 0;
+      console.log('[concession-image] estado en BD:', { concessionId, photoBytes, mapBytes });
+      _renderImageSlot('photo', concessionId, photoBytes);
+      _renderImageSlot('map',   concessionId, mapBytes);
+    }).catch((e) => {
+      console.warn('[concession-image] no se pudo leer estado:', e);
+      _renderImageSlot('photo', concessionId, 0);
+      _renderImageSlot('map',   concessionId, 0);
+    });
+  }
+
+  function _renderImageSlot(kind, concessionId, storedBytes) {
+    const cap = kind.charAt(0).toUpperCase() + kind.slice(1);
+    const img = document.getElementById('paramCrudConcession' + cap + 'Preview');
+    const ph  = document.getElementById('paramCrudConcession' + cap + 'Placeholder');
+    const del = document.getElementById('paramCrudConcession' + cap + 'Delete');
+    const file = document.getElementById('paramCrudConcession' + cap + 'File');
+    const labelEmpty = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
+    file.value = '';
+
+    if (storedBytes > 0) {
+      // Hay imagen en BD: mostrar tamaño + intentar cargar la previa
+      const kb = (storedBytes / 1024).toFixed(0);
+      ph.innerHTML = '<span style="color:#10b981;">✓ Guardada (' + kb + ' KB)</span>';
+      ph.style.display = '';
+      del.style.display = '';
+      const url = '/api/concessions/' + concessionId + '/' + kind + '?t=' + Date.now();
+      fetch(url).then(r => r.ok ? r.blob() : Promise.reject(new Error('HTTP ' + r.status)))
         .then(b => {
           img.src = URL.createObjectURL(b);
           img.style.display = '';
           ph.style.display = 'none';
-          del.style.display = '';
         })
-        .catch(() => {
+        .catch((e) => {
+          console.warn('[concession-image] error cargando preview', kind, e);
           img.removeAttribute('src');
           img.style.display = 'none';
-          ph.textContent = labelEmpty;
-          ph.style.display = '';
-          del.style.display = 'none';
         });
+    } else {
+      img.removeAttribute('src');
+      img.style.display = 'none';
+      ph.textContent = labelEmpty;
+      ph.style.display = '';
+      del.style.display = 'none';
+    }
+
+    file.onchange = () => {
+      const f = file.files && file.files[0];
+      if (!f) return;
+      if (f.size > 7 * 1024 * 1024) { alert('Máximo 7 MB.'); file.value = ''; return; }
+      img.src = URL.createObjectURL(f);
+      img.style.display = '';
+      ph.style.display = 'none';
+      del.style.display = '';
+      _pendingConcessionImages[kind] = f;
+    };
+    del.onclick = () => {
+      if (!confirm('¿Quitar esta imagen al guardar?')) return;
+      img.removeAttribute('src');
+      img.style.display = 'none';
+      ph.textContent = labelEmpty + ' (se eliminará al guardar)';
+      ph.style.display = '';
+      del.style.display = 'none';
       file.value = '';
-      file.onchange = () => {
-        const f = file.files && file.files[0];
-        if (!f) return;
-        if (f.size > 7 * 1024 * 1024) { alert('Máximo 7 MB.'); file.value = ''; return; }
-        // Vista previa LOCAL inmediata; el upload real ocurre al "Guardar".
-        img.src = URL.createObjectURL(f);
-        img.style.display = '';
-        ph.style.display = 'none';
-        del.style.display = '';
-        _pendingConcessionImages[kind] = f;
-      };
-      del.onclick = () => {
-        if (!confirm('¿Quitar esta imagen al guardar?')) return;
-        img.removeAttribute('src');
-        img.style.display = 'none';
-        ph.textContent = labelEmpty + ' (se eliminará al guardar)';
-        ph.style.display = '';
-        del.style.display = 'none';
-        file.value = '';
-        _pendingConcessionImages[kind] = 'DELETE';
-      };
-    });
+      _pendingConcessionImages[kind] = 'DELETE';
+    };
   }
 
   function _readFileAsDataURL(file) {
