@@ -12,9 +12,44 @@
 
 import {
   Document, Packer, Paragraph, HeadingLevel, AlignmentType,
-  Table, TableRow, TableCell, WidthType, BorderStyle, TextRun, PageBreak,
-  ShadingType
+  Table, TableRow, TableCell, WidthType, HeightRule, BorderStyle, TextRun, PageBreak,
+  ShadingType, VerticalAlign, ImageRun
 } from 'docx';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Colores institucionales
+const NAVY = '1B3A66';        // azul oscuro de la portada del PDF
+const LIGHT_BLUE = 'A9C9E2';  // celeste de la caja del logo CIDATT
+const NO_BORDER = { top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }, insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } };
+
+// Carpeta opcional con logos institucionales personalizables.
+// Si existen, se incrustarán; en caso contrario, se inserta un placeholder
+// blanco que puede sustituirse desde Word con clic derecho → "Cambiar imagen".
+const LOGO_DIR = path.resolve(__dirname, '..', '..', 'assets', 'logos');
+function loadLogoBuffer(filename) {
+  try {
+    const p = path.join(LOGO_DIR, filename);
+    if (fs.existsSync(p)) return fs.readFileSync(p);
+  } catch (_) {}
+  return null;
+}
+// Placeholder PNG blanco de 4×4 (Word lo escala al tamaño que indiquemos).
+const PLACEHOLDER_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAEAQMAAACTPww1AAAABlBMVEX///8AAABVwtN+AAAACklEQVR4nGNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==',
+  'base64'
+);
+function logoImageRun(filename, widthPx, heightPx) {
+  const buf = loadLogoBuffer(filename) || PLACEHOLDER_PNG;
+  return new ImageRun({
+    data: buf,
+    transformation: { width: widthPx, height: heightPx },
+    altText: { title: filename, description: `Logo ${filename}. Clic derecho → Cambiar imagen para reemplazar.`, name: filename }
+  });
+}
 
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 8);
 
@@ -150,6 +185,17 @@ function formatDate(yyyymmdd) {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+const SPANISH_MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','setiembre','octubre','noviembre','diciembre'];
+function formatLongDate(value) {
+  if (!value) return '__ de __________ del ____';
+  const s = String(value).slice(0, 10);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return s;
+  const day = parseInt(m[3], 10);
+  const month = SPANISH_MONTHS[parseInt(m[2], 10) - 1] || '';
+  return `${day} de ${month} del ${m[1]}`;
+}
+
 function uppercaseClean(s) {
   return String(s || '').toUpperCase().replace(/^UNIDAD DE PEAJE\s+/, '').replace(/^CONCESIONARIA\s+/, '');
 }
@@ -168,10 +214,13 @@ function institutionalHeader({ unitLabel, concession, periodLabel, tableTitle })
 
 // ── Documento principal ───────────────────────────────────────────────────
 
-export async function buildReportBuffer({ unitLabel, concession, periodLabel, records, directions, runSummary, incidentsSummary, sampleInfo }) {
+export async function buildReportBuffer({ unitLabel, concession, periodLabel, records, directions, runSummary, incidentsSummary, sampleInfo, concessionMeta }) {
   const dirs = (directions && directions.length ? directions : ['Sentido único']).slice(0, 4);
   const concName = uppercaseClean(concession);
   const unitName = uppercaseClean(unitLabel);
+  const meta = Object.assign({
+    legal_name: null, project_description: null, invitation_date: null, carta_number: null
+  }, concessionMeta || {});
   const fechas = (records || []).map(r => r.fecha).filter(Boolean).sort();
   const fechaIni = fechas[0] ? formatDate(fechas[0]) : '';
   const fechaFin = fechas[fechas.length - 1] ? formatDate(fechas[fechas.length - 1]) : '';
@@ -185,33 +234,6 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
 
   const children = [];
 
-  // ─── PORTADA ─────────────────────────────────────────────────────────────
-  children.push(P('Auditoría de Flujo Vehicular a la Concesionaria ' + concName,
-    { align: AlignmentType.CENTER, bold: true, color: '1F4E78', size: 24, beforeSpacing: 600, afterSpacing: 80 }));
-  children.push(P('Muestra de Flujo Vehicular Relevada de Campo',
-    { align: AlignmentType.CENTER, italic: true, size: 22, afterSpacing: 60 }));
-  children.push(P(`OSITRAN  •  CIDATT  •  ${concName}`,
-    { align: AlignmentType.CENTER, bold: true, size: 22, afterSpacing: 240 }));
-  children.push(P((periodLabel || '').toUpperCase(),
-    { align: AlignmentType.CENTER, bold: true, size: 26, color: '1F4E78', afterSpacing: 80 }));
-  children.push(P('WWW.CIDATT.COM.PE',
-    { align: AlignmentType.CENTER, size: 20, afterSpacing: 40 }));
-  children.push(P('Calle Cinco 145 Oficina 401 – San Isidro',
-    { align: AlignmentType.CENTER, italic: true, size: 20, afterSpacing: 600 }));
-
-  children.push(P('INFORME DE RELEVAMIENTO DE CAMPO',
-    { align: AlignmentType.CENTER, bold: true, size: 32, color: '1F4E78', afterSpacing: 80 }));
-  children.push(P(`DE LA AUDITORÍA DE FLUJO VEHICULAR DE LA ${unitLabel || ''},`,
-    { align: AlignmentType.CENTER, bold: true, size: 28, color: '1F4E78', afterSpacing: 80 }));
-  children.push(P(`CORRESPONDIENTE AL ${(periodLabel || '').toUpperCase()}`,
-    { align: AlignmentType.CENTER, bold: true, size: 28, color: '1F4E78', afterSpacing: 80 }));
-  children.push(P(`PARA LA CONCESIÓN DE ${concName}`,
-    { align: AlignmentType.CENTER, bold: true, size: 28, color: '1F4E78', afterSpacing: 600 }));
-
-  children.push(P(`Este documento es de uso exclusivo del Concesionario (${concName}) y el Regulador (OSITRAN).`,
-    { align: AlignmentType.CENTER, italic: true, size: 20, afterSpacing: 0 }));
-  children.push(new Paragraph({ children: [new PageBreak()] }));
-
   // ─── PÁGINA 2: MUESTRA + CONSIDERACIONES ─────────────────────────────────
   children.push(P('Auditoría de Flujo Vehicular a la Concesionaria ' + concName,
     { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 40 }));
@@ -221,22 +243,42 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 240 }));
 
   children.push(H('MUESTRA DE FLUJO VEHICULAR RELEVADA DE CAMPO', 1, { align: AlignmentType.CENTER, color: '1F4E78', size: 26 }));
+
+  // Año a partir de periodLabel
+  const yearMatch = String(periodLabel || '').match(/\d{4}/);
+  const year = yearMatch ? yearMatch[0] : new Date().getFullYear();
+  const lowerPeriod = String(periodLabel || '').toLowerCase();
+  const invDateText = formatLongDate(meta.invitation_date);
+  const cartaText = meta.carta_number || '____________';
+  const legalName = (meta.legal_name || concName).toUpperCase();
+
   children.push(P(
-    'Para el año en curso, OSITRAN elaboró el Manual de Procedimiento de Selección para la ' +
+    `Para el año ${year}, OSITRAN, elaboró el Manual de Procedimiento de Selección para la ` +
     'Contratación de la Empresa Auditora de Tráfico Vehicular, en el cual se describen las ' +
     'actividades mínimas que deberá cumplir la empresa auditora de tráfico vehicular que ' +
     'tendrá a cargo la elaboración del Informe Anual de Auditoría de Flujo vehicular.'
   ));
   children.push(P(
-    `CIDATT Consultoría S.A. fue contratada por la concesionaria ${concName}, previa opinión ` +
-    'favorable del REGULADOR, para llevar a cabo las actividades acordes con el objetivo del ' +
-    'proceso de selección.'
+    `Con fecha ${invDateText}, CIDATT Consultoría S. A. fue invitada mediante Carta N° ${cartaText}, ` +
+    `por la empresa ${legalName} a presentar su propuesta técnica y económica, para participar ` +
+    'del procedimiento de selección para la Contratación de la Empresa Auditora de Tráfico Vehicular.'
   ));
   children.push(P(
-    `Conforme a las actividades propuestas por CIDATT y aprobadas por el CONCESIONARIO y el ` +
-    `REGULADOR, se ha realizado las actividades de recopilación de una muestra de flujo vehicular ` +
-    `correspondiente al ${periodLabel || ''}, del flujo vehicular que transitó en la ` +
-    `${unitLabel || ''}, con el fin de verificar los flujos vehiculares y el ingreso efectivo recaudado.`
+    'En el proceso de selección, los criterios de evaluación técnica y económica determinaron, ' +
+    'que, CIDATT Consultoría S.A. sea la empresa auditora contratada por el CONCESIONARIO, previa ' +
+    'opinión favorable del REGULADOR para llevar a cabo las actividades acordes con el objetivo del ' +
+    'proceso de selección.'
+  ));
+  const projectInline = meta.project_description
+    ? `ubicadas a lo largo del proyecto ${meta.project_description.replace(/\s*[-–]\s*/g, ' – ')}`
+    : `ubicadas a lo largo del proyecto`;
+  children.push(P(
+    'De acuerdo a lo solicitado en los lineamientos mínimos establecidos para la realización de las ' +
+    'actividades de verificación, y conforme a las actividades propuestas por CIDATT y aprobadas por ' +
+    'el CONCESIONARIO y el REGULADOR se ha realizado las actividades de recopilación de una muestra ' +
+    `de flujo vehicular correspondiente al ${lowerPeriod || 'período correspondiente'}, del flujo ` +
+    `vehicular que transitó en las unidades de peaje ${projectInline} administrado por ${concName}, ` +
+    'con el fin de verificar los flujos vehiculares y el ingreso efectivo recaudado.'
   ));
 
   children.push(H('CONSIDERACIONES PARA EL ANÁLISIS DE LA MUESTRA', 1, { align: AlignmentType.LEFT, color: '1F4E78', size: 24 }));
@@ -384,13 +426,172 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
         document: { run: { font: 'Calibri', size: 22 } }
       }
     },
-    sections: [{
-      properties: {
-        page: { margin: { top: 720, bottom: 720, left: 1080, right: 1080 } }
+    sections: [
+      // ── Sección 1: PORTADA con fondo azul a página completa ────────────
+      {
+        properties: {
+          page: {
+            size: { width: 11906, height: 16838 }, // A4 en twips
+            margin: { top: 0, bottom: 0, left: 0, right: 0, header: 0, footer: 0, gutter: 0 }
+          }
+        },
+        children: buildCoverChildren({ concName, unitLabel, periodLabel, meta })
       },
-      children
-    }]
+      // ── Sección 2: Resto del informe con márgenes normales ─────────────
+      {
+        properties: {
+          page: { margin: { top: 720, bottom: 720, left: 1080, right: 1080 } }
+        },
+        children
+      }
+    ]
   });
 
   return await Packer.toBuffer(doc);
+}
+
+// ── Portada con fondo azul oscuro a página completa ───────────────────────
+
+function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
+  // Mes y año a partir de periodLabel (e.g. "Primer Trimestre del año 2026")
+  const yearMatch = String(periodLabel || '').match(/\d{4}/);
+  const year = yearMatch ? yearMatch[0] : '';
+  const trimMonths = {
+    'primer':  { label: 'ENERO – MARZO', last: 'MARZO' },
+    'segundo': { label: 'ABRIL – JUNIO', last: 'JUNIO' },
+    'tercer':  { label: 'JULIO – SETIEMBRE', last: 'SETIEMBRE' },
+    'cuarto':  { label: 'OCTUBRE – DICIEMBRE', last: 'DICIEMBRE' }
+  };
+  let trimText = '';
+  let lastMonth = '';
+  const tm = String(periodLabel || '').toLowerCase().match(/(primer|segundo|tercer|cuarto)/);
+  if (tm) {
+    trimText = `${trimMonths[tm[1]].label} DEL AÑO ${year}`;
+    lastMonth = trimMonths[tm[1]].last;
+  }
+
+  // Texto blanco helper
+  const W = (text, opts = {}) => new Paragraph({
+    alignment: opts.align || AlignmentType.CENTER,
+    spacing: { before: opts.before || 0, after: opts.after || 0, line: opts.line || 280 },
+    children: [new TextRun({
+      text: String(text || ''),
+      bold: opts.bold !== false,
+      italics: !!opts.italic,
+      color: opts.color || 'FFFFFF',
+      size: opts.size || 22,
+      font: 'Calibri'
+    })]
+  });
+
+  // Texto del título principal (con saltos de línea desde project_description o defaults)
+  const projectLines = [];
+  if (meta && meta.project_description) {
+    // Partir por " - " o " – " o ", " manteniendo segmentos cortos
+    String(meta.project_description)
+      .split(/\s*[-–]\s*|,\s*/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .forEach((seg, i, arr) => {
+        if (i === 0) projectLines.push(seg.toUpperCase());
+        else if (i === arr.length - 1) projectLines.push('- ' + seg.toUpperCase());
+        else projectLines.push('- ' + seg.toUpperCase());
+      });
+  }
+
+  // ── Caja celeste con LOGO CIDATT (placeholder reemplazable) ─────────────
+  const cidattBoxRow = new TableRow({
+    height: { value: 2400, rule: HeightRule.EXACT },
+    children: [new TableCell({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      shading: { type: ShadingType.CLEAR, color: 'auto', fill: LIGHT_BLUE },
+      verticalAlign: VerticalAlign.CENTER,
+      borders: NO_BORDER,
+      margins: { top: 200, bottom: 200, left: 200, right: 200 },
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 200, after: 0 },
+          children: [logoImageRun('cidatt.png', 220, 110)]
+        }),
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 60, after: 0 },
+          children: [new TextRun({ text: '(clic derecho → Cambiar imagen para insertar logo CIDATT)', italics: true, color: '6B8AA8', size: 14, font: 'Calibri' })]
+        })
+      ]
+    })]
+  });
+
+  const cidattTable = new Table({
+    width: { size: 60, type: WidthType.PERCENTAGE },
+    alignment: AlignmentType.CENTER,
+    borders: NO_BORDER,
+    rows: [cidattBoxRow]
+  });
+
+  // ── Cuerpo del título ───────────────────────────────────────────────────
+  const titleParagraphs = [];
+  titleParagraphs.push(W('INFORME DE RELEVAMIENTO DE CAMPO', { size: 24, line: 320 }));
+  titleParagraphs.push(W('DE LA AUDITORÍA DE FLUJO VEHICULAR DE', { size: 24, line: 320 }));
+  titleParagraphs.push(W(`${(unitLabel || '').toUpperCase()},`, { size: 24, line: 320 }));
+  titleParagraphs.push(W(`CORRESPONDIENTE AL ${trimText || (periodLabel || '').toUpperCase()} PARA LA`, { size: 24, line: 320 }));
+  if (projectLines.length) {
+    projectLines.forEach(line => titleParagraphs.push(W(line, { size: 24, line: 320 })));
+  } else {
+    titleParagraphs.push(W(`CONCESIÓN DE ${concName}`, { size: 24, line: 320 }));
+  }
+
+  // ── Logo OSITRAN (placeholder reemplazable) ─────────────────────────────
+  const ositranBlock = new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 400, after: 200 },
+    children: [logoImageRun('ositran.png', 160, 90)]
+  });
+  const ositranHint = new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 0, after: 400 },
+    children: [new TextRun({ text: '(clic derecho → Cambiar imagen para insertar logo OSITRAN)', italics: true, color: 'B8C8DA', size: 14, font: 'Calibri' })]
+  });
+
+  // ── Pie ────────────────────────────────────────────────────────────────
+  const footerLines = [
+    W(`${lastMonth || ''}${year ? ' ' + year : ''}`.trim(), { size: 18, line: 240 }),
+    W('WWW.CIDATT.COM.PE', { size: 18, line: 240 }),
+    W('Calle Cinco 145 Oficina 401 – San Isidro', { size: 18, italic: true, bold: false, line: 240 })
+  ];
+
+  // ── Celda de portada ────────────────────────────────────────────────────
+  const coverCell = new TableCell({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    shading: { type: ShadingType.CLEAR, color: 'auto', fill: NAVY },
+    verticalAlign: VerticalAlign.TOP,
+    borders: NO_BORDER,
+    margins: { top: 1200, bottom: 600, left: 800, right: 800 },
+    children: [
+      cidattTable,
+      // Espaciado vertical entre logo y título
+      W('', { line: 240 }), W('', { line: 240 }), W('', { line: 240 }),
+      W('', { line: 240 }), W('', { line: 240 }), W('', { line: 240 }),
+      W('', { line: 240 }), W('', { line: 240 }),
+      ...titleParagraphs,
+      W('', { line: 240 }),
+      W('Este documento es de uso exclusivo del Concesionario', { size: 16, italic: true, bold: false, line: 240 }),
+      W(`(${concName}) y el Regulador (OSITRAN).`, { size: 16, italic: true, bold: false, line: 240 }),
+      ositranBlock,
+      ositranHint,
+      ...footerLines
+    ]
+  });
+
+  const coverTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: NO_BORDER,
+    rows: [new TableRow({
+      height: { value: 16838, rule: HeightRule.EXACT },
+      children: [coverCell]
+    })]
+  });
+
+  return [coverTable];
 }

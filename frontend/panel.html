@@ -722,8 +722,26 @@
     <!-- Concesión -->
     <div id="paramCrudConcessionFields">
       <div class="form-group">
-        <label>Nombre de la concesión *</label>
-        <input id="paramCrudConcessionName" placeholder="Ej: Norvial, IIRSA Norte"/>
+        <label>Nombre corto de la concesión *</label>
+        <input id="paramCrudConcessionName" placeholder="Ej: DEVIANDES, NORVIAL"/>
+      </div>
+      <div class="form-group">
+        <label>Razón social / nombre legal completo</label>
+        <input id="paramCrudConcessionLegal" placeholder="Ej: CONCESIONARIA DESARROLLO VIAL DE LOS ANDES S.A.C"/>
+      </div>
+      <div class="form-group">
+        <label>Descripción del proyecto / concesión (texto que irá en la carátula del informe)</label>
+        <textarea id="paramCrudConcessionProjectDesc" rows="3" placeholder="Ej: CONCESIÓN DEL TRAMO 2 DE IIRSA CENTRO: PUENTE RICARDO PALMA - LA OROYA - HUANCAYO Y LA OROYA - DV. CERRO DE PASCO"></textarea>
+      </div>
+      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label>Fecha de invitación</label>
+          <input type="date" id="paramCrudConcessionInvDate"/>
+        </div>
+        <div>
+          <label>Nº de Carta de invitación</label>
+          <input id="paramCrudConcessionCarta" placeholder="Ej: 2026-10-0107"/>
+        </div>
       </div>
       <div class="form-group">
         <label>Estado</label>
@@ -3382,6 +3400,10 @@
     if (type === 'concession') {
       const item = id ? _paramsCrudData.concessions.find((c) => c.id === id) : null;
       document.getElementById('paramCrudConcessionName').value = item ? item.name : '';
+      document.getElementById('paramCrudConcessionLegal').value = item && item.legal_name ? item.legal_name : '';
+      document.getElementById('paramCrudConcessionProjectDesc').value = item && item.project_description ? item.project_description : '';
+      document.getElementById('paramCrudConcessionInvDate').value = item && item.invitation_date ? String(item.invitation_date).slice(0,10) : '';
+      document.getElementById('paramCrudConcessionCarta').value = item && item.carta_number ? item.carta_number : '';
       const statusSel = document.getElementById('paramCrudConcessionStatus');
       statusSel.value = item ? (item.status || 'activa') : 'activa';
     } else if (type === 'station') {
@@ -3417,12 +3439,17 @@
       if (type === 'concession') {
         const name = document.getElementById('paramCrudConcessionName').value.trim();
         const status = document.getElementById('paramCrudConcessionStatus').value;
+        const legal_name = document.getElementById('paramCrudConcessionLegal').value.trim();
+        const project_description = document.getElementById('paramCrudConcessionProjectDesc').value.trim();
+        const invitation_date = document.getElementById('paramCrudConcessionInvDate').value || null;
+        const carta_number = document.getElementById('paramCrudConcessionCarta').value.trim();
         if (!name) { alert('El nombre de la concesión es obligatorio.'); return; }
+        const payload = { name, status, legal_name, project_description, invitation_date, carta_number };
         if (id) {
-          await api('/concessions/' + id, { method: 'PUT', body: { name, status } });
+          await api('/concessions/' + id, { method: 'PUT', body: payload });
         } else {
-          const res = await api('/concessions', { method: 'POST', body: { name } });
-          if (res.concessionId && status === 'inactiva') await api('/concessions/' + res.concessionId, { method: 'PUT', body: { name, status } });
+          const res = await api('/concessions', { method: 'POST', body: payload });
+          if (res.concessionId && status === 'inactiva') await api('/concessions/' + res.concessionId, { method: 'PUT', body: payload });
         }
       } else if (type === 'station') {
         const name = document.getElementById('paramCrudStationName').value.trim();

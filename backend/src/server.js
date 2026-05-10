@@ -509,7 +509,7 @@ async function getProjectStations(projectId) {
 }
 async function buildCatalogStructure() {
   const concessions = await query(
-    `SELECT id, name, status
+    `SELECT id, name, status, legal_name, project_description, invitation_date, carta_number
      FROM ${TABLES.concessions}
      WHERE LOWER(TRIM(name)) NOT IN ('concesion general', 'concesión general', 'general')
      ORDER BY name ASC`
@@ -989,7 +989,7 @@ app.put('/api/users/:id', authenticateRequest, requireMinRole('director'), async
 app.get('/api/concessions', authenticateRequest, requireMinRole('coordinador'), async (_req, res, next) => {
   try {
     const rows = await query(
-      `SELECT id, name, status
+      `SELECT id, name, status, legal_name, project_description, invitation_date, carta_number
        FROM ${TABLES.concessions}
        WHERE LOWER(TRIM(name)) NOT IN ('concesion general', 'concesión general', 'general')
        ORDER BY name ASC`
@@ -1002,9 +1002,22 @@ app.post('/api/concessions', authenticateRequest, requireMinRole('director'), as
   try {
     const name = String(req.body.name || '').trim();
     if (!name) throw badRequest('El nombre de la concesion es obligatorio.');
+    const legalName = req.body.legal_name ? String(req.body.legal_name).trim() : null;
+    const projectDescription = req.body.project_description ? String(req.body.project_description).trim() : null;
+    const invitationDate = req.body.invitation_date ? String(req.body.invitation_date).trim() : null;
+    const cartaNumber = req.body.carta_number ? String(req.body.carta_number).trim() : null;
     const existing = await query(`SELECT id FROM ${TABLES.concessions} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`, [name]);
-    if (existing.length) return res.json({ ok: true, concessionId: existing[0].id, reused: true });
-    const result = await query(`INSERT INTO ${TABLES.concessions} (name, status) VALUES (?, 'activa')`, [name]);
+    if (existing.length) {
+      await query(
+        `UPDATE ${TABLES.concessions} SET legal_name = COALESCE(?, legal_name), project_description = COALESCE(?, project_description), invitation_date = COALESCE(?, invitation_date), carta_number = COALESCE(?, carta_number) WHERE id = ?`,
+        [legalName, projectDescription, invitationDate, cartaNumber, existing[0].id]
+      );
+      return res.json({ ok: true, concessionId: existing[0].id, reused: true });
+    }
+    const result = await query(
+      `INSERT INTO ${TABLES.concessions} (name, status, legal_name, project_description, invitation_date, carta_number) VALUES (?, 'activa', ?, ?, ?, ?)`,
+      [name, legalName, projectDescription, invitationDate, cartaNumber]
+    );
     res.json({ ok: true, concessionId: result.insertId, reused: false });
   } catch (error) { next(error); }
 });
@@ -1022,7 +1035,18 @@ app.put('/api/concessions/:id', authenticateRequest, requireMinRole('director'),
       [id, name]
     );
     if (duplicate.length) throw badRequest('Ya existe una concesion con ese nombre.');
-    await query(`UPDATE ${TABLES.concessions} SET name = ?, status = ? WHERE id = ?`, [name, status, id]);
+    const legalName = req.body.legal_name !== undefined ? (req.body.legal_name ? String(req.body.legal_name).trim() : null) : undefined;
+    const projectDescription = req.body.project_description !== undefined ? (req.body.project_description ? String(req.body.project_description).trim() : null) : undefined;
+    const invitationDate = req.body.invitation_date !== undefined ? (req.body.invitation_date ? String(req.body.invitation_date).trim() : null) : undefined;
+    const cartaNumber = req.body.carta_number !== undefined ? (req.body.carta_number ? String(req.body.carta_number).trim() : null) : undefined;
+    const sets = ['name = ?', 'status = ?'];
+    const vals = [name, status];
+    if (legalName !== undefined) { sets.push('legal_name = ?'); vals.push(legalName); }
+    if (projectDescription !== undefined) { sets.push('project_description = ?'); vals.push(projectDescription); }
+    if (invitationDate !== undefined) { sets.push('invitation_date = ?'); vals.push(invitationDate); }
+    if (cartaNumber !== undefined) { sets.push('carta_number = ?'); vals.push(cartaNumber); }
+    vals.push(id);
+    await query(`UPDATE ${TABLES.concessions} SET ${sets.join(', ')} WHERE id = ?`, vals);
     res.json({ ok: true });
   } catch (error) { next(error); }
 });
@@ -3216,6 +3240,7 @@ async function resolveRunDeliverables(runId) {
 
   let unitLabel = 'UNIDAD';
   let concession = run.concession_label || '';
+  let concessionMeta = { legal_name: null, project_description: null, invitation_date: null, carta_number: null };
   if (run.source_type === 'internal' && run.project_id) {
     const stations = await query(
       `SELECT DISTINCT ts.id, ts.name
@@ -3226,16 +3251,39 @@ async function resolveRunDeliverables(runId) {
     );
     if (stations.length) unitLabel = `UNIDAD DE PEAJE ${stations[0].name.toUpperCase()}`;
     const conc = await query(
-      `SELECT c.name FROM ${TABLES.concessions} c
+      `SELECT c.name, c.legal_name, c.project_description, c.invitation_date, c.carta_number
+         FROM ${TABLES.concessions} c
          INNER JOIN ${TABLES.projects} p ON p.concession_id = c.id
         WHERE p.id = ? LIMIT 1`,
       [run.project_id]
     );
-    if (conc.length) concession = `CONCESIONARIA ${conc[0].name.toUpperCase()}`;
+    if (conc.length) {
+      concession = `CONCESIONARIA ${conc[0].name.toUpperCase()}`;
+      concessionMeta = {
+        legal_name: conc[0].legal_name || null,
+        project_description: conc[0].project_description || null,
+        invitation_date: conc[0].invitation_date || null,
+        carta_number: conc[0].carta_number || null
+      };
+    }
   }
   if (run.source_type === 'external') {
     unitLabel = run.external_filename ? run.external_filename.replace(/\.xlsx$/i, '').toUpperCase() : 'UNIDAD';
     if (concession && !/^CONCESIONARIA/i.test(concession)) concession = `CONCESIONARIA ${concession.toUpperCase()}`;
+    // Intentar cargar metadatos por nombre de concesión
+    if (concession) {
+      const cleanName = concession.replace(/^CONCESIONARIA\s+/i, '').trim();
+      const conc = await query(
+        `SELECT legal_name, project_description, invitation_date, carta_number FROM ${TABLES.concessions} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+        [cleanName]
+      );
+      if (conc.length) concessionMeta = {
+        legal_name: conc[0].legal_name || null,
+        project_description: conc[0].project_description || null,
+        invitation_date: conc[0].invitation_date || null,
+        carta_number: conc[0].carta_number || null
+      };
+    }
   }
 
   const directions = Array.from(new Set(finalRecords.map(r => r.sentido).filter(Boolean))).slice(0, 2);
@@ -3248,8 +3296,10 @@ async function resolveRunDeliverables(runId) {
 
   // Período automático según los datos ("Primer/Segundo/... Trimestre del año YYYY").
   const autoPeriodLabel = inferPeriodLabel(finalRecords, run.period_label || '');
+  // Período efectivo: priorizar el declarado por el director (run.period_label)
+  const effectivePeriodLabel = (run.period_label && String(run.period_label).trim()) || autoPeriodLabel;
 
-  return { run, records: finalRecords, applied, unitLabel, concession, directions, safeName, fechaMin, fechaMax, autoPeriodLabel };
+  return { run, records: finalRecords, applied, unitLabel, concession, concessionMeta, directions, safeName, fechaMin, fechaMax, autoPeriodLabel, effectivePeriodLabel };
 }
 
 // GET /api/processing/runs/:id/excel  → descarga el .xlsx final de la unidad.
@@ -3260,7 +3310,7 @@ app.get('/api/processing/runs/:id/excel', authenticateRequest, requireMinRole('d
     const buf = await buildUnitBuffer({
       unitLabel: d.unitLabel,
       concession: d.concession,
-      periodLabel: d.autoPeriodLabel,
+      periodLabel: d.effectivePeriodLabel,
       records: d.records,
       directions: d.directions
     });
@@ -3280,11 +3330,12 @@ app.get('/api/processing/runs/:id/word', authenticateRequest, requireMinRole('di
     const buf = await buildReportBuffer({
       unitLabel: d.unitLabel,
       concession: d.concession,
-      periodLabel: d.autoPeriodLabel,
+      periodLabel: d.effectivePeriodLabel,
       records: d.records,
       directions: d.directions,
       runSummary: summary,
-      incidentsSummary: { applied: d.applied }
+      incidentsSummary: { applied: d.applied },
+      concessionMeta: d.concessionMeta
     });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="Informe_${d.safeName}.docx"`);
@@ -3301,7 +3352,7 @@ app.get('/api/processing/runs/:id/preview', authenticateRequest, requireMinRole(
     const autoPeriod = d.autoPeriodLabel || '';
     const periodAlert =
       (declaredPeriod && autoPeriod && declaredPeriod.trim().toLowerCase() !== autoPeriod.trim().toLowerCase())
-        ? `El período declarado en el proyecto ("${declaredPeriod}") difiere del calculado a partir de los datos ("${autoPeriod}", rango ${d.fechaMin} a ${d.fechaMax}). Se usará el calculado en los entregables.`
+        ? `El período declarado en el proyecto ("${declaredPeriod}") difiere del calculado a partir de los datos ("${autoPeriod}", rango ${d.fechaMin} a ${d.fechaMax}). Se usará el declarado en los entregables.`
         : null;
 
     res.json({
@@ -3310,6 +3361,7 @@ app.get('/api/processing/runs/:id/preview', authenticateRequest, requireMinRole(
       concession: d.concession,
       periodLabel: autoPeriod,
       declaredPeriod,
+      effectivePeriod: d.effectivePeriodLabel,
       directions: d.directions,
       fechaMin: d.fechaMin,
       fechaMax: d.fechaMax,
@@ -3359,7 +3411,7 @@ function buildPreviewHtml(d) {
 
   let out = `<div style="font-family:Calibri,Segoe UI,sans-serif;color:#0f172a">`;
   out += `<h2 style="text-align:center;margin:4px 0">Reporte de Muestra de Flujo Vehicular</h2>`;
-  out += `<p style="text-align:center;margin:4px 0;font-style:italic">Correspondiente al ${d.autoPeriodLabel || ''}</p>`;
+  out += `<p style="text-align:center;margin:4px 0;font-style:italic">Correspondiente al ${d.effectivePeriodLabel || ''}</p>`;
   out += `<p style="text-align:center;margin:4px 0;font-weight:700">${d.unitLabel}</p>`;
   out += `<p style="text-align:center;margin:4px 0">${d.concession}</p>`;
   for (const dir of d.directions) {
@@ -3383,15 +3435,16 @@ app.get('/api/processing/runs/:id/zip', authenticateRequest, requireMinRole('dir
     try { summary = d.run.summary_json ? (typeof d.run.summary_json === 'object' ? d.run.summary_json : JSON.parse(d.run.summary_json)) : null; } catch {}
     const xlsxBuf = await buildUnitBuffer({
       unitLabel: d.unitLabel, concession: d.concession,
-      periodLabel: d.autoPeriodLabel,
+      periodLabel: d.effectivePeriodLabel,
       records: d.records, directions: d.directions
     });
     const docxBuf = await buildReportBuffer({
       unitLabel: d.unitLabel, concession: d.concession,
-      periodLabel: d.autoPeriodLabel,
+      periodLabel: d.effectivePeriodLabel,
       records: d.records, directions: d.directions,
       runSummary: summary,
-      incidentsSummary: { applied: d.applied }
+      incidentsSummary: { applied: d.applied },
+      concessionMeta: d.concessionMeta
     });
     const zipBuf = await buildZipBuffer([
       { name: `${d.safeName}.xlsx`, buffer: xlsxBuf },
@@ -3475,6 +3528,23 @@ async function runMigrations() {
       UNIQUE KEY uk_cidatt_concessions_name (name)
     )
   `);
+
+  // Campos institucionales para portada/intro de informes Word
+  try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN legal_name VARCHAR(255) NULL AFTER name`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN project_description TEXT NULL AFTER legal_name`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN invitation_date DATE NULL AFTER project_description`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN carta_number VARCHAR(60) NULL AFTER invitation_date`); } catch (_) {}
+  // Backfill DEVIANDES con los valores de muestra del PDF Ositran
+  try {
+    await query(
+      `UPDATE ${TABLES.concessions}
+         SET legal_name = COALESCE(legal_name, 'CONCESIONARIA DESARROLLO VIAL DE LOS ANDES S.A.C'),
+             project_description = COALESCE(project_description, 'CONCESIÓN DEL TRAMO 2 DE IIRSA CENTRO: PUENTE RICARDO PALMA - LA OROYA - HUANCAYO Y LA OROYA - DV. CERRO DE PASCO'),
+             invitation_date = COALESCE(invitation_date, '2026-01-22'),
+             carta_number = COALESCE(carta_number, '2026-10-0107')
+       WHERE LOWER(name) LIKE '%deviandes%'`
+    );
+  } catch (_) {}
 
   await query(`
     CREATE TABLE IF NOT EXISTS ${TABLES.projects} (
