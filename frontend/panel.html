@@ -3412,9 +3412,13 @@
     if (stationSel && stationId) stationSel.value = String(stationId);
   };
 
+  // Imágenes pendientes de subir/borrar al guardar la concesión
+  let _pendingConcessionImages = { photo: null, map: null }; // valor: File | 'DELETE' | null
+
   function _setupConcessionImagesUI(concessionId) {
     const block = document.getElementById('paramCrudConcessionImagesBlock');
     if (!block) return;
+    _pendingConcessionImages = { photo: null, map: null };
     if (!concessionId) { block.style.display = 'none'; return; }
     block.style.display = '';
     const cb = Date.now();
@@ -3425,8 +3429,9 @@
       const del = document.getElementById('paramCrudConcession' + cap + 'Delete');
       const file = document.getElementById('paramCrudConcession' + cap + 'File');
       const url = '/api/concessions/' + concessionId + '/' + kind + '?t=' + cb;
-      // Verificar con HEAD/GET con auth si existe imagen
-      fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
+      const labelEmpty = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
+      // Cargar la imagen guardada (GET es público, sin auth)
+      fetch(url)
         .then(r => r.ok ? r.blob() : Promise.reject())
         .then(b => {
           img.src = URL.createObjectURL(b);
@@ -3437,57 +3442,60 @@
         .catch(() => {
           img.removeAttribute('src');
           img.style.display = 'none';
-          ph.textContent = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
+          ph.textContent = labelEmpty;
           ph.style.display = '';
           del.style.display = 'none';
         });
-      file.onchange = async () => {
+      file.value = '';
+      file.onchange = () => {
         const f = file.files && file.files[0];
         if (!f) return;
         if (f.size > 7 * 1024 * 1024) { alert('Máximo 7 MB.'); file.value = ''; return; }
-        // 1) Vista previa LOCAL inmediata (no esperamos al servidor)
-        const localUrl = URL.createObjectURL(f);
-        img.src = localUrl;
+        // Vista previa LOCAL inmediata; el upload real ocurre al "Guardar".
+        img.src = URL.createObjectURL(f);
         img.style.display = '';
         ph.style.display = 'none';
-        ph.textContent = 'Subiendo…';
-        // 2) Subir al servidor
-        const reader = new FileReader();
-        reader.onload = async () => {
-          try {
-            await api('/concessions/' + concessionId + '/' + kind, {
-              method: 'PUT',
-              body: { data: reader.result, mime: f.type || 'image/png' }
-            });
-            del.style.display = '';
-            ph.style.display = 'none';
-            ph.textContent = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
-          } catch (e) {
-            alert('Error subiendo imagen: ' + (e.message || e));
-            // Restaurar estado: si falla, ocultar preview local
-            img.removeAttribute('src');
-            img.style.display = 'none';
-            ph.textContent = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
-            ph.style.display = '';
-            del.style.display = 'none';
-          }
-          file.value = '';
-        };
-        reader.onerror = () => { alert('No se pudo leer el archivo.'); file.value = ''; };
-        reader.readAsDataURL(f);
+        del.style.display = '';
+        _pendingConcessionImages[kind] = f;
       };
-      del.onclick = async () => {
-        if (!confirm('¿Quitar esta imagen?')) return;
-        try {
-          await api('/concessions/' + concessionId + '/' + kind, { method: 'DELETE' });
-          img.removeAttribute('src');
-          img.style.display = 'none';
-          ph.textContent = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
-          ph.style.display = '';
-          del.style.display = 'none';
-        } catch (e) { alert('Error: ' + (e.message || e)); }
+      del.onclick = () => {
+        if (!confirm('¿Quitar esta imagen al guardar?')) return;
+        img.removeAttribute('src');
+        img.style.display = 'none';
+        ph.textContent = labelEmpty + ' (se eliminará al guardar)';
+        ph.style.display = '';
+        del.style.display = 'none';
+        file.value = '';
+        _pendingConcessionImages[kind] = 'DELETE';
       };
     });
+  }
+
+  function _readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+      r.readAsDataURL(file);
+    });
+  }
+
+  async function _flushPendingConcessionImages(concessionId) {
+    if (!concessionId) return;
+    for (const kind of ['photo', 'map']) {
+      const pending = _pendingConcessionImages[kind];
+      if (!pending) continue;
+      if (pending === 'DELETE') {
+        await api('/concessions/' + concessionId + '/' + kind, { method: 'DELETE' });
+      } else {
+        const dataUrl = await _readFileAsDataURL(pending);
+        await api('/concessions/' + concessionId + '/' + kind, {
+          method: 'PUT',
+          body: { data: dataUrl, mime: pending.type || 'image/png' }
+        });
+      }
+    }
+    _pendingConcessionImages = { photo: null, map: null };
   }
 
   window.openParamCrud = function(type, id) {
@@ -3550,11 +3558,19 @@
         const carta_number = document.getElementById('paramCrudConcessionCarta').value.trim();
         if (!name) { alert('El nombre de la concesión es obligatorio.'); return; }
         const payload = { name, status, legal_name, project_description, invitation_date, carta_number };
+        let savedId = id;
         if (id) {
           await api('/concessions/' + id, { method: 'PUT', body: payload });
         } else {
           const res = await api('/concessions', { method: 'POST', body: payload });
+          savedId = res.concessionId;
           if (res.concessionId && status === 'inactiva') await api('/concessions/' + res.concessionId, { method: 'PUT', body: payload });
+        }
+        // Subir imágenes pendientes (si las hay) ahora que tenemos id confirmado
+        try {
+          await _flushPendingConcessionImages(savedId);
+        } catch (e) {
+          alert('La concesión se guardó, pero hubo un error al subir las imágenes: ' + (e.message || e));
         }
       } else if (type === 'station') {
         const name = document.getElementById('paramCrudStationName').value.trim();
