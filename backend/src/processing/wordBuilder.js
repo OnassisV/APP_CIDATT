@@ -61,7 +61,7 @@ function P(text, opts = {}) {
     spacing: { after: opts.afterSpacing != null ? opts.afterSpacing : 160, before: opts.beforeSpacing || 0 },
     children: (Array.isArray(text) ? text : [text]).map(t =>
       typeof t === 'string'
-        ? new TextRun({ text: t, bold: !!opts.bold, italics: !!opts.italic, size: opts.size || 22, color: opts.color, font: 'Calibri' })
+        ? new TextRun({ text: t, bold: !!opts.bold, italics: !!opts.italic, size: opts.size || 22, color: opts.color, font: 'Arial' })
         : t
     )
   });
@@ -73,7 +73,7 @@ function H(text, level, opts = {}) {
     heading: map[level] || HeadingLevel.HEADING_2,
     alignment: opts.align || AlignmentType.LEFT,
     spacing: { before: opts.beforeSpacing != null ? opts.beforeSpacing : 240, after: opts.afterSpacing != null ? opts.afterSpacing : 120 },
-    children: [new TextRun({ text: String(text), bold: true, color: opts.color || '1F4E78', size: opts.size, font: 'Calibri' })]
+    children: [new TextRun({ text: String(text), bold: true, color: opts.color || '1F4E78', size: opts.size, font: 'Arial' })]
   });
 }
 
@@ -90,7 +90,7 @@ function tableCell(text, opts = {}) {
         bold: !!opts.bold,
         color: opts.color,
         size: opts.size || 20,
-        font: 'Calibri'
+        font: 'Arial'
       })]
     })]
   });
@@ -439,8 +439,8 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
       tableTitle: 'Tabla 1: Resumen de total de vehículos por hora según tipo y sentido de control'
     }).forEach(p => children.push(p));
     children.push(P([
-      new TextRun({ text: 'Sentido: ', bold: true, font: 'Calibri', size: 22 }),
-      new TextRun({ text: dir, font: 'Calibri', size: 22 })
+      new TextRun({ text: 'Sentido: ', bold: true, font: 'Arial', size: 22 }),
+      new TextRun({ text: dir, font: 'Arial', size: 22 })
     ], { align: AlignmentType.LEFT, afterSpacing: 120 }));
     children.push(pivotTable({
       records: records.filter(r => (r.sentido || '') === dir),
@@ -458,8 +458,8 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
       tableTitle: 'Tabla 2: Resumen de total de ejes por hora según tipo y sentido de control'
     }).forEach(p => children.push(p));
     children.push(P([
-      new TextRun({ text: 'Sentido: ', bold: true, font: 'Calibri', size: 22 }),
-      new TextRun({ text: dir, font: 'Calibri', size: 22 })
+      new TextRun({ text: 'Sentido: ', bold: true, font: 'Arial', size: 22 }),
+      new TextRun({ text: dir, font: 'Arial', size: 22 })
     ], { align: AlignmentType.LEFT, afterSpacing: 120 }));
     children.push(pivotTable({
       records: records.filter(r => (r.sentido || '') === dir),
@@ -469,22 +469,57 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     if (i < dirs.length - 1) children.push(new Paragraph({ children: [new PageBreak()] }));
   }
 
-  // ─── Observaciones del procesamiento ────────────────────────────────────
-  if (incidentsSummary && incidentsSummary.applied) {
+  // ─── Reporte de la muestra completa (todos los registros) ───────────────
+  if (records && records.length) {
     children.push(new Paragraph({ children: [new PageBreak()] }));
-    children.push(H('Observaciones del Procesamiento', 1));
-    if (runSummary) {
-      const s = runSummary || {};
-      children.push(P(`Total de registros procesados: ${s.total ?? records.length}.`));
-      const sev = s.by_severity || {};
-      children.push(P(`Incidencias detectadas: ${(sev.error || 0)} errores, ${(sev.warning || 0)} advertencias, ${(sev.info || 0)} informativas.`));
-    }
-    const a = incidentsSummary.applied;
-    children.push(P(
-      `Acciones aplicadas durante la revisión: ${a.auto_fix} auto-correcciones, ` +
-      `${a.manual_edit} ediciones manuales, ${a.deleted} registros eliminados, ` +
-      `${a.accepted} aceptados sin cambios, ${a.pending} pendientes.`
-    ));
+    children.push(P('Reporte de Muestra de Flujo Vehicular Relevada en campo',
+      { align: AlignmentType.CENTER, bold: true, italic: true, size: 22, afterSpacing: 40 }));
+    children.push(P(`correspondiente al ${periodLabel || ''}`,
+      { align: AlignmentType.CENTER, italic: true, size: 22, afterSpacing: 40 }));
+    children.push(P(unitLabel || '',  { align: AlignmentType.CENTER, bold: true, italic: true, size: 22, afterSpacing: 40 }));
+    children.push(P(concName,         { align: AlignmentType.CENTER, italic: true, size: 22, afterSpacing: 200 }));
+
+    const HEADER_OPTS = { bold: true, shade: '1F4E78', color: 'FFFFFF', size: 16 };
+    const ROW_OPTS    = { size: 14 };
+    const headerRow = new TableRow({
+      tableHeader: true,
+      children: [
+        tableCell('Id',                   HEADER_OPTS),
+        tableCell('Caseta',               HEADER_OPTS),
+        tableCell('Sentido',              HEADER_OPTS),
+        tableCell('Fecha',                HEADER_OPTS),
+        tableCell('Hora de Paso',         HEADER_OPTS),
+        tableCell('Placa Principal',      HEADER_OPTS),
+        tableCell('Tipo de Vehículo',     HEADER_OPTS),
+        tableCell('N° Ejes',              HEADER_OPTS),
+        tableCell('Placa Semi-Remolque',  HEADER_OPTS),
+        tableCell('N° Ejes',              HEADER_OPTS),
+        tableCell('Placa Semi-Remolque',  HEADER_OPTS),
+        tableCell('N° Ejes',              HEADER_OPTS),
+        tableCell('N° Total de Ejes',     HEADER_OPTS)
+      ]
+    });
+    const dataRows = records.map((r, idx) => new TableRow({
+      children: [
+        tableCell(idx + 1,                                          ROW_OPTS),
+        tableCell(r.caseta || '',                                   ROW_OPTS),
+        tableCell(r.sentido || '',                                  ROW_OPTS),
+        tableCell(formatDate(r.fecha) || '',                        ROW_OPTS),
+        tableCell(r.hora_paso || '',                                ROW_OPTS),
+        tableCell(r.placa_principal || '',                          ROW_OPTS),
+        tableCell(r.tipo_vehiculo || '',                            ROW_OPTS),
+        tableCell(r.ejes_principal || '',                           ROW_OPTS),
+        tableCell(r.placa_semi1 || '',                              ROW_OPTS),
+        tableCell(r.ejes_semi1 || '',                               ROW_OPTS),
+        tableCell(r.placa_semi2 || '',                              ROW_OPTS),
+        tableCell(r.ejes_semi2 || '',                               ROW_OPTS),
+        tableCell(r.total_ejes || '',                               ROW_OPTS)
+      ]
+    }));
+    children.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [headerRow, ...dataRows]
+    }));
   }
 
   const doc = new Document({
@@ -493,7 +528,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     description: `Informe de relevamiento ${periodLabel || ''}`,
     styles: {
       default: {
-        document: { run: { font: 'Calibri', size: 22 } }
+        document: { run: { font: 'Arial', size: 22 } }
       }
     },
     sections: [
@@ -562,7 +597,7 @@ function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
       italics: !!opts.italic,
       color: opts.color || 'FFFFFF',
       size: opts.size || 22,
-      font: 'Calibri'
+      font: 'Arial'
     })]
   });
 
@@ -599,7 +634,7 @@ function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
         new Paragraph({
           alignment: AlignmentType.CENTER,
           spacing: { before: 60, after: 0 },
-          children: [new TextRun({ text: '(clic derecho → Cambiar imagen para insertar logo CIDATT)', italics: true, color: '6B8AA8', size: 14, font: 'Calibri' })]
+          children: [new TextRun({ text: '(clic derecho → Cambiar imagen para insertar logo CIDATT)', italics: true, color: '6B8AA8', size: 14, font: 'Arial' })]
         })
       ]
     })]
@@ -633,7 +668,7 @@ function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
   const ositranHint = new Paragraph({
     alignment: AlignmentType.CENTER,
     spacing: { before: 0, after: 400 },
-    children: [new TextRun({ text: '(clic derecho → Cambiar imagen para insertar logo OSITRAN)', italics: true, color: 'B8C8DA', size: 14, font: 'Calibri' })]
+    children: [new TextRun({ text: '(clic derecho → Cambiar imagen para insertar logo OSITRAN)', italics: true, color: 'B8C8DA', size: 14, font: 'Arial' })]
   });
 
   // ── Pie ────────────────────────────────────────────────────────────────
@@ -670,12 +705,20 @@ function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: NO_BORDER,
     rows: [new TableRow({
-      // Altura ligeramente menor que la página A4 para evitar que el sectPr final
-      // (párrafo vacío de cierre de sección) se vaya a una página extra en blanco.
-      height: { value: 16700, rule: HeightRule.EXACT },
+      // Altura ATLEAST cercana al alto A4 (no EXACT) para que el fondo azul
+      // cubra toda la página pero deje espacio al sectPr final sin saltar.
+      height: { value: 16400, rule: HeightRule.ATLEAST },
+      cantSplit: true,
       children: [coverCell]
     })]
   });
 
-  return [coverTable];
+  // Párrafo de cierre de sección — necesario porque docx exige un párrafo
+  // tras la tabla; lo hacemos invisible (tamaño 1pt, sin spacing).
+  const trailing = new Paragraph({
+    spacing: { before: 0, after: 0, line: 20 },
+    children: [new TextRun({ text: '', size: 2 })]
+  });
+
+  return [coverTable, trailing];
 }

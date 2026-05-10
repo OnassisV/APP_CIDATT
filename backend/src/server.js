@@ -3430,7 +3430,27 @@ async function resolveRunDeliverables(runId) {
     }
   }
 
-  const directions = Array.from(new Set(finalRecords.map(r => r.sentido).filter(Boolean))).slice(0, 2);
+  let directions = Array.from(new Set(finalRecords.map(r => r.sentido).filter(Boolean))).slice(0, 2);
+  // Si solo hay un sentido en los datos, generar el inverso por convención
+  // (la auditoría siempre cubre los dos sentidos del peaje).
+  if (directions.length === 1) {
+    const d = directions[0];
+    let inv = null;
+    const sep = d.includes(' - ') ? ' - ' : (d.includes(' a ') ? ' a ' : null);
+    if (sep) {
+      const parts = d.split(sep);
+      if (parts.length === 2) inv = parts[1].trim() + sep + parts[0].trim();
+    }
+    if (!inv) {
+      const map = {
+        'Ascendente': 'Descendente', 'Descendente': 'Ascendente',
+        'Norte': 'Sur', 'Sur': 'Norte', 'Este': 'Oeste', 'Oeste': 'Este',
+        'Entrada': 'Salida', 'Salida': 'Entrada', 'Ida': 'Vuelta', 'Vuelta': 'Ida'
+      };
+      inv = map[d] || (d + ' (sentido inverso)');
+    }
+    if (inv && inv !== d) directions.push(inv);
+  }
   const safeName = unitLabel.replace(/[^A-Z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'unidad';
 
   // Detectar período real cubierto por los datos (para alertar si difiere del declarado)
