@@ -409,19 +409,30 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   }
 
   // Tabla 1×2 con foto del peaje + mapa, si la concesión tiene imágenes guardadas.
-  const photoBuf = meta.photo && Buffer.isBuffer(meta.photo) ? meta.photo : (meta.photo ? Buffer.from(meta.photo) : null);
-  const mapBuf   = meta.map   && Buffer.isBuffer(meta.map)   ? meta.map   : (meta.map   ? Buffer.from(meta.map)   : null);
-  if (photoBuf || mapBuf) {
-    const imgCell = (buf, mime) => {
-      const empty = !buf;
-      const run = empty
-        ? new TextRun({ text: '', size: 20 })
-        : new ImageRun({
+  // Detecta el formato real por bytes mágicos (no confiar en el MIME guardado).
+  const toBuf = (v) => (v && Buffer.isBuffer(v)) ? v : (v ? Buffer.from(v) : null);
+  const sniff = (buf) => {
+    if (!buf || buf.length < 8) return null;
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'png';
+    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'jpg';
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'gif';
+    if (buf[0] === 0x42 && buf[1] === 0x4D) return 'bmp';
+    return null; // WebP u otros: Word no los renderiza de forma fiable
+  };
+  const photoBuf = toBuf(meta.photo);
+  const mapBuf   = toBuf(meta.map);
+  const photoFmt = sniff(photoBuf);
+  const mapFmt   = sniff(mapBuf);
+  if ((photoBuf && photoFmt) || (mapBuf && mapFmt)) {
+    const imgCell = (buf, fmt) => {
+      const run = (buf && fmt)
+        ? new ImageRun({
             data: buf,
             transformation: { width: 280, height: 200 },
-            type: /jpe?g/i.test(mime || '') ? 'jpg' : (/gif/i.test(mime || '') ? 'gif' : 'png'),
+            type: fmt,
             altText: { title: 'Imagen', description: 'clic derecho → Cambiar imagen' }
-          });
+          })
+        : new TextRun({ text: '', size: 20 });
       return new TableCell({
         width: { size: 50, type: WidthType.PERCENTAGE },
         verticalAlign: VerticalAlign.CENTER,
@@ -431,7 +442,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     };
     children.push(new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: [ new TableRow({ children: [ imgCell(photoBuf, meta.photo_mime), imgCell(mapBuf, meta.map_mime) ] }) ]
+      rows: [ new TableRow({ children: [ imgCell(photoBuf, photoFmt), imgCell(mapBuf, mapFmt) ] }) ]
     }));
   }
 
