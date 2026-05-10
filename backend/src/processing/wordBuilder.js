@@ -670,7 +670,9 @@ function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: NO_BORDER,
     rows: [new TableRow({
-      height: { value: 16838, rule: HeightRule.EXACT },
+      // Altura ligeramente menor que la página A4 para evitar que el sectPr final
+      // (párrafo vacío de cierre de sección) se vaya a una página extra en blanco.
+      height: { value: 16700, rule: HeightRule.EXACT },
       children: [coverCell]
     })]
   });
