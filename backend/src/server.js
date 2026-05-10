@@ -1358,12 +1358,16 @@ function decodeImagePayload(body) {
       const id = parseOptionalInt(req.params.id);
       if (!id) throw badRequest('Concesión inválida.');
       const decoded = decodeImagePayload(req.body || {});
-      if (!decoded) throw badRequest('Imagen inválida (PNG/JPG hasta 7 MB).');
-      await query(
+      if (!decoded) {
+        console.warn(`[concession-image] PUT /${kind} id=${id} — payload inválido. mime=${req.body && req.body.mime}, dataLen=${(req.body && req.body.data || '').length}`);
+        throw badRequest('Imagen inválida (PNG/JPG hasta 7 MB).');
+      }
+      const result = await query(
         `UPDATE ${TABLES.concessions} SET ${kind}_blob = ?, ${kind}_mime = ? WHERE id = ?`,
         [decoded.buf, decoded.mime, id]
       );
-      res.json({ ok: true, size: decoded.buf.length, mime: decoded.mime });
+      console.log(`[concession-image] PUT /${kind} id=${id} — guardado ${decoded.buf.length} bytes (${decoded.mime}) affected=${result && result.affectedRows}`);
+      res.json({ ok: true, size: decoded.buf.length, mime: decoded.mime, affected: result && result.affectedRows });
     } catch (error) { next(error); }
   });
 
@@ -1391,8 +1395,35 @@ function decodeImagePayload(body) {
       res.setHeader('Content-Type', row.mime || 'image/png');
       res.setHeader('Cache-Control', 'private, max-age=60');
       res.end(row.blob);
-    } catch (error) { next(error); }
+    } catch (error) {
+      console.warn(`[concession-image] GET /${kind} id=${req.params.id} error:`, error && error.message);
+      next(error);
+    }
   });
+});
+
+// Endpoint diagnóstico: ¿qué imágenes están guardadas en cada concesión?
+app.get('/api/concessions/_image-status', authenticateRequest, requireMinRole('director'), async (_req, res, next) => {
+  try {
+    // Verificar que las columnas existen
+    const cols = await query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('photo_blob','photo_mime','map_blob','map_mime')`,
+      [TABLES.concessions]
+    );
+    const have = cols.map(c => c.COLUMN_NAME);
+    if (have.length < 4) {
+      return res.json({ ok: false, missingColumns: ['photo_blob','photo_mime','map_blob','map_mime'].filter(c => !have.includes(c)) });
+    }
+    const rows = await query(
+      `SELECT id, name,
+              IFNULL(OCTET_LENGTH(photo_blob), 0) AS photo_bytes, photo_mime,
+              IFNULL(OCTET_LENGTH(map_blob), 0)   AS map_bytes,   map_mime
+         FROM ${TABLES.concessions}
+        ORDER BY name`
+    );
+    res.json({ ok: true, columns: have, concessions: rows });
+  } catch (error) { next(error); }
 });
 
 // ─── PROYECTOS

@@ -774,7 +774,7 @@
             </div>
           </div>
         </div>
-        <small style="color:#6b7280;">PNG/JPG/WebP hasta 7 MB. Se guardan automáticamente al subirlas.</small>
+        <small style="color:#6b7280;">PNG/JPG/WebP hasta 7 MB. <b>Se confirman al pulsar Guardar.</b></small>
       </div>
     </div>
     <!-- Peaje -->
@@ -3481,21 +3481,26 @@
   }
 
   async function _flushPendingConcessionImages(concessionId) {
-    if (!concessionId) return;
+    if (!concessionId) return { uploaded: 0, deleted: 0 };
+    let uploaded = 0, deleted = 0;
     for (const kind of ['photo', 'map']) {
       const pending = _pendingConcessionImages[kind];
       if (!pending) continue;
       if (pending === 'DELETE') {
         await api('/concessions/' + concessionId + '/' + kind, { method: 'DELETE' });
+        deleted++;
       } else {
         const dataUrl = await _readFileAsDataURL(pending);
-        await api('/concessions/' + concessionId + '/' + kind, {
+        const res = await api('/concessions/' + concessionId + '/' + kind, {
           method: 'PUT',
           body: { data: dataUrl, mime: pending.type || 'image/png' }
         });
+        console.log('[concession-image] subida', kind, res);
+        uploaded++;
       }
     }
     _pendingConcessionImages = { photo: null, map: null };
+    return { uploaded, deleted };
   }
 
   window.openParamCrud = function(type, id) {
@@ -3568,7 +3573,13 @@
         }
         // Subir imágenes pendientes (si las hay) ahora que tenemos id confirmado
         try {
-          await _flushPendingConcessionImages(savedId);
+          const resImg = await _flushPendingConcessionImages(savedId);
+          if (resImg.uploaded || resImg.deleted) {
+            const parts = [];
+            if (resImg.uploaded) parts.push(resImg.uploaded + ' imágen(es) subida(s)');
+            if (resImg.deleted)  parts.push(resImg.deleted  + ' imágen(es) eliminada(s)');
+            alert('Concesión guardada. ' + parts.join(' y ') + '.');
+          }
         } catch (e) {
           alert('La concesión se guardó, pero hubo un error al subir las imágenes: ' + (e.message || e));
         }
