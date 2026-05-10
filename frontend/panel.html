@@ -481,11 +481,62 @@
     <div class="view" id="viewProcessing">
       <div class="topbar">
         <h1>🔄 Procesamiento</h1>
+        <button class="btn btn-soft btn-sm" onclick="loadProcessingView()">↺ Actualizar</button>
       </div>
+
+      <!-- Sección: panel de incidencias (oculto hasta tener un run) -->
+      <div class="card" id="processingResultCard" style="display:none;margin-bottom:16px;">
+        <div id="processingResultContent"></div>
+      </div>
+
+      <!-- Sección: procesamiento INTERNO -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-header">
+          <div>
+            <h2>📋 Proyectos internos</h2>
+            <div class="param-mini">Procesa la data ya registrada en el sistema. Selecciona un proyecto con registros.</div>
+          </div>
+        </div>
+        <div id="processingProjectsList" style="margin-top:12px;">
+          <div class="empty-state">Cargando proyectos…</div>
+        </div>
+      </div>
+
+      <!-- Sección: procesamiento EXTERNO -->
       <div class="card">
-        <div class="empty-state">
-          <div class="icon">🚧</div>
-          Módulo en construcción. Aquí se gestionarán los procesos sobre la data registrada.
+        <div class="section-header">
+          <div>
+            <h2>📥 Archivo externo (Excel)</h2>
+            <div class="param-mini">Sube un archivo .xlsx con el formato oficial. Si no lo tienes, descarga la plantilla.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-soft btn-sm" onclick="downloadProcessingTemplate()">⬇ Descargar plantilla</button>
+          </div>
+        </div>
+
+        <div id="processingDropzone"
+             style="margin-top:14px;border:2px dashed var(--accent); border-radius:10px;padding:28px;text-align:center;cursor:pointer;background:var(--accent-soft);transition:background .15s;"
+             onclick="document.getElementById('processingFileInput').click()"
+             ondragover="event.preventDefault(); this.style.background='#cfe0ff';"
+             ondragleave="this.style.background='var(--accent-soft)';"
+             ondrop="event.preventDefault(); this.style.background='var(--accent-soft)'; handleProcessingDrop(event);">
+          <div style="font-size:32px;margin-bottom:8px;">📂</div>
+          <div style="font-weight:600;color:var(--accent-dark);">Arrastra aquí tu archivo .xlsx</div>
+          <div class="param-mini" style="margin-top:4px;">o haz clic para seleccionarlo</div>
+          <input type="file" id="processingFileInput" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;" onchange="handleProcessingFilePicked(event)"/>
+        </div>
+
+        <div id="processingExternalMeta" style="margin-top:12px;display:none;">
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Concesionaria (texto que aparecerá en el informe)</label>
+            <input id="processingConcessionLabel" placeholder="Ej. CONCESIONARIA VIAL DEL PERÚ S.A." />
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Período (texto que aparecerá en el informe)</label>
+            <input id="processingPeriodLabel" placeholder="Ej. Primer Trimestre del año 2026" />
+          </div>
+          <div id="processingFileSelected" class="param-mini" style="margin-bottom:8px;"></div>
+          <button class="btn btn-primary" onclick="analyzeExternalFile()">▶ Analizar archivo</button>
         </div>
       </div>
     </div>
@@ -2155,6 +2206,7 @@
     if (id === 'viewParameters')   loadParamsPanel();
     if (id === 'viewAlerts')       loadAlerts();
     if (id === 'viewCoordProject') loadCoordView();
+    if (id === 'viewProcessing')   loadProcessingView();
     if (id !== 'viewCoordProject') stopCoordPresencePolling();
 
     savePanelState();
@@ -5583,6 +5635,213 @@
 
   // Mantener la asignación de registradores como estaba: seleccionar/arrastrar registrador → caseta.
   // Solo se conserva la pestaña adicional de coordinador para admin/director.
+
+  // ── PROCESAMIENTO (Director) ──────────────────────────────────────────────
+  let _processingExternalFile = null;
+  let _processingCurrentRun = null;
+
+  async function loadProcessingView() {
+    _processingCurrentRun = null;
+    document.getElementById('processingResultCard').style.display = 'none';
+    document.getElementById('processingResultContent').innerHTML = '';
+    _processingExternalFile = null;
+    document.getElementById('processingFileInput').value = '';
+    document.getElementById('processingExternalMeta').style.display = 'none';
+    document.getElementById('processingFileSelected').textContent = '';
+
+    const target = document.getElementById('processingProjectsList');
+    target.innerHTML = '<div class="empty-state">Cargando proyectos…</div>';
+    try {
+      const data = await api('/processing/projects');
+      const projects = data.projects || [];
+      if (!projects.length) {
+        target.innerHTML = '<div class="empty-state">No hay proyectos registrados.</div>';
+        return;
+      }
+      const html = ['<div class="table-wrap"><table><thead><tr>',
+        '<th>Proyecto</th><th>Concesión</th><th>Estado</th>',
+        '<th style="text-align:right;">Registros</th>',
+        '<th style="text-align:right;">Peajes</th>',
+        '<th></th></tr></thead><tbody>'];
+      for (const p of projects) {
+        const total = Number(p.total_records || 0);
+        const disabled = total === 0;
+        html.push('<tr>');
+        html.push('<td><strong>' + escapeHtml(p.name || '') + '</strong></td>');
+        html.push('<td>' + escapeHtml(p.concession_name || '—') + '</td>');
+        html.push('<td>' + escapeHtml(p.status || '') + '</td>');
+        html.push('<td style="text-align:right;">' + total.toLocaleString('es-PE') + '</td>');
+        html.push('<td style="text-align:right;">' + (p.total_stations || 0) + '</td>');
+        html.push('<td style="text-align:right;"><button class="btn btn-primary btn-sm" ' +
+          (disabled ? 'disabled title="Sin registros"' : 'onclick="analyzeInternalProject(' + p.id + ')"') +
+          '>▶ Analizar</button></td>');
+        html.push('</tr>');
+      }
+      html.push('</tbody></table></div>');
+      target.innerHTML = html.join('');
+    } catch (e) {
+      target.innerHTML = '<div class="empty-state">Error: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+  window.loadProcessingView = loadProcessingView;
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  async function downloadProcessingTemplate() {
+    try {
+      const res = await fetch(API + '/processing/template', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      if (!res.ok) throw new Error('No se pudo descargar la plantilla.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'plantilla_relevamiento_cidatt.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+  window.downloadProcessingTemplate = downloadProcessingTemplate;
+
+  function handleProcessingDrop(event) {
+    const files = event.dataTransfer && event.dataTransfer.files;
+    if (!files || !files.length) return;
+    setProcessingFile(files[0]);
+  }
+  window.handleProcessingDrop = handleProcessingDrop;
+
+  function handleProcessingFilePicked(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    setProcessingFile(file);
+  }
+  window.handleProcessingFilePicked = handleProcessingFilePicked;
+
+  function setProcessingFile(file) {
+    if (!/\.xlsx$/i.test(file.name)) {
+      alert('Solo se aceptan archivos .xlsx.');
+      return;
+    }
+    _processingExternalFile = file;
+    document.getElementById('processingFileSelected').innerHTML =
+      '✅ Archivo: <strong>' + escapeHtml(file.name) + '</strong> (' +
+      (file.size / 1024).toFixed(1) + ' KB)';
+    document.getElementById('processingExternalMeta').style.display = 'block';
+  }
+
+  async function analyzeInternalProject(projectId) {
+    showProcessingLoading('Analizando proyecto interno…');
+    try {
+      const result = await api('/processing/analyze-internal', {
+        method: 'POST',
+        body: { projectId }
+      });
+      _processingCurrentRun = result;
+      renderProcessingResult(result);
+    } catch (e) {
+      showProcessingError(e.message);
+    }
+  }
+  window.analyzeInternalProject = analyzeInternalProject;
+
+  async function analyzeExternalFile() {
+    if (!_processingExternalFile) {
+      alert('Selecciona un archivo primero.');
+      return;
+    }
+    const concession = document.getElementById('processingConcessionLabel').value.trim();
+    const period = document.getElementById('processingPeriodLabel').value.trim();
+    showProcessingLoading('Analizando archivo externo…');
+    try {
+      const buf = await _processingExternalFile.arrayBuffer();
+      const res = await fetch(API + '/processing/analyze-external', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/octet-stream',
+          'X-Filename': encodeURIComponent(_processingExternalFile.name),
+          ...(concession ? { 'X-Concession-Label': encodeURIComponent(concession) } : {}),
+          ...(period ? { 'X-Period-Label': encodeURIComponent(period) } : {})
+        },
+        body: buf
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error en el análisis.');
+      _processingCurrentRun = data;
+      renderProcessingResult(data);
+    } catch (e) {
+      showProcessingError(e.message);
+    }
+  }
+  window.analyzeExternalFile = analyzeExternalFile;
+
+  function showProcessingLoading(msg) {
+    const card = document.getElementById('processingResultCard');
+    card.style.display = 'block';
+    document.getElementById('processingResultContent').innerHTML =
+      '<div class="empty-state">⏳ ' + escapeHtml(msg) + '</div>';
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function showProcessingError(msg) {
+    document.getElementById('processingResultCard').style.display = 'block';
+    document.getElementById('processingResultContent').innerHTML =
+      '<div class="empty-state" style="color:#b91c1c;">❌ ' + escapeHtml(msg) + '</div>';
+  }
+
+  function renderProcessingResult(result) {
+    const s = result.summary || {};
+    const incidents = result.incidents || [];
+    const bySev = s.by_severity || { error: 0, warning: 0, info: 0 };
+    const byRule = s.by_rule || {};
+
+    const html = [];
+    html.push('<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px;">');
+    html.push('<div><h2 style="margin:0;">📊 Resultado del análisis</h2>');
+    html.push('<div class="param-mini">Run ID #' + result.run.id + ' — fuente: ' +
+      (result.run.source_type === 'internal' ? 'proyecto interno' : 'archivo externo') + '</div></div>');
+    html.push('<div style="display:flex;gap:6px;flex-wrap:wrap;">');
+    const chipBase = 'display:inline-block;padding:4px 10px;border-radius:14px;font-size:.85em;background:#e5e7eb;color:#111;';
+    html.push('<span style="' + chipBase + '">Total: <strong>' + (s.total || 0) + '</strong></span>');
+    html.push('<span style="' + chipBase + 'background:#fee2e2;color:#991b1b;">Errores: <strong>' + (bySev.error || 0) + '</strong></span>');
+    html.push('<span style="' + chipBase + 'background:#fef3c7;color:#92400e;">Warnings: <strong>' + (bySev.warning || 0) + '</strong></span>');
+    html.push('<span style="' + chipBase + 'background:#dbeafe;color:#1e40af;">Info: <strong>' + (bySev.info || 0) + '</strong></span>');
+    html.push('</div></div>');
+
+    if (s.fecha_min || s.fecha_max) {
+      html.push('<div class="param-mini" style="margin-bottom:12px;">📅 Período detectado: ' +
+        (s.fecha_min || '?') + ' → ' + (s.fecha_max || '?') + '</div>');
+    }
+
+    if (incidents.length === 0) {
+      html.push('<div class="empty-state" style="color:#15803d;">✅ Sin incidencias. Datos limpios.</div>');
+      html.push('<div style="margin-top:12px;text-align:right;">');
+      html.push('<button class="btn btn-primary" disabled title="Disponible en el próximo paso">📦 Generar entregables</button>');
+      html.push('</div>');
+    } else {
+      // Resumen por regla
+      html.push('<div style="margin-bottom:8px;"><strong>Resumen por regla:</strong></div>');
+      html.push('<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">');
+      const ruleChip = 'display:inline-block;padding:4px 10px;border-radius:14px;font-size:.85em;background:#e5e7eb;color:#111;';
+      for (const k of Object.keys(byRule)) {
+        const lbl = (result.rule_labels && result.rule_labels[k]) ? result.rule_labels[k].titulo : k;
+        html.push('<span style="' + ruleChip + '">' + escapeHtml(lbl) + ': <strong>' + byRule[k] + '</strong></span>');
+      }
+      html.push('</div>');
+      html.push('<div class="empty-state">⏭ La pantalla de resolución de incidencias se habilita en el siguiente paso.</div>');
+    }
+
+    document.getElementById('processingResultContent').innerHTML = html.join('');
+  }
 
   // ── INIT ──────────────────────────────────────────────────────────────────
   init();

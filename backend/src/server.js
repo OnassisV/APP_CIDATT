@@ -3019,9 +3019,10 @@ app.post('/api/processing/analyze-internal', authenticateRequest, requireMinRole
 app.post('/api/processing/analyze-external', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
     if (!req.body || !req.body.length) throw badRequest('No se recibió ningún archivo.');
-    const filename = String(req.headers['x-filename'] || 'archivo.xlsx');
-    const concessionLabel = req.headers['x-concession-label'] ? String(req.headers['x-concession-label']) : null;
-    const periodLabel = req.headers['x-period-label'] ? String(req.headers['x-period-label']) : null;
+    const safeHeader = (h) => { try { return decodeURIComponent(String(h)); } catch { return String(h); } };
+    const filename = req.headers['x-filename'] ? safeHeader(req.headers['x-filename']) : 'archivo.xlsx';
+    const concessionLabel = req.headers['x-concession-label'] ? safeHeader(req.headers['x-concession-label']) : null;
+    const periodLabel = req.headers['x-period-label'] ? safeHeader(req.headers['x-period-label']) : null;
     const parsed = parseExternalWorkbook(req.body);
     if (!parsed.records.length) throw badRequest('El archivo no contiene filas de detalle.');
     const expectedSentidos = Array.from(new Set(parsed.records.map(r => r.sentido).filter(Boolean)));
