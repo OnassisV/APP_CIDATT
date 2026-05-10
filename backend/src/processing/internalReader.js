@@ -7,7 +7,7 @@ import { vehicleGroup } from './validator.js';
 export async function loadInternalProject(query, TABLES, projectId) {
   const projects = await query(
     `SELECT p.id, p.name, p.start_date, p.end_date, p.status,
-            c.id AS concession_id, c.name AS concession_name, c.short_code AS concession_short
+            c.id AS concession_id, c.name AS concession_name
        FROM ${TABLES.projects} p
        LEFT JOIN ${TABLES.concessions} c ON c.id = p.concession_id
       WHERE p.id = ? LIMIT 1`,
