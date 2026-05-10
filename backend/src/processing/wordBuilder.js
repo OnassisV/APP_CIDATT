@@ -221,12 +221,27 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   const meta = Object.assign({
     legal_name: null, project_description: null, invitation_date: null, carta_number: null
   }, concessionMeta || {});
-  const fechas = (records || []).map(r => r.fecha).filter(Boolean).sort();
-  const fechaIni = fechas[0] ? formatDate(fechas[0]) : '';
-  const fechaFin = fechas[fechas.length - 1] ? formatDate(fechas[fechas.length - 1]) : '';
+  const fechasUnicas = Array.from(new Set((records || []).map(r => r.fecha).filter(Boolean))).sort();
+  const fechaIni = fechasUnicas[0] || '';
+  const fechaFin = fechasUnicas[fechasUnicas.length - 1] || '';
+  // Texto legible con las fechas reales: un día, dos días o un rango.
+  let fechaCampoTexto = '';
+  let fechaCampoFrase = ''; // versión "el día X" / "los días X y Y" / "entre los días X y Y"
+  if (fechasUnicas.length === 1) {
+    fechaCampoTexto = formatLongDate(fechaIni);
+    fechaCampoFrase = `el día ${fechaCampoTexto}`;
+  } else if (fechasUnicas.length === 2) {
+    fechaCampoTexto = `${formatLongDate(fechaIni)} y ${formatLongDate(fechaFin)}`;
+    fechaCampoFrase = `los días ${fechaCampoTexto}`;
+  } else if (fechasUnicas.length > 2) {
+    fechaCampoTexto = `${formatLongDate(fechaIni)} al ${formatLongDate(fechaFin)}`;
+    fechaCampoFrase = `entre el ${formatLongDate(fechaIni)} y el ${formatLongDate(fechaFin)}`;
+  }
   const muestraInfo = sampleInfo || {
     ubicacion: '',
-    fechaCampo: fechaIni && fechaFin && fechaIni !== fechaFin ? `${fechaIni} – ${fechaFin}` : fechaIni,
+    fechaCampo: fechasUnicas.length === 1
+      ? formatDate(fechaIni)
+      : (fechasUnicas.length ? `${formatDate(fechaIni)} – ${formatDate(fechaFin)}` : ''),
     turno: '08:00 – 20:00',
     sentidoCirc: 'Ambos sentidos',
     garitas: 'Todas'
@@ -303,7 +318,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   children.push(P(
     `En cumplimiento de los plazos establecidos en el contrato firmado entre el CONCESIONARIO y ` +
     `el AUDITOR, se presenta el Informe de Relevamiento de Campo de la muestra de flujo vehicular ` +
-    `realizada ${muestraInfo.fechaCampo ? 'entre los días ' + muestraInfo.fechaCampo : ''} ` +
+    `realizada ${fechaCampoFrase || 'en la fecha indicada'} ` +
     `correspondiente al ${periodLabel || ''}.`
   ));
   children.push(new Paragraph({ children: [new PageBreak()] }));
