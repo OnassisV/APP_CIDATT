@@ -13,7 +13,7 @@
 import {
   Document, Packer, Paragraph, HeadingLevel, AlignmentType,
   Table, TableRow, TableCell, WidthType, HeightRule, BorderStyle, TextRun, PageBreak,
-  ShadingType, VerticalAlign, ImageRun, Header
+  ShadingType, VerticalAlign, ImageRun, Header, Footer
 } from 'docx';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -258,7 +258,21 @@ function formatDate(yyyymmdd) {
 const SPANISH_MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','setiembre','octubre','noviembre','diciembre'];
 function formatLongDate(value) {
   if (!value) return '__ de __________ del ____';
-  const s = String(value).slice(0, 10);
+  // Acepta Date (lo que devuelve mysql2 para columnas DATE) o string.
+  // String(new Date(...)) en es-PE produce "Thu Jan 22 2026 ...", por eso
+  // primero normalizamos a YYYY-MM-DD.
+  let s;
+  if (value instanceof Date && !isNaN(value)) {
+    // Para columnas DATE de MySQL, el driver devuelve un Date a medianoche UTC.
+    // En zonas horarias negativas (Lima = UTC-5) los getters locales devuelven
+    // el día anterior, por eso usamos UTC para preservar la fecha real.
+    const y  = value.getUTCFullYear();
+    const mo = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d  = String(value.getUTCDate()).padStart(2, '0');
+    s = `${y}-${mo}-${d}`;
+  } else {
+    s = String(value).slice(0, 10);
+  }
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return s;
   const day = parseInt(m[3], 10);
@@ -643,9 +657,27 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
               P('Auditoría de Flujo Vehicular a la Concesionaria ' + concName,
                 { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 20 }),
               P('Muestra de Flujo Vehicular Relevada de Campo',
-                { align: AlignmentType.CENTER, italic: true, size: 18, color: '6B7280', afterSpacing: 20 }),
-              P(`OSITRAN  CIDATT  ${concName}`,
-                { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 0 })
+                { align: AlignmentType.CENTER, italic: true, size: 18, color: '6B7280', afterSpacing: 0 })
+            ]
+          })
+        },
+        footers: {
+          default: new Footer({
+            children: [
+              new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                borders: NO_BORDER,
+                rows: [
+                  new TableRow({ children: [
+                    new TableCell({ width: { size: 33, type: WidthType.PERCENTAGE }, borders: NO_BORDER,
+                      children: [ P('OSITRAN', { align: AlignmentType.LEFT,   bold: true, size: 18, color: '1F4E78', afterSpacing: 0 }) ] }),
+                    new TableCell({ width: { size: 34, type: WidthType.PERCENTAGE }, borders: NO_BORDER,
+                      children: [ P('CIDATT',  { align: AlignmentType.CENTER, bold: true, size: 18, color: '1F4E78', afterSpacing: 0 }) ] }),
+                    new TableCell({ width: { size: 33, type: WidthType.PERCENTAGE }, borders: NO_BORDER,
+                      children: [ P(concName,  { align: AlignmentType.RIGHT,  bold: true, size: 18, color: '1F4E78', afterSpacing: 0 }) ] })
+                  ] })
+                ]
+              })
             ]
           })
         },
