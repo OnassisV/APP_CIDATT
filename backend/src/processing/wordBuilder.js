@@ -218,6 +218,12 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   const dirs = (directions && directions.length ? directions : ['Sentido único']).slice(0, 4);
   const concName = uppercaseClean(concession);
   const unitName = uppercaseClean(unitLabel);
+  // Detectar si es Unidad de Conteo (vs Peaje) por nombre.
+  const isConteo = /CONTEO|TICLIO/.test(unitName);
+  // Nombre corto del peaje/conteo sin el prefijo institucional.
+  const unitShort = unitName
+    .replace(/^UNIDAD DE (PEAJE|CONTEO)\s+/i, '')
+    .trim() || unitName;
   const meta = Object.assign({
     legal_name: null, project_description: null, invitation_date: null, carta_number: null
   }, concessionMeta || {});
@@ -257,8 +263,6 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   children.push(P(`OSITRAN  CIDATT  ${concName}`,
     { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 240 }));
 
-  children.push(H('MUESTRA DE FLUJO VEHICULAR RELEVADA DE CAMPO', 1, { align: AlignmentType.CENTER, color: '1F4E78', size: 26 }));
-
   // Año a partir de periodLabel
   const yearMatch = String(periodLabel || '').match(/\d{4}/);
   const year = yearMatch ? yearMatch[0] : new Date().getFullYear();
@@ -267,34 +271,68 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   const cartaText = meta.carta_number || '____________';
   const legalName = (meta.legal_name || concName).toUpperCase();
 
-  children.push(P(
-    `Para el año ${year}, OSITRAN, elaboró el Manual de Procedimiento de Selección para la ` +
-    'Contratación de la Empresa Auditora de Tráfico Vehicular, en el cual se describen las ' +
-    'actividades mínimas que deberá cumplir la empresa auditora de tráfico vehicular que ' +
-    'tendrá a cargo la elaboración del Informe Anual de Auditoría de Flujo vehicular.'
-  ));
-  children.push(P(
-    `Con fecha ${invDateText}, CIDATT Consultoría S. A. fue invitada mediante Carta N° ${cartaText}, ` +
-    `por la empresa ${legalName} a presentar su propuesta técnica y económica, para participar ` +
-    'del procedimiento de selección para la Contratación de la Empresa Auditora de Tráfico Vehicular.'
-  ));
-  children.push(P(
-    'En el proceso de selección, los criterios de evaluación técnica y económica determinaron, ' +
-    'que, CIDATT Consultoría S.A. sea la empresa auditora contratada por el CONCESIONARIO, previa ' +
-    'opinión favorable del REGULADOR para llevar a cabo las actividades acordes con el objetivo del ' +
-    'proceso de selección.'
-  ));
-  const projectInline = meta.project_description
-    ? `ubicadas a lo largo del proyecto ${meta.project_description.replace(/\s*[-–]\s*/g, ' – ')}`
-    : `ubicadas a lo largo del proyecto`;
-  children.push(P(
-    'De acuerdo a lo solicitado en los lineamientos mínimos establecidos para la realización de las ' +
-    'actividades de verificación, y conforme a las actividades propuestas por CIDATT y aprobadas por ' +
-    'el CONCESIONARIO y el REGULADOR se ha realizado las actividades de recopilación de una muestra ' +
-    `de flujo vehicular correspondiente al ${lowerPeriod || 'período correspondiente'}, del flujo ` +
-    `vehicular que transitó en las unidades de peaje ${projectInline} administrado por ${concName}, ` +
-    'con el fin de verificar los flujos vehiculares y el ingreso efectivo recaudado.'
-  ));
+  if (isConteo) {
+    // ── Plantilla COMPLEMENTARIA para Unidades de Conteo ───────────────
+    children.push(H('INFORME DE RELEVAMIENTO DE CAMPO COMPLEMENTARIO', 1,
+      { align: AlignmentType.LEFT, color: '000000', size: 24 }));
+    const unitTitle = unitShort.charAt(0) + unitShort.slice(1).toLowerCase();
+    children.push(P(
+      `Con fecha {{FECHA_INICIO_CONTROL}}, el CONCESIONARIO dio inicio al control del flujo ` +
+      `vehicular en la Unidad de conteo ${unitTitle} ubicado en el {{KM_UBICACION}}; la cual ` +
+      `deberá entrar en operación como unidad de Peaje; una vez que las obras descritas en el ` +
+      `Apéndice 6 del Anexo XII del Contrato de Concesión hayan sido concluidas y recepcionadas ` +
+      `por el CONCEDENTE.`
+    ));
+    children.push(P(
+      `En tal sentido, en el contrato de locación de servicio suscrita entre el CONCESIONARIO y ` +
+      `el Auditor de Tráfico, se acordó incluir tanto en las actividades de campo como en el ` +
+      `Informe de Relevamiento de campo, a la Unidad de Conteo de ${unitTitle}, suscribiendo las ` +
+      `actividades al Manual de Selección de la Empresa Auditora de Tráfico Vehicular.`
+    ));
+    children.push(P(
+      `Por lo que el presente informe de Relevamiento de campo, a solicitud del CONCESIONARIO ` +
+      `contiene la información de relevamiento de la primera muestra de campo en la Unidad de ` +
+      `Conteo Vehicular ${unitTitle} del ${lowerPeriod || 'período correspondiente'} del año ${year}.`
+    ));
+    children.push(P(
+      `Dicha información, que de manera posterior será contrastada para su verificación y para ` +
+      `los fines que el concesionario crea conveniente. En la Tabla 2 se detalla las fechas ` +
+      `realizadas en la unidad de Conteo ${unitTitle}.`
+    ));
+  } else {
+    // ── Plantilla estándar para Unidades de Peaje ──────────────────────
+    children.push(H('MUESTRA DE FLUJO VEHICULAR RELEVADA DE CAMPO', 1,
+      { align: AlignmentType.CENTER, color: '1F4E78', size: 26 }));
+
+    children.push(P(
+      `Para el año ${year}, OSITRAN, elaboró el Manual de Procedimiento de Selección para la ` +
+      'Contratación de la Empresa Auditora de Tráfico Vehicular, en el cual se describen las ' +
+      'actividades mínimas que deberá cumplir la empresa auditora de tráfico vehicular que ' +
+      'tendrá a cargo la elaboración del Informe Anual de Auditoría de Flujo vehicular.'
+    ));
+    children.push(P(
+      `Con fecha ${invDateText}, CIDATT Consultoría S. A. fue invitada mediante Carta N° ${cartaText}, ` +
+      `por la empresa ${legalName} a presentar su propuesta técnica y económica, para participar ` +
+      'del procedimiento de selección para la Contratación de la Empresa Auditora de Tráfico Vehicular.'
+    ));
+    children.push(P(
+      'En el proceso de selección, los criterios de evaluación técnica y económica determinaron, ' +
+      'que, CIDATT Consultoría S.A. sea la empresa auditora contratada por el CONCESIONARIO, previa ' +
+      'opinión favorable del REGULADOR para llevar a cabo las actividades acordes con el objetivo del ' +
+      'proceso de selección.'
+    ));
+    const projectInline = meta.project_description
+      ? `ubicadas a lo largo del proyecto ${meta.project_description.replace(/\s*[-–]\s*/g, ' – ')}`
+      : `ubicadas a lo largo del proyecto`;
+    children.push(P(
+      'De acuerdo a lo solicitado en los lineamientos mínimos establecidos para la realización de las ' +
+      'actividades de verificación, y conforme a las actividades propuestas por CIDATT y aprobadas por ' +
+      'el CONCESIONARIO y el REGULADOR se ha realizado las actividades de recopilación de una muestra ' +
+      `de flujo vehicular correspondiente al ${lowerPeriod || 'período correspondiente'}, del flujo ` +
+      `vehicular que transitó en las unidades de peaje ${projectInline} administrado por ${concName}, ` +
+      'con el fin de verificar los flujos vehiculares y el ingreso efectivo recaudado.'
+    ));
+  }
 
   children.push(H('CONSIDERACIONES PARA EL ANÁLISIS DE LA MUESTRA', 1, { align: AlignmentType.LEFT, color: '1F4E78', size: 24 }));
   children.push(P(
@@ -352,8 +390,8 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
       new TableRow({
         children: [
           tableCell('1'),
-          tableCell(unitName),
-          tableCell(muestraInfo.ubicacion || '—'),
+          tableCell(isConteo ? unitShort.charAt(0) + unitShort.slice(1).toLowerCase() : unitName),
+          tableCell(muestraInfo.ubicacion || (isConteo ? '{{KM_UBICACION}}' : '—')),
           tableCell(muestraInfo.fechaCampo || '—'),
           tableCell(muestraInfo.turno || '—'),
           tableCell(muestraInfo.sentidoCirc || 'Ambos sentidos'),

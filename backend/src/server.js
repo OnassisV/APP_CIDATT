@@ -3275,7 +3275,14 @@ async function resolveRunDeliverables(runId) {
         if (bestName) chosenStation = stations.find(s => s.name === bestName) || chosenStation;
       }
     }
-    if (chosenStation) unitLabel = `UNIDAD DE PEAJE ${chosenStation.name.toUpperCase()}`;
+    if (chosenStation) {
+      const nm = String(chosenStation.name || '');
+      const isConteo = /conteo|ticlio/i.test(nm);
+      const prefix = isConteo ? 'UNIDAD DE CONTEO' : 'UNIDAD DE PEAJE';
+      // Limpiar nombre si ya trae el prefijo embebido
+      const cleanName = nm.replace(/^\s*unidad\s+de\s+(peaje|conteo)\s+/i, '').trim();
+      unitLabel = `${prefix} ${cleanName.toUpperCase()}`;
+    }
     const conc = await query(
       `SELECT c.name, c.legal_name, c.project_description, c.invitation_date, c.carta_number
          FROM ${TABLES.concessions} c
