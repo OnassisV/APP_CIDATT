@@ -76,17 +76,17 @@ export async function buildUnitWorkbook({ unitLabel, concession, periodLabel, re
 
   const period = periodLabel || inferPeriodLabel(records, '');
 
-  buildPivotSheet(wb.addWorksheet('Tabla 1', { properties: { defaultRowHeight: 16.5 } }), {
+  buildPivotSheet(wb.addWorksheet('Tabla 1', { properties: { defaultRowHeight: 16.5 }, views: [{ showGridLines: false }] }), {
     title: 'Tabla1: Resumen de total de vehiculos por hora según tipo y sentido de control',
     aggregator: 'count',
     unitLabel, concession, periodLabel: period, records, directions
   });
-  buildPivotSheet(wb.addWorksheet('Tabla 2', { properties: { defaultRowHeight: 16.5 } }), {
+  buildPivotSheet(wb.addWorksheet('Tabla 2', { properties: { defaultRowHeight: 16.5 }, views: [{ showGridLines: false }] }), {
     title: 'Tabla 2: Resumen de total de ejes por hora según tipo y sentido de control',
     aggregator: 'axles',
     unitLabel, concession, periodLabel: period, records, directions
   });
-  buildDetalleSheet(wb.addWorksheet('Detalle', { properties: { defaultRowHeight: 15 } }), {
+  buildDetalleSheet(wb.addWorksheet('Detalle', { properties: { defaultRowHeight: 15 }, views: [{ showGridLines: false }] }), {
     unitLabel, concession, periodLabel: period, records
   });
   return wb;
