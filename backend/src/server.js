@@ -2955,13 +2955,14 @@ async function persistRunAndRespond(req, res, { sourceType, projectId, externalF
     const [insertRun] = await conn.execute(
       `INSERT INTO ${TABLES.processingRuns}
          (run_uuid, source_type, project_id, external_filename, director_user_id,
-          concession_label, period_label, total_input, total_output, total_pending, summary_json, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reviewing')`,
+          concession_label, period_label, total_input, total_output, total_pending, summary_json, records_json, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reviewing')`,
       [
         runUuid, sourceType, projectId || null, externalFilename || null,
         req.authUser.id, concessionLabel || null, periodLabel || null,
         records.length, records.length, validation.incidents.length,
-        JSON.stringify(validation.summary)
+        JSON.stringify(validation.summary),
+        JSON.stringify(validation.records)
       ]
     );
     const runId = insertRun.insertId;
@@ -2981,12 +2982,32 @@ async function persistRunAndRespond(req, res, { sourceType, projectId, externalF
     }
     return { runId, runUuid };
   });
+  // Recuperar incidentes con sus IDs reales para que el cliente pueda hacer PATCH luego
+  const incidentRows = await query(
+    `SELECT id, record_ref, rule_key, severity, payload_json
+       FROM ${TABLES.processingIncidents}
+      WHERE run_id = ?
+      ORDER BY id`,
+    [result.runId]
+  );
+  const parseJsonSafe = (v) => {
+    if (v == null) return {};
+    if (typeof v === 'object') return v;
+    try { return JSON.parse(v); } catch { return {}; }
+  };
   res.json({
     run: { id: result.runId, uuid: result.runUuid, source_type: sourceType, status: 'reviewing' },
     summary: validation.summary,
-    incidents: validation.incidents.map(inc => ({
-      ...inc,
-      label: RULE_LABELS[inc.rule_key] || { titulo: inc.rule_key, descripcion: '' }
+    records: validation.records,
+    incidents: incidentRows.map(r => ({
+      id: r.id,
+      ref: r.record_ref,
+      rule_key: r.rule_key,
+      severity: r.severity,
+      payload: parseJsonSafe(r.payload_json),
+      resolution: 'pending',
+      override: null,
+      label: RULE_LABELS[r.rule_key] || { titulo: r.rule_key, descripcion: '' }
     })),
     context: { projectId: projectId || null, externalFilename: externalFilename || null, ...contextExtra },
     rule_labels: RULE_LABELS
@@ -3037,6 +3058,121 @@ app.post('/api/processing/analyze-external', authenticateRequest, requireMinRole
       validation,
       contextExtra: { sheetName: parsed.sheetName, columnMap: parsed.columnMap }
     });
+  } catch (e) { next(e); }
+});
+
+// GET /api/processing/runs/:id → recupera run + records + incidencias para retomar la pantalla.
+app.get('/api/processing/runs/:id', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runs = await query(
+      `SELECT id, run_uuid, source_type, project_id, external_filename, concession_label, period_label,
+              total_input, total_output, total_pending, summary_json, records_json, manual_overrides_json,
+              status, created_at, completed_at
+         FROM ${TABLES.processingRuns}
+        WHERE id = ? LIMIT 1`,
+      [req.params.id]
+    );
+    if (!runs.length) throw badRequest('Run no encontrado.');
+    const run = runs[0];
+    const incidents = await query(
+      `SELECT id, record_ref, rule_key, severity, payload_json, override_json, resolution, resolved_by, resolved_at
+         FROM ${TABLES.processingIncidents}
+        WHERE run_id = ?
+        ORDER BY rule_key, id`,
+      [run.id]
+    );
+    const parseJson = (v) => {
+      if (v == null) return null;
+      if (typeof v === 'object') return v;
+      try { return JSON.parse(v); } catch { return null; }
+    };
+    res.json({
+      run: {
+        id: run.id, uuid: run.run_uuid, source_type: run.source_type, project_id: run.project_id,
+        external_filename: run.external_filename, concession_label: run.concession_label,
+        period_label: run.period_label, status: run.status,
+        total_input: run.total_input, total_output: run.total_output, total_pending: run.total_pending,
+        created_at: run.created_at, completed_at: run.completed_at
+      },
+      summary: parseJson(run.summary_json) || {},
+      records: parseJson(run.records_json) || [],
+      manual_overrides: parseJson(run.manual_overrides_json) || {},
+      incidents: incidents.map(inc => ({
+        id: inc.id,
+        ref: inc.record_ref,
+        rule_key: inc.rule_key,
+        severity: inc.severity,
+        payload: parseJson(inc.payload_json) || {},
+        override: parseJson(inc.override_json) || null,
+        resolution: inc.resolution,
+        resolved_at: inc.resolved_at
+      })),
+      rule_labels: RULE_LABELS
+    });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/processing/runs/:id/incidents → guarda resoluciones en lote
+//   body: { resolutions: [{ id, resolution, override? }, ...], manual_overrides?: { ref: {field: value} } }
+app.patch('/api/processing/runs/:id/incidents', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runId = parseInt(req.params.id, 10);
+    if (!runId) throw badRequest('Run inválido.');
+    const resolutions = Array.isArray(req.body?.resolutions) ? req.body.resolutions : [];
+    const manualOverrides = req.body?.manual_overrides || null;
+
+    const validResolutions = new Set(['pending', 'auto_fix', 'manual_edit', 'delete', 'accept']);
+
+    await withTransaction(async (conn) => {
+      // Verificar que el run exista y esté en estado editable
+      const [runRows] = await conn.execute(
+        `SELECT id, status FROM ${TABLES.processingRuns} WHERE id = ? LIMIT 1`,
+        [runId]
+      );
+      if (!runRows.length) throw badRequest('Run no encontrado.');
+      if (runRows[0].status === 'completed' || runRows[0].status === 'aborted') {
+        throw badRequest('El run ya no es editable.');
+      }
+
+      // Aplicar resoluciones individuales
+      for (const r of resolutions) {
+        if (!r || !r.id) continue;
+        const resolution = String(r.resolution || 'pending');
+        if (!validResolutions.has(resolution)) continue;
+        await conn.execute(
+          `UPDATE ${TABLES.processingIncidents}
+              SET resolution = ?, override_json = ?, resolved_by = ?, resolved_at = ?
+            WHERE id = ? AND run_id = ?`,
+          [
+            resolution,
+            r.override ? JSON.stringify(r.override) : null,
+            resolution === 'pending' ? null : req.authUser.id,
+            resolution === 'pending' ? null : new Date(),
+            r.id, runId
+          ]
+        );
+      }
+
+      // Refrescar overrides manuales (si vienen)
+      if (manualOverrides) {
+        await conn.execute(
+          `UPDATE ${TABLES.processingRuns} SET manual_overrides_json = ? WHERE id = ?`,
+          [JSON.stringify(manualOverrides), runId]
+        );
+      }
+
+      // Recalcular total_pending
+      const [pendRows] = await conn.execute(
+        `SELECT COUNT(*) AS c FROM ${TABLES.processingIncidents} WHERE run_id = ? AND resolution = 'pending'`,
+        [runId]
+      );
+      await conn.execute(
+        `UPDATE ${TABLES.processingRuns} SET total_pending = ? WHERE id = ?`,
+        [pendRows[0].c, runId]
+      );
+    });
+
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
@@ -3475,6 +3611,11 @@ async function runMigrations() {
       CONSTRAINT fk_processing_incidents_run FOREIGN KEY (run_id) REFERENCES ${TABLES.processingRuns} (id) ON DELETE CASCADE
     )
   `);
+
+  // Columnas auxiliares (idempotente) para guardar dataset normalizado y overrides manuales
+  try { await query(`ALTER TABLE ${TABLES.processingRuns} ADD COLUMN records_json LONGTEXT NULL AFTER summary_json`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.processingRuns} ADD COLUMN manual_overrides_json LONGTEXT NULL AFTER records_json`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.processingIncidents} ADD COLUMN override_json JSON NULL AFTER payload_json`); } catch (_) {}
 
   const seedUsers = [
     { username: 'admin',            full_name: 'Administrador CIDATT',  role: 'admin',        password: 'CIDATT2026!' },
