@@ -45,16 +45,35 @@ function loadLogoBuffer(filename) {
 let __docPrIdCounter = 1000;
 function nextDocPrId() { return ++__docPrIdCounter; }
 
+// Helper centralizado para crear ImageRun con id + name SIEMPRE únicos y
+// con un buffer clonado por instancia (algunas versiones de Word marcan el
+// archivo como dañado si dos imágenes comparten exactamente el mismo nombre
+// o referencia de buffer). Devuelve un ImageRun listo para insertar.
+function imageRun(buf, { width, height, type, label }) {
+  const id = nextDocPrId();
+  const safeLabel = (label || 'imagen').replace(/[^a-zA-Z0-9._-]/g, '_');
+  // type es OBLIGATORIO en docx@9.x: si se omite, los archivos en word/media/
+  // se guardan como .undefined y Word marca el .docx como dañado.
+  const safeType = type || 'png';
+  return new ImageRun({
+    data: Buffer.from(buf),
+    transformation: { width, height },
+    type: safeType,
+    altText: {
+      id,
+      title: `${safeLabel}_${id}`,
+      description: `${safeLabel} (id ${id})`,
+      name:  `${safeLabel}_${id}`
+    }
+  });
+}
+
 // Devuelve un ImageRun si existe el archivo del logo, o un TextRun de marcador
 // editable si no existe (evita el PNG corrupto que mostraba 'No se puede mostrar la imagen').
 function logoRun(filename, widthPx, heightPx, label) {
   const buf = loadLogoBuffer(filename);
   if (buf) {
-    return new ImageRun({
-      data: buf,
-      transformation: { width: widthPx, height: heightPx },
-      altText: { id: nextDocPrId(), title: filename, description: `Logo ${filename}. Clic derecho → Cambiar imagen para reemplazar.`, name: filename }
-    });
+    return imageRun(buf, { width: widthPx, height: heightPx, label: filename.replace(/\.[a-z0-9]+$/i, '') });
   }
   // Sin archivo: texto editable centrado, el usuario pega su imagen encima.
   return new TextRun({ text: label || '[ Insertar logo aquí ]', bold: true, color: '1B3A66', size: 22, font: 'Arial' });
@@ -519,14 +538,9 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     const photoFmt = sniff(photoBuf);
     const mapFmt   = sniff(mapBuf);
     if ((photoBuf && photoFmt) || (mapBuf && mapFmt)) {
-      const imgCell = (buf, fmt) => {
+      const imgCell = (buf, fmt, label) => {
         const run = (buf && fmt)
-          ? new ImageRun({
-              data: buf,
-              transformation: { width: 280, height: 200 },
-              type: fmt,
-              altText: { id: nextDocPrId(), title: 'Imagen', description: 'clic derecho → Cambiar imagen', name: `imagen_${nextDocPrId()}` }
-            })
+          ? imageRun(buf, { width: 280, height: 200, type: fmt, label })
           : new TextRun({ text: '', size: 20 });
         return new TableCell({
           width: { size: 50, type: WidthType.PERCENTAGE },
@@ -537,7 +551,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
       };
       children.push(new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: [ new TableRow({ children: [ imgCell(photoBuf, photoFmt), imgCell(mapBuf, mapFmt) ] }) ]
+        rows: [ new TableRow({ children: [ imgCell(photoBuf, photoFmt, `foto_peaje_${stIdx + 1}`), imgCell(mapBuf, mapFmt, `mapa_peaje_${stIdx + 1}`) ] }) ]
       }));
     }
     children.push(new Paragraph({ children: [new PageBreak()] }));
@@ -557,7 +571,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
         records: stRecords.filter(r => (r.sentido || '') === dir),
         aggregator: 'count'
       }));
-      children.push(P('SIATRA', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
+      children.push(P('Elaboración: SGPT-CIDATT Consultoría S.A.', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
       children.push(new Paragraph({ children: [new PageBreak()] }));
     }
 
@@ -576,7 +590,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
         records: stRecords.filter(r => (r.sentido || '') === dir),
         aggregator: 'axles'
       }));
-      children.push(P('SIATRA', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
+      children.push(P('Elaboración: SGPT-CIDATT Consultoría S.A.', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
       children.push(new Paragraph({ children: [new PageBreak()] }));
     }
 
@@ -588,7 +602,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     children.push(P('Reporte de Muestra de Flujo Vehicular Relevada en campo',
       { align: AlignmentType.CENTER, bold: true, italic: true, size: 22, afterSpacing: 120 }));
     children.push(detailTable(stRecords));
-    children.push(P('SIATRA', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
+    children.push(P('Elaboración: SGPT-CIDATT Consultoría S.A.', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
 
     // Salto de página entre peajes.
     if (stIdx < stationList.length - 1) {
