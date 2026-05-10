@@ -9,6 +9,9 @@ import { fileURLToPath } from 'url';
 
 import { query, withTransaction } from './db.js';
 import { buildTemplateBuffer } from './processing/template.js';
+import { parseExternalWorkbook } from './processing/externalReader.js';
+import { loadInternalProject } from './processing/internalReader.js';
+import { validateRecords, RULE_LABELS } from './processing/validator.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -39,6 +42,7 @@ const ROLE_LEVEL = { admin: 4, director: 3, coordinador: 2, registrador: 1 };
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+app.use('/api/processing/analyze-external', express.raw({ type: '*/*', limit: '50mb' }));
 app.use(express.static(frontendDir));
 
 function badRequest(message) { const e = new Error(message); e.status = 400; return e; }
@@ -2941,6 +2945,97 @@ app.get('/api/processing/projects', authenticateRequest, requireMinRole('directo
         ORDER BY p.created_at DESC`
     );
     res.json({ projects: rows });
+  } catch (e) { next(e); }
+});
+
+// Helper: persiste run + incidencias y devuelve respuesta unificada.
+async function persistRunAndRespond(req, res, { sourceType, projectId, externalFilename, concessionLabel, periodLabel, records, validation, contextExtra }) {
+  const runUuid = crypto.randomUUID();
+  const result = await withTransaction(async (conn) => {
+    const [insertRun] = await conn.execute(
+      `INSERT INTO ${TABLES.processingRuns}
+         (run_uuid, source_type, project_id, external_filename, director_user_id,
+          concession_label, period_label, total_input, total_output, total_pending, summary_json, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reviewing')`,
+      [
+        runUuid, sourceType, projectId || null, externalFilename || null,
+        req.authUser.id, concessionLabel || null, periodLabel || null,
+        records.length, records.length, validation.incidents.length,
+        JSON.stringify(validation.summary)
+      ]
+    );
+    const runId = insertRun.insertId;
+    if (validation.incidents.length) {
+      const values = [];
+      const placeholders = [];
+      for (const inc of validation.incidents) {
+        placeholders.push('(?, ?, ?, ?, ?, ?)');
+        values.push(runId, String(inc.ref), inc.rule_key, inc.severity, JSON.stringify(inc.payload || {}), 'pending');
+      }
+      await conn.execute(
+        `INSERT INTO ${TABLES.processingIncidents}
+           (run_id, record_ref, rule_key, severity, payload_json, resolution)
+          VALUES ${placeholders.join(', ')}`,
+        values
+      );
+    }
+    return { runId, runUuid };
+  });
+  res.json({
+    run: { id: result.runId, uuid: result.runUuid, source_type: sourceType, status: 'reviewing' },
+    summary: validation.summary,
+    incidents: validation.incidents.map(inc => ({
+      ...inc,
+      label: RULE_LABELS[inc.rule_key] || { titulo: inc.rule_key, descripcion: '' }
+    })),
+    context: { projectId: projectId || null, externalFilename: externalFilename || null, ...contextExtra },
+    rule_labels: RULE_LABELS
+  });
+}
+
+// POST /api/processing/analyze-internal { projectId }
+app.post('/api/processing/analyze-internal', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const projectId = parseInt(req.body?.projectId, 10);
+    if (!projectId) throw badRequest('Falta projectId.');
+    const { project, stations, records } = await loadInternalProject(query, TABLES, projectId);
+    if (!records.length) throw badRequest('El proyecto no tiene registros para procesar.');
+    const expectedSentidos = Array.from(new Set(records.map(r => r.sentido).filter(Boolean)));
+    const validation = validateRecords(records, { expectedSentidos });
+    await persistRunAndRespond(req, res, {
+      sourceType: 'internal',
+      projectId,
+      externalFilename: null,
+      concessionLabel: project.concession_name,
+      periodLabel: project.name,
+      records,
+      validation,
+      contextExtra: { project, stations }
+    });
+  } catch (e) { next(e); }
+});
+
+// POST /api/processing/analyze-external (raw body = .xlsx, header X-Filename)
+app.post('/api/processing/analyze-external', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    if (!req.body || !req.body.length) throw badRequest('No se recibió ningún archivo.');
+    const filename = String(req.headers['x-filename'] || 'archivo.xlsx');
+    const concessionLabel = req.headers['x-concession-label'] ? String(req.headers['x-concession-label']) : null;
+    const periodLabel = req.headers['x-period-label'] ? String(req.headers['x-period-label']) : null;
+    const parsed = parseExternalWorkbook(req.body);
+    if (!parsed.records.length) throw badRequest('El archivo no contiene filas de detalle.');
+    const expectedSentidos = Array.from(new Set(parsed.records.map(r => r.sentido).filter(Boolean)));
+    const validation = validateRecords(parsed.records, { expectedSentidos });
+    await persistRunAndRespond(req, res, {
+      sourceType: 'external',
+      projectId: null,
+      externalFilename: filename,
+      concessionLabel,
+      periodLabel,
+      records: parsed.records,
+      validation,
+      contextExtra: { sheetName: parsed.sheetName, columnMap: parsed.columnMap }
+    });
   } catch (e) { next(e); }
 });
 
