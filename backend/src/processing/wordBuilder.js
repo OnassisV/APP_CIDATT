@@ -585,25 +585,19 @@ function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
       });
   }
 
-  // ── Caja celeste con LOGO CIDATT (placeholder reemplazable) ─────────────
+  // ── Logo CIDATT (sin caja celeste — el PNG ya tiene transparencia) ──────
   const cidattBoxRow = new TableRow({
-    height: { value: 2400, rule: HeightRule.EXACT },
+    height: { value: 1800, rule: HeightRule.EXACT },
     children: [new TableCell({
       width: { size: 100, type: WidthType.PERCENTAGE },
-      shading: { type: ShadingType.CLEAR, color: 'auto', fill: LIGHT_BLUE },
       verticalAlign: VerticalAlign.CENTER,
       borders: NO_BORDER,
-      margins: { top: 200, bottom: 200, left: 200, right: 200 },
+      margins: { top: 100, bottom: 100, left: 200, right: 200 },
       children: [
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          spacing: { before: 200, after: 0 },
-          children: [logoRun('cidatt.png', 220, 110, '[ INSERTAR LOGO CIDATT ]')]
-        }),
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 60, after: 0 },
-          children: [new TextRun({ text: '(clic derecho → Cambiar imagen para insertar logo CIDATT)', italics: true, color: '6B8AA8', size: 14, font: 'Arial' })]
+          spacing: { before: 100, after: 0 },
+          children: [logoRun('cidatt.png', 320, 120, '[ INSERTAR LOGO CIDATT ]')]
         })
       ]
     })]
@@ -628,16 +622,11 @@ function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
     titleParagraphs.push(W(`CONCESIÓN DE ${concName}`, { size: 24, line: 320 }));
   }
 
-  // ── Logo OSITRAN (placeholder reemplazable) ─────────────────────────────
+  // ── Logo OSITRAN ────────────────────────────────────────────────────────
   const ositranBlock = new Paragraph({
     alignment: AlignmentType.CENTER,
-    spacing: { before: 400, after: 200 },
-    children: [logoRun('ositran.png', 160, 90, '[ INSERTAR LOGO OSITRAN ]')]
-  });
-  const ositranHint = new Paragraph({
-    alignment: AlignmentType.CENTER,
-    spacing: { before: 0, after: 400 },
-    children: [new TextRun({ text: '(clic derecho → Cambiar imagen para insertar logo OSITRAN)', italics: true, color: 'B8C8DA', size: 14, font: 'Arial' })]
+    spacing: { before: 400, after: 400 },
+    children: [logoRun('ositran.png', 180, 90, '[ INSERTAR LOGO OSITRAN ]')]
   });
 
   // ── Pie ────────────────────────────────────────────────────────────────
@@ -665,7 +654,6 @@ function buildCoverChildren({ concName, unitLabel, periodLabel, meta }) {
       W('Este documento es de uso exclusivo del Concesionario', { size: 16, italic: true, bold: false, line: 240 }),
       W(`(${concName}) y el Regulador (OSITRAN).`, { size: 16, italic: true, bold: false, line: 240 }),
       ositranBlock,
-      ositranHint,
       ...footerLines
     ]
   });

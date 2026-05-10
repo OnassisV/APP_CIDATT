@@ -1411,6 +1411,87 @@ function decodeImagePayload(body) {
   });
 });
 
+// ─── IMÁGENES POR PEAJE / ESTACIÓN (foto + mapa) ──────────────────────────
+// Mismo contrato que las de concesión, pero asociadas a `cidatt_stations.id`.
+// Es el modelo correcto: las imágenes corresponden a cada unidad de peaje.
+['photo', 'map'].forEach((kind) => {
+  app.put(`/api/stations/:id/${kind}`, authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+    try {
+      const id = parseOptionalInt(req.params.id);
+      if (!id) throw badRequest('Peaje inválido.');
+      const decoded = decodeImagePayload(req.body || {});
+      if (!decoded) throw badRequest('Imagen inválida (PNG/JPG hasta 7 MB).');
+      const result = await query(
+        `UPDATE ${TABLES.stations} SET ${kind}_blob = ?, ${kind}_mime = ? WHERE id = ?`,
+        [decoded.buf, decoded.mime, id]
+      );
+      const affected = result && result.affectedRows;
+      console.log(`[station-image] PUT /${kind} id=${id} — guardado ${decoded.buf.length} bytes (${decoded.mime}) affected=${affected}`);
+      if (!affected) throw badRequest(`No se encontró el peaje id=${id} para guardar la imagen.`);
+      const [check] = await query(
+        `SELECT IFNULL(OCTET_LENGTH(${kind}_blob), 0) AS sz FROM ${TABLES.stations} WHERE id = ? LIMIT 1`,
+        [id]
+      );
+      const stored = check ? Number(check.sz) : 0;
+      res.json({ ok: true, size: decoded.buf.length, stored, mime: decoded.mime, affected });
+    } catch (error) { next(error); }
+  });
+
+  app.delete(`/api/stations/:id/${kind}`, authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+    try {
+      const id = parseOptionalInt(req.params.id);
+      if (!id) throw badRequest('Peaje inválido.');
+      await query(
+        `UPDATE ${TABLES.stations} SET ${kind}_blob = NULL, ${kind}_mime = NULL WHERE id = ?`,
+        [id]
+      );
+      res.json({ ok: true });
+    } catch (error) { next(error); }
+  });
+
+  app.get(`/api/stations/:id/${kind}`, async (req, res, next) => {
+    try {
+      const id = parseOptionalInt(req.params.id);
+      if (!id) return res.status(404).end();
+      const [row] = await query(
+        `SELECT ${kind}_blob AS blob, ${kind}_mime AS mime FROM ${TABLES.stations} WHERE id = ? LIMIT 1`,
+        [id]
+      );
+      if (!row || !row.blob) return res.status(404).end();
+      res.setHeader('Content-Type', row.mime || 'image/png');
+      res.setHeader('Cache-Control', 'private, max-age=60');
+      res.end(row.blob);
+    } catch (error) {
+      console.warn(`[station-image] GET /${kind} id=${req.params.id} error:`, error && error.message);
+      next(error);
+    }
+  });
+});
+
+// Endpoint diagnóstico de imágenes en peajes
+app.get('/api/stations/_image-status', authenticateRequest, requireMinRole('director'), async (_req, res, next) => {
+  try {
+    const cols = await query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('photo_blob','photo_mime','map_blob','map_mime')`,
+      [TABLES.stations]
+    );
+    const have = cols.map(c => c.COLUMN_NAME);
+    if (have.length < 4) {
+      return res.json({ ok: false, missingColumns: ['photo_blob','photo_mime','map_blob','map_mime'].filter(c => !have.includes(c)) });
+    }
+    const rows = await query(
+      `SELECT s.id, s.name, s.concession_id, c.name AS concession_name,
+              IFNULL(OCTET_LENGTH(s.photo_blob), 0) AS photo_bytes, s.photo_mime,
+              IFNULL(OCTET_LENGTH(s.map_blob), 0)   AS map_bytes,   s.map_mime
+         FROM ${TABLES.stations} s
+         LEFT JOIN ${TABLES.concessions} c ON c.id = s.concession_id
+        ORDER BY c.name, s.name`
+    );
+    res.json({ ok: true, columns: have, stations: rows });
+  } catch (error) { next(error); }
+});
+
 // Endpoint diagnóstico: ¿qué imágenes están guardadas en cada concesión?
 app.get('/api/concessions/_image-status', authenticateRequest, requireMinRole('director'), async (_req, res, next) => {
   try {
@@ -3383,6 +3464,22 @@ async function resolveRunDeliverables(runId) {
       const cleanName = nm.replace(/^\s*unidad\s+de\s+(peaje|conteo)\s+/i, '').trim();
       unitLabel = `${prefix} ${cleanName.toUpperCase()}`;
     }
+    // Imágenes del peaje elegido (modelo correcto: foto/mapa por estación)
+    let stationImages = { photo: null, photo_mime: null, map: null, map_mime: null };
+    if (chosenStation) {
+      const sRow = await query(
+        `SELECT photo_blob, photo_mime, map_blob, map_mime FROM ${TABLES.stations} WHERE id = ? LIMIT 1`,
+        [chosenStation.id]
+      );
+      if (sRow.length) {
+        stationImages = {
+          photo: sRow[0].photo_blob || null,
+          photo_mime: sRow[0].photo_mime || null,
+          map: sRow[0].map_blob || null,
+          map_mime: sRow[0].map_mime || null
+        };
+      }
+    }
     const conc = await query(
       `SELECT c.id, c.name, c.legal_name, c.project_description, c.invitation_date, c.carta_number,
               c.photo_blob, c.photo_mime, c.map_blob, c.map_mime
@@ -3398,11 +3495,14 @@ async function resolveRunDeliverables(runId) {
         project_description: conc[0].project_description || null,
         invitation_date: conc[0].invitation_date || null,
         carta_number: conc[0].carta_number || null,
-        photo: conc[0].photo_blob || null,
-        photo_mime: conc[0].photo_mime || null,
-        map: conc[0].map_blob || null,
-        map_mime: conc[0].map_mime || null
+        // Preferir imágenes del peaje; fallback al concession (compat. modelo viejo)
+        photo: stationImages.photo || conc[0].photo_blob || null,
+        photo_mime: stationImages.photo_mime || conc[0].photo_mime || null,
+        map: stationImages.map || conc[0].map_blob || null,
+        map_mime: stationImages.map_mime || conc[0].map_mime || null
       };
+    } else {
+      concessionMeta = { ...concessionMeta, ...stationImages };
     }
   }
   if (run.source_type === 'external') {
@@ -3683,6 +3783,28 @@ async function runMigrations() {
   try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN photo_mime VARCHAR(60) NULL`); } catch (_) {}
   try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN map_blob LONGBLOB NULL`); } catch (_) {}
   try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN map_mime VARCHAR(60) NULL`); } catch (_) {}
+  // Imágenes (foto del peaje + mapa) por ESTACIÓN/PEAJE — son los datos finales que usa el Word.
+  try { await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN photo_blob LONGBLOB NULL`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN photo_mime VARCHAR(60) NULL`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN map_blob LONGBLOB NULL`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN map_mime VARCHAR(60) NULL`); } catch (_) {}
+  // Migración one-shot: si una concesión tiene imágenes y su(s) peaje(s) no, copiar las
+  // imágenes al PRIMER peaje de la concesión (orden por id) — modelo antiguo → nuevo.
+  try {
+    await query(`
+      UPDATE ${TABLES.stations} s
+        INNER JOIN (
+          SELECT c.id AS cid, c.photo_blob, c.photo_mime, c.map_blob, c.map_mime,
+                 (SELECT id FROM ${TABLES.stations} s2 WHERE s2.concession_id = c.id ORDER BY id LIMIT 1) AS first_station_id
+            FROM ${TABLES.concessions} c
+           WHERE c.photo_blob IS NOT NULL OR c.map_blob IS NOT NULL
+        ) src ON src.first_station_id = s.id
+        SET s.photo_blob = COALESCE(s.photo_blob, src.photo_blob),
+            s.photo_mime = COALESCE(s.photo_mime, src.photo_mime),
+            s.map_blob   = COALESCE(s.map_blob,   src.map_blob),
+            s.map_mime   = COALESCE(s.map_mime,   src.map_mime)
+    `);
+  } catch (_) {}
   // Backfill DEVIANDES con los valores de muestra del PDF Ositran
   try {
     await query(

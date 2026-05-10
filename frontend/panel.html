@@ -750,32 +750,7 @@
           <option value="inactiva">Inactiva</option>
         </select>
       </div>
-      <div class="form-group" id="paramCrudConcessionImagesBlock" style="display:none;">
-        <label>Imágenes de la concesión (se incluirán en la portada de la unidad del Word)</label>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px;">
-          <div style="border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center;">
-            <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">Foto del peaje / unidad</div>
-            <img id="paramCrudConcessionPhotoPreview" alt="Foto" style="max-width:100%;max-height:140px;display:none;border-radius:6px;margin-bottom:6px;"/>
-            <div id="paramCrudConcessionPhotoPlaceholder" style="color:#9ca3af;font-size:12px;padding:24px 0;">Sin foto cargada</div>
-            <input type="file" id="paramCrudConcessionPhotoFile" accept="image/png,image/jpeg,image/webp" style="display:none;"/>
-            <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('paramCrudConcessionPhotoFile').click()">Cambiar</button>
-              <button type="button" class="btn btn-danger btn-sm" id="paramCrudConcessionPhotoDelete" style="display:none;">Quitar</button>
-            </div>
-          </div>
-          <div style="border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center;">
-            <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">Mapa de ubicación</div>
-            <img id="paramCrudConcessionMapPreview" alt="Mapa" style="max-width:100%;max-height:140px;display:none;border-radius:6px;margin-bottom:6px;"/>
-            <div id="paramCrudConcessionMapPlaceholder" style="color:#9ca3af;font-size:12px;padding:24px 0;">Sin mapa cargado</div>
-            <input type="file" id="paramCrudConcessionMapFile" accept="image/png,image/jpeg,image/webp" style="display:none;"/>
-            <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('paramCrudConcessionMapFile').click()">Cambiar</button>
-              <button type="button" class="btn btn-danger btn-sm" id="paramCrudConcessionMapDelete" style="display:none;">Quitar</button>
-            </div>
-          </div>
-        </div>
-        <small style="color:#6b7280;">PNG/JPG/WebP hasta 7 MB. <b>Se confirman al pulsar Guardar.</b></small>
-      </div>
+      <!-- Bloque de imágenes movido al modal de peajes (cidatt_stations). -->
     </div>
     <!-- Peaje -->
     <div id="paramCrudStationFields" style="display:none;">
@@ -788,6 +763,32 @@
       <div class="form-group">
         <label>Nombre del peaje *</label>
         <input id="paramCrudStationName" placeholder="Ej: Peaje Corcona"/>
+      </div>
+      <div class="form-group" id="paramCrudStationImagesBlock" style="display:none;">
+        <label>Imágenes del peaje (se incluyen en la portada del Word)</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px;">
+          <div style="border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center;">
+            <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">Foto del peaje</div>
+            <img id="paramCrudStnPhotoPreview" alt="Foto" style="max-width:100%;max-height:140px;display:none;border-radius:6px;margin-bottom:6px;"/>
+            <div id="paramCrudStnPhotoPlaceholder" style="color:#9ca3af;font-size:12px;padding:24px 0;">Sin foto cargada</div>
+            <input type="file" id="paramCrudStnPhotoFile" accept="image/png,image/jpeg,image/webp" style="display:none;"/>
+            <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('paramCrudStnPhotoFile').click()">Cambiar</button>
+              <button type="button" class="btn btn-danger btn-sm" id="paramCrudStnPhotoDelete" style="display:none;">Quitar</button>
+            </div>
+          </div>
+          <div style="border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center;">
+            <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">Mapa de ubicación</div>
+            <img id="paramCrudStnMapPreview" alt="Mapa" style="max-width:100%;max-height:140px;display:none;border-radius:6px;margin-bottom:6px;"/>
+            <div id="paramCrudStnMapPlaceholder" style="color:#9ca3af;font-size:12px;padding:24px 0;">Sin mapa cargado</div>
+            <input type="file" id="paramCrudStnMapFile" accept="image/png,image/jpeg,image/webp" style="display:none;"/>
+            <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('paramCrudStnMapFile').click()">Cambiar</button>
+              <button type="button" class="btn btn-danger btn-sm" id="paramCrudStnMapDelete" style="display:none;">Quitar</button>
+            </div>
+          </div>
+        </div>
+        <small style="color:#6b7280;">PNG/JPG/WebP hasta 7 MB. <b>Se confirman al pulsar Guardar.</b></small>
       </div>
     </div>
     <!-- Caseta -->
@@ -3412,47 +3413,46 @@
     if (stationSel && stationId) stationSel.value = String(stationId);
   };
 
-  // Imágenes pendientes de subir/borrar al guardar la concesión
-  let _pendingConcessionImages = { photo: null, map: null }; // valor: File | 'DELETE' | null
+  // Imágenes pendientes de subir/borrar al guardar el peaje
+  let _pendingStationImages = { photo: null, map: null }; // valor: File | 'DELETE' | null
 
-  function _setupConcessionImagesUI(concessionId) {
-    const block = document.getElementById('paramCrudConcessionImagesBlock');
+  function _setupStationImagesUI(stationId) {
+    const block = document.getElementById('paramCrudStationImagesBlock');
     if (!block) return;
-    _pendingConcessionImages = { photo: null, map: null };
-    if (!concessionId) { block.style.display = 'none'; return; }
+    _pendingStationImages = { photo: null, map: null };
+    if (!stationId) { block.style.display = 'none'; return; }
     block.style.display = '';
 
-    // 1) Consultar estado real desde el backend (bytes guardados por concesión)
-    api('/concessions/_image-status').then((status) => {
-      const conc = (status && status.concessions || []).find(c => Number(c.id) === Number(concessionId));
-      const photoBytes = conc ? Number(conc.photo_bytes || 0) : 0;
-      const mapBytes   = conc ? Number(conc.map_bytes   || 0) : 0;
-      console.log('[concession-image] estado en BD:', { concessionId, photoBytes, mapBytes });
-      _renderImageSlot('photo', concessionId, photoBytes);
-      _renderImageSlot('map',   concessionId, mapBytes);
+    // 1) Consultar estado real desde el backend (bytes guardados por peaje)
+    api('/stations/_image-status').then((status) => {
+      const st = (status && status.stations || []).find(s => Number(s.id) === Number(stationId));
+      const photoBytes = st ? Number(st.photo_bytes || 0) : 0;
+      const mapBytes   = st ? Number(st.map_bytes   || 0) : 0;
+      console.log('[station-image] estado en BD:', { stationId, photoBytes, mapBytes });
+      _renderStationImageSlot('photo', stationId, photoBytes);
+      _renderStationImageSlot('map',   stationId, mapBytes);
     }).catch((e) => {
-      console.warn('[concession-image] no se pudo leer estado:', e);
-      _renderImageSlot('photo', concessionId, 0);
-      _renderImageSlot('map',   concessionId, 0);
+      console.warn('[station-image] no se pudo leer estado:', e);
+      _renderStationImageSlot('photo', stationId, 0);
+      _renderStationImageSlot('map',   stationId, 0);
     });
   }
 
-  function _renderImageSlot(kind, concessionId, storedBytes) {
+  function _renderStationImageSlot(kind, stationId, storedBytes) {
     const cap = kind.charAt(0).toUpperCase() + kind.slice(1);
-    const img = document.getElementById('paramCrudConcession' + cap + 'Preview');
-    const ph  = document.getElementById('paramCrudConcession' + cap + 'Placeholder');
-    const del = document.getElementById('paramCrudConcession' + cap + 'Delete');
-    const file = document.getElementById('paramCrudConcession' + cap + 'File');
+    const img = document.getElementById('paramCrudStn' + cap + 'Preview');
+    const ph  = document.getElementById('paramCrudStn' + cap + 'Placeholder');
+    const del = document.getElementById('paramCrudStn' + cap + 'Delete');
+    const file = document.getElementById('paramCrudStn' + cap + 'File');
     const labelEmpty = 'Sin ' + (kind === 'photo' ? 'foto' : 'mapa') + ' cargada';
     file.value = '';
 
     if (storedBytes > 0) {
-      // Hay imagen en BD: mostrar tamaño + intentar cargar la previa
       const kb = (storedBytes / 1024).toFixed(0);
       ph.innerHTML = '<span style="color:#10b981;">✓ Guardada (' + kb + ' KB)</span>';
       ph.style.display = '';
       del.style.display = '';
-      const url = '/api/concessions/' + concessionId + '/' + kind + '?t=' + Date.now();
+      const url = '/api/stations/' + stationId + '/' + kind + '?t=' + Date.now();
       fetch(url).then(r => r.ok ? r.blob() : Promise.reject(new Error('HTTP ' + r.status)))
         .then(b => {
           img.src = URL.createObjectURL(b);
@@ -3460,7 +3460,7 @@
           ph.style.display = 'none';
         })
         .catch((e) => {
-          console.warn('[concession-image] error cargando preview', kind, e);
+          console.warn('[station-image] error cargando preview', kind, e);
           img.removeAttribute('src');
           img.style.display = 'none';
         });
@@ -3480,7 +3480,7 @@
       img.style.display = '';
       ph.style.display = 'none';
       del.style.display = '';
-      _pendingConcessionImages[kind] = f;
+      _pendingStationImages[kind] = f;
     };
     del.onclick = () => {
       if (!confirm('¿Quitar esta imagen al guardar?')) return;
@@ -3490,7 +3490,7 @@
       ph.style.display = '';
       del.style.display = 'none';
       file.value = '';
-      _pendingConcessionImages[kind] = 'DELETE';
+      _pendingStationImages[kind] = 'DELETE';
     };
   }
 
@@ -3503,26 +3503,26 @@
     });
   }
 
-  async function _flushPendingConcessionImages(concessionId) {
-    if (!concessionId) return { uploaded: 0, deleted: 0 };
+  async function _flushPendingStationImages(stationId) {
+    if (!stationId) return { uploaded: 0, deleted: 0 };
     let uploaded = 0, deleted = 0;
     for (const kind of ['photo', 'map']) {
-      const pending = _pendingConcessionImages[kind];
+      const pending = _pendingStationImages[kind];
       if (!pending) continue;
       if (pending === 'DELETE') {
-        await api('/concessions/' + concessionId + '/' + kind, { method: 'DELETE' });
+        await api('/stations/' + stationId + '/' + kind, { method: 'DELETE' });
         deleted++;
       } else {
         const dataUrl = await _readFileAsDataURL(pending);
-        const res = await api('/concessions/' + concessionId + '/' + kind, {
+        const res = await api('/stations/' + stationId + '/' + kind, {
           method: 'PUT',
           body: { data: dataUrl, mime: pending.type || 'image/png' }
         });
-        console.log('[concession-image] subida', kind, res);
+        console.log('[station-image] subida', kind, res);
         uploaded++;
       }
     }
-    _pendingConcessionImages = { photo: null, map: null };
+    _pendingStationImages = { photo: null, map: null };
     return { uploaded, deleted };
   }
 
@@ -3546,7 +3546,6 @@
       document.getElementById('paramCrudConcessionCarta').value = item && item.carta_number ? item.carta_number : '';
       const statusSel = document.getElementById('paramCrudConcessionStatus');
       statusSel.value = item ? (item.status || 'activa') : 'activa';
-      _setupConcessionImagesUI(id);
     } else if (type === 'station') {
       const sel = document.getElementById('paramCrudStationConcession');
       sel.innerHTML = '<option value="">— Seleccionar concesión —</option>' +
@@ -3554,6 +3553,7 @@
       const item = id ? _paramsCrudData.stations.find((s) => s.id === id) : null;
       document.getElementById('paramCrudStationName').value = item ? item.name : '';
       if (item && item.concession_id) sel.value = String(item.concession_id);
+      _setupStationImagesUI(id);
     } else if (type === 'booth') {
       const concSel = document.getElementById('paramCrudBoothConcession');
       concSel.innerHTML = '<option value="">— Todas las concesiones —</option>' +
@@ -3594,26 +3594,28 @@
           savedId = res.concessionId;
           if (res.concessionId && status === 'inactiva') await api('/concessions/' + res.concessionId, { method: 'PUT', body: payload });
         }
-        // Subir imágenes pendientes (si las hay) ahora que tenemos id confirmado
-        try {
-          const resImg = await _flushPendingConcessionImages(savedId);
-          if (resImg.uploaded || resImg.deleted) {
-            const parts = [];
-            if (resImg.uploaded) parts.push(resImg.uploaded + ' imágen(es) subida(s)');
-            if (resImg.deleted)  parts.push(resImg.deleted  + ' imágen(es) eliminada(s)');
-            alert('Concesión guardada. ' + parts.join(' y ') + '.');
-          }
-        } catch (e) {
-          alert('La concesión se guardó, pero hubo un error al subir las imágenes: ' + (e.message || e));
-        }
       } else if (type === 'station') {
         const name = document.getElementById('paramCrudStationName').value.trim();
         const concessionId = document.getElementById('paramCrudStationConcession').value;
         if (!name) { alert('El nombre del peaje es obligatorio.'); return; }
+        let savedId = id;
         if (id) {
           await api('/stations/' + id, { method: 'PUT', body: { name, concession_id: concessionId || null } });
         } else {
-          await api('/stations', { method: 'POST', body: { name, concession_id: concessionId || null } });
+          const res = await api('/stations', { method: 'POST', body: { name, concession_id: concessionId || null } });
+          savedId = res && (res.stationId || res.id);
+        }
+        // Subir imágenes pendientes (foto/mapa) ahora que tenemos id confirmado
+        try {
+          const resImg = await _flushPendingStationImages(savedId);
+          if (resImg.uploaded || resImg.deleted) {
+            const parts = [];
+            if (resImg.uploaded) parts.push(resImg.uploaded + ' imágen(es) subida(s)');
+            if (resImg.deleted)  parts.push(resImg.deleted  + ' imágen(es) eliminada(s)');
+            alert('Peaje guardado. ' + parts.join(' y ') + '.');
+          }
+        } catch (e) {
+          alert('El peaje se guardó, pero hubo un error al subir las imágenes: ' + (e.message || e));
         }
       } else if (type === 'booth') {
         const code = document.getElementById('paramCrudBoothCode').value.trim();
