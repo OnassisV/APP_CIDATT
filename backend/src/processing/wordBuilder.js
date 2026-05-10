@@ -13,7 +13,7 @@
 import {
   Document, Packer, Paragraph, HeadingLevel, AlignmentType,
   Table, TableRow, TableCell, WidthType, HeightRule, BorderStyle, TextRun, PageBreak,
-  ShadingType, VerticalAlign, ImageRun
+  ShadingType, VerticalAlign, ImageRun, Header
 } from 'docx';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -256,12 +256,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   const children = [];
 
   // ─── PÁGINA 2: MUESTRA + CONSIDERACIONES ─────────────────────────────────
-  children.push(P('Auditoría de Flujo Vehicular a la Concesionaria ' + concName,
-    { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 40 }));
-  children.push(P('Muestra de Flujo Vehicular Relevada de Campo',
-    { align: AlignmentType.CENTER, italic: true, size: 18, color: '6B7280', afterSpacing: 40 }));
-  children.push(P(`OSITRAN  CIDATT  ${concName}`,
-    { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 240 }));
+  // (Bloque institucional ahora va en el Header de la sección — ver más abajo.)
 
   // Año a partir de periodLabel
   const yearMatch = String(periodLabel || '').match(/\d{4}/);
@@ -362,12 +357,6 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   children.push(new Paragraph({ children: [new PageBreak()] }));
 
   // ─── PÁGINA 3: Tabla resumen de la muestra ───────────────────────────────
-  children.push(P('Auditoría de Flujo Vehicular a la Concesionaria ' + concName,
-    { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 40 }));
-  children.push(P('Muestra de Flujo Vehicular Relevada de Campo',
-    { align: AlignmentType.CENTER, italic: true, size: 18, color: '6B7280', afterSpacing: 40 }));
-  children.push(P(`OSITRAN  CIDATT  ${concName}`,
-    { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 240 }));
 
   children.push(P('En la siguiente tabla se detalla la información de la muestra relevada en campo:'));
   children.push(P('Tabla 1: Tamaño de la muestra', { bold: true, size: 22, afterSpacing: 80 }));
@@ -412,6 +401,34 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
   if (muestraInfo.ubicacion) {
     children.push(P(muestraInfo.ubicacion, { align: AlignmentType.CENTER, italic: true, size: 24 }));
   }
+
+  // Tabla 1×2 con foto del peaje + mapa, si la concesión tiene imágenes guardadas.
+  const photoBuf = meta.photo && Buffer.isBuffer(meta.photo) ? meta.photo : (meta.photo ? Buffer.from(meta.photo) : null);
+  const mapBuf   = meta.map   && Buffer.isBuffer(meta.map)   ? meta.map   : (meta.map   ? Buffer.from(meta.map)   : null);
+  if (photoBuf || mapBuf) {
+    const imgCell = (buf, mime) => {
+      const empty = !buf;
+      const run = empty
+        ? new TextRun({ text: '', size: 20 })
+        : new ImageRun({
+            data: buf,
+            transformation: { width: 280, height: 200 },
+            type: /jpe?g/i.test(mime || '') ? 'jpg' : (/gif/i.test(mime || '') ? 'gif' : 'png'),
+            altText: { title: 'Imagen', description: 'clic derecho → Cambiar imagen' }
+          });
+      return new TableCell({
+        width: { size: 50, type: WidthType.PERCENTAGE },
+        verticalAlign: VerticalAlign.CENTER,
+        margins: { top: 80, bottom: 80, left: 80, right: 80 },
+        children: [ new Paragraph({ alignment: AlignmentType.CENTER, children: [run] }) ]
+      });
+    };
+    children.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [ new TableRow({ children: [ imgCell(photoBuf, meta.photo_mime), imgCell(mapBuf, meta.map_mime) ] }) ]
+    }));
+  }
+
   children.push(new Paragraph({ children: [new PageBreak()] }));
 
   // ─── TABLA 1 (vehículos) por sentido ─────────────────────────────────────
@@ -493,7 +510,19 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
       // ── Sección 2: Resto del informe con márgenes normales ─────────────
       {
         properties: {
-          page: { margin: { top: 720, bottom: 720, left: 1080, right: 1080 } }
+          page: { margin: { top: 1440, bottom: 720, left: 1080, right: 1080, header: 720, footer: 720 } }
+        },
+        headers: {
+          default: new Header({
+            children: [
+              P('Auditoría de Flujo Vehicular a la Concesionaria ' + concName,
+                { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 20 }),
+              P('Muestra de Flujo Vehicular Relevada de Campo',
+                { align: AlignmentType.CENTER, italic: true, size: 18, color: '6B7280', afterSpacing: 20 }),
+              P(`OSITRAN  CIDATT  ${concName}`,
+                { align: AlignmentType.CENTER, bold: true, size: 18, color: '6B7280', afterSpacing: 0 })
+            ]
+          })
         },
         children
       }

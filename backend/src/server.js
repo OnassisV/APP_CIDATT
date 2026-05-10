@@ -45,6 +45,7 @@ const TABLES = {
 const ROLE_LEVEL = { admin: 4, director: 3, coordinador: 2, registrador: 1 };
 
 app.use(cors());
+app.use('/api/concessions/:id/image', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use('/api/processing/analyze-external', express.raw({ type: '*/*', limit: '50mb' }));
 app.use(express.static(frontendDir));
@@ -1333,6 +1334,66 @@ app.post('/api/catalog/import-base', authenticateRequest, requireMinRole('direct
     const structure = await buildCatalogStructure();
     res.json({ ok: true, imported: counters, ...structure });
   } catch (error) { next(error); }
+});
+
+// ─── IMÁGENES POR CONCESIÓN (foto del peaje + mapa) ───────────────────────
+// kind = 'photo' | 'map'. Body: { data: 'data:image/...;base64,...' o base64 puro, mime?: 'image/png' }
+function decodeImagePayload(body) {
+  let raw = String(body && body.data || '').trim();
+  if (!raw) return null;
+  let mime = body && body.mime ? String(body.mime).trim() : null;
+  const m = raw.match(/^data:([^;]+);base64,(.*)$/);
+  if (m) { mime = mime || m[1]; raw = m[2]; }
+  if (!mime) mime = 'image/png';
+  if (!/^image\/(png|jpe?g|gif|webp)$/i.test(mime)) return null;
+  let buf;
+  try { buf = Buffer.from(raw, 'base64'); } catch (_) { return null; }
+  if (!buf || !buf.length) return null;
+  if (buf.length > 7 * 1024 * 1024) return null; // 7 MB tope
+  return { buf, mime };
+}
+
+['photo', 'map'].forEach((kind) => {
+  app.put(`/api/concessions/:id/${kind}`, authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+    try {
+      const id = parseOptionalInt(req.params.id);
+      if (!id) throw badRequest('Concesión inválida.');
+      const decoded = decodeImagePayload(req.body || {});
+      if (!decoded) throw badRequest('Imagen inválida (PNG/JPG hasta 7 MB).');
+      await query(
+        `UPDATE ${TABLES.concessions} SET ${kind}_blob = ?, ${kind}_mime = ? WHERE id = ?`,
+        [decoded.buf, decoded.mime, id]
+      );
+      res.json({ ok: true, size: decoded.buf.length, mime: decoded.mime });
+    } catch (error) { next(error); }
+  });
+
+  app.delete(`/api/concessions/:id/${kind}`, authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+    try {
+      const id = parseOptionalInt(req.params.id);
+      if (!id) throw badRequest('Concesión inválida.');
+      await query(
+        `UPDATE ${TABLES.concessions} SET ${kind}_blob = NULL, ${kind}_mime = NULL WHERE id = ?`,
+        [id]
+      );
+      res.json({ ok: true });
+    } catch (error) { next(error); }
+  });
+
+  app.get(`/api/concessions/:id/${kind}`, async (req, res, next) => {
+    try {
+      const id = parseOptionalInt(req.params.id);
+      if (!id) return res.status(404).end();
+      const [row] = await query(
+        `SELECT ${kind}_blob AS blob, ${kind}_mime AS mime FROM ${TABLES.concessions} WHERE id = ? LIMIT 1`,
+        [id]
+      );
+      if (!row || !row.blob) return res.status(404).end();
+      res.setHeader('Content-Type', row.mime || 'image/png');
+      res.setHeader('Cache-Control', 'private, max-age=60');
+      res.end(row.blob);
+    } catch (error) { next(error); }
+  });
 });
 
 // ─── PROYECTOS
@@ -3284,7 +3345,8 @@ async function resolveRunDeliverables(runId) {
       unitLabel = `${prefix} ${cleanName.toUpperCase()}`;
     }
     const conc = await query(
-      `SELECT c.name, c.legal_name, c.project_description, c.invitation_date, c.carta_number
+      `SELECT c.id, c.name, c.legal_name, c.project_description, c.invitation_date, c.carta_number,
+              c.photo_blob, c.photo_mime, c.map_blob, c.map_mime
          FROM ${TABLES.concessions} c
          INNER JOIN ${TABLES.projects} p ON p.concession_id = c.id
         WHERE p.id = ? LIMIT 1`,
@@ -3296,7 +3358,11 @@ async function resolveRunDeliverables(runId) {
         legal_name: conc[0].legal_name || null,
         project_description: conc[0].project_description || null,
         invitation_date: conc[0].invitation_date || null,
-        carta_number: conc[0].carta_number || null
+        carta_number: conc[0].carta_number || null,
+        photo: conc[0].photo_blob || null,
+        photo_mime: conc[0].photo_mime || null,
+        map: conc[0].map_blob || null,
+        map_mime: conc[0].map_mime || null
       };
     }
   }
@@ -3307,14 +3373,20 @@ async function resolveRunDeliverables(runId) {
     if (concession) {
       const cleanName = concession.replace(/^CONCESIONARIA\s+/i, '').trim();
       const conc = await query(
-        `SELECT legal_name, project_description, invitation_date, carta_number FROM ${TABLES.concessions} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+        `SELECT legal_name, project_description, invitation_date, carta_number,
+                photo_blob, photo_mime, map_blob, map_mime
+           FROM ${TABLES.concessions} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
         [cleanName]
       );
       if (conc.length) concessionMeta = {
         legal_name: conc[0].legal_name || null,
         project_description: conc[0].project_description || null,
         invitation_date: conc[0].invitation_date || null,
-        carta_number: conc[0].carta_number || null
+        carta_number: conc[0].carta_number || null,
+        photo: conc[0].photo_blob || null,
+        photo_mime: conc[0].photo_mime || null,
+        map: conc[0].map_blob || null,
+        map_mime: conc[0].map_mime || null
       };
     }
   }
@@ -3567,6 +3639,11 @@ async function runMigrations() {
   try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN project_description TEXT NULL AFTER legal_name`); } catch (_) {}
   try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN invitation_date DATE NULL AFTER project_description`); } catch (_) {}
   try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN carta_number VARCHAR(60) NULL AFTER invitation_date`); } catch (_) {}
+  // Imágenes (foto del peaje + mapa) por concesión, almacenadas como BLOB.
+  try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN photo_blob LONGBLOB NULL`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN photo_mime VARCHAR(60) NULL`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN map_blob LONGBLOB NULL`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.concessions} ADD COLUMN map_mime VARCHAR(60) NULL`); } catch (_) {}
   // Backfill DEVIANDES con los valores de muestra del PDF Ositran
   try {
     await query(

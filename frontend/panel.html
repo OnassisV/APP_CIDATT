@@ -750,6 +750,32 @@
           <option value="inactiva">Inactiva</option>
         </select>
       </div>
+      <div class="form-group" id="paramCrudConcessionImagesBlock" style="display:none;">
+        <label>Imágenes de la concesión (se incluirán en la portada de la unidad del Word)</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px;">
+          <div style="border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center;">
+            <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">Foto del peaje / unidad</div>
+            <img id="paramCrudConcessionPhotoPreview" alt="Foto" style="max-width:100%;max-height:140px;display:none;border-radius:6px;margin-bottom:6px;"/>
+            <div id="paramCrudConcessionPhotoPlaceholder" style="color:#9ca3af;font-size:12px;padding:24px 0;">Sin foto cargada</div>
+            <input type="file" id="paramCrudConcessionPhotoFile" accept="image/png,image/jpeg,image/webp" style="display:none;"/>
+            <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('paramCrudConcessionPhotoFile').click()">Cambiar</button>
+              <button type="button" class="btn btn-danger btn-sm" id="paramCrudConcessionPhotoDelete" style="display:none;">Quitar</button>
+            </div>
+          </div>
+          <div style="border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center;">
+            <div style="font-size:12px;color:#6b7280;margin-bottom:6px;">Mapa de ubicación</div>
+            <img id="paramCrudConcessionMapPreview" alt="Mapa" style="max-width:100%;max-height:140px;display:none;border-radius:6px;margin-bottom:6px;"/>
+            <div id="paramCrudConcessionMapPlaceholder" style="color:#9ca3af;font-size:12px;padding:24px 0;">Sin mapa cargado</div>
+            <input type="file" id="paramCrudConcessionMapFile" accept="image/png,image/jpeg,image/webp" style="display:none;"/>
+            <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('paramCrudConcessionMapFile').click()">Cambiar</button>
+              <button type="button" class="btn btn-danger btn-sm" id="paramCrudConcessionMapDelete" style="display:none;">Quitar</button>
+            </div>
+          </div>
+        </div>
+        <small style="color:#6b7280;">PNG/JPG/WebP hasta 7 MB. Se guardan automáticamente al subirlas.</small>
+      </div>
     </div>
     <!-- Peaje -->
     <div id="paramCrudStationFields" style="display:none;">
@@ -3386,6 +3412,49 @@
     if (stationSel && stationId) stationSel.value = String(stationId);
   };
 
+  function _setupConcessionImagesUI(concessionId) {
+    const block = document.getElementById('paramCrudConcessionImagesBlock');
+    if (!block) return;
+    if (!concessionId) { block.style.display = 'none'; return; }
+    block.style.display = '';
+    const cb = Date.now();
+    ['photo', 'map'].forEach((kind) => {
+      const cap = kind.charAt(0).toUpperCase() + kind.slice(1);
+      const img = document.getElementById('paramCrudConcession' + cap + 'Preview');
+      const ph  = document.getElementById('paramCrudConcession' + cap + 'Placeholder');
+      const del = document.getElementById('paramCrudConcession' + cap + 'Delete');
+      const file = document.getElementById('paramCrudConcession' + cap + 'File');
+      const url = '/api/concessions/' + concessionId + '/' + kind + '?t=' + cb;
+      img.onload  = () => { img.style.display = ''; ph.style.display = 'none'; del.style.display = ''; };
+      img.onerror = () => { img.style.display = 'none'; ph.style.display = ''; del.style.display = 'none'; };
+      img.src = url;
+      file.onchange = async () => {
+        const f = file.files && file.files[0];
+        if (!f) return;
+        if (f.size > 7 * 1024 * 1024) { alert('Máximo 7 MB.'); file.value = ''; return; }
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            await api('/concessions/' + concessionId + '/' + kind, {
+              method: 'PUT',
+              body: { data: reader.result, mime: f.type }
+            });
+            _setupConcessionImagesUI(concessionId);
+          } catch (e) { alert('Error subiendo imagen: ' + (e.message || e)); }
+          file.value = '';
+        };
+        reader.readAsDataURL(f);
+      };
+      del.onclick = async () => {
+        if (!confirm('¿Quitar esta imagen?')) return;
+        try {
+          await api('/concessions/' + concessionId + '/' + kind, { method: 'DELETE' });
+          _setupConcessionImagesUI(concessionId);
+        } catch (e) { alert('Error: ' + (e.message || e)); }
+      };
+    });
+  }
+
   window.openParamCrud = function(type, id) {
     _paramCrudState = { type, id };
     const title = document.getElementById('modalParamCrudTitle');
@@ -3406,6 +3475,7 @@
       document.getElementById('paramCrudConcessionCarta').value = item && item.carta_number ? item.carta_number : '';
       const statusSel = document.getElementById('paramCrudConcessionStatus');
       statusSel.value = item ? (item.status || 'activa') : 'activa';
+      _setupConcessionImagesUI(id);
     } else if (type === 'station') {
       const sel = document.getElementById('paramCrudStationConcession');
       sel.innerHTML = '<option value="">— Seleccionar concesión —</option>' +
