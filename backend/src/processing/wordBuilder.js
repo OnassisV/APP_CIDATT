@@ -37,11 +37,14 @@ function loadLogoBuffer(filename) {
   } catch (_) {}
   return null;
 }
-// Placeholder PNG blanco de 4×4 (Word lo escala al tamaño que indiquemos).
-const PLACEHOLDER_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAEAQMAAACTPww1AAAABlBMVEX///8AAABVwtN+AAAACklEQVR4nGNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==',
-  'base64'
-);
+// Contador global de IDs únicos para wp:docPr.
+// docx@9.6.1 tiene un bug: cada DocProperties crea su propio contador local desde 0,
+// por lo que TODOS los <wp:docPr> generados terminan con id="1" y Word/Mac
+// rechaza el archivo ("Word detectó un error al intentar abrir el archivo").
+// Solución: pasar altText.id explícito y único en cada ImageRun.
+let __docPrIdCounter = 1000;
+function nextDocPrId() { return ++__docPrIdCounter; }
+
 // Devuelve un ImageRun si existe el archivo del logo, o un TextRun de marcador
 // editable si no existe (evita el PNG corrupto que mostraba 'No se puede mostrar la imagen').
 function logoRun(filename, widthPx, heightPx, label) {
@@ -50,7 +53,7 @@ function logoRun(filename, widthPx, heightPx, label) {
     return new ImageRun({
       data: buf,
       transformation: { width: widthPx, height: heightPx },
-      altText: { title: filename, description: `Logo ${filename}. Clic derecho → Cambiar imagen para reemplazar.`, name: filename }
+      altText: { id: nextDocPrId(), title: filename, description: `Logo ${filename}. Clic derecho → Cambiar imagen para reemplazar.`, name: filename }
     });
   }
   // Sin archivo: texto editable centrado, el usuario pega su imagen encima.
@@ -430,7 +433,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
             data: buf,
             transformation: { width: 280, height: 200 },
             type: fmt,
-            altText: { title: 'Imagen', description: 'clic derecho → Cambiar imagen' }
+            altText: { id: nextDocPrId(), title: 'Imagen', description: 'clic derecho → Cambiar imagen', name: `imagen_${nextDocPrId()}` }
           })
         : new TextRun({ text: '', size: 20 });
       return new TableCell({
