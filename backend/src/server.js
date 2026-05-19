@@ -3247,11 +3247,15 @@ app.post('/api/processing/analyze-internal', authenticateRequest, requireMinRole
 
 // Helper: pre-procesamiento para datos externos antes de validate.
 // 1) Recupera tipo de vehículo desde otra fila con la misma placa (si tiene tipo válido).
-// 2) Asigna 2 ejes_principal cuando el registro viene sin ejes.
+// 2) L / M2 / PNP / A → siempre 2 ejes_principal (son vehículos de 2 ejes por definición).
+//    C / O / tipo desconocido → se respetan los ejes originales; el validador generará
+//    la incidencia correspondiente (axles_invalid_for_type o type_unknown) para revisión manual.
 // 3) Elimina duplicados exactos (misma placa + hora + caseta + fecha), conservando la 1ª ocurrencia.
-const _EXT_VALID_TYPES = new Set(['L', 'C', 'M2', 'O', 'PNP', 'A']);
+const _EXT_VALID_TYPES  = new Set(['L', 'C', 'M2', 'O', 'PNP', 'A']);
+const _TWO_AXLES_TYPES  = new Set(['L', 'M2', 'PNP', 'A']);  // siempre 2 ejes
+
 function preProcessRecords(records) {
-  // Paso 1: mapa placa → primer tipo válido encontrado en el dataset
+  // Paso 1: mapa placa → primer tipo válido encontrado en el dataset (para recuperación de tipo)
   const plateTypeMap = new Map();
   for (const r of records) {
     const placa = String(r.placa_principal || '').toUpperCase().trim();
@@ -3273,13 +3277,14 @@ function preProcessRecords(records) {
       ? plateTypeMap.get(placa)
       : tipo;
 
-    // Ejes principal = 2 cuando falta (0 o null); recalcular total si también faltaba
     const ejesP  = parseInt(r.ejes_principal, 10) || 0;
     const ejesS1 = parseInt(r.ejes_semi1,     10) || 0;
     const ejesS2 = parseInt(r.ejes_semi2,     10) || 0;
-    const fixedEjesP = ejesP === 0 ? 2 : ejesP;
-    const totalDecl  = parseInt(r.total_ejes, 10) || 0;
-    const fixedTotal = totalDecl || (fixedEjesP + ejesS1 + ejesS2);
+
+    // Ejes: L/M2/PNP/A siempre 2 (independiente de lo que diga el archivo).
+    // C/O/desconocido: se deja tal cual; el validador creará la incidencia para revisión manual.
+    const fixedEjesP = _TWO_AXLES_TYPES.has(fixedTipo) ? 2 : ejesP;
+    const fixedTotal = fixedEjesP + ejesS1 + ejesS2;
 
     // Deduplicación exacta: placa + hora_paso + caseta + fecha → conservar primera ocurrencia
     const dedupeKey = `${placa}|${String(r.hora_paso||'').trim()}|${String(r.caseta||'').trim()}|${String(r.fecha||'').trim()}`;
