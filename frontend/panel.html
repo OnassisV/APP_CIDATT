@@ -6078,7 +6078,13 @@
   }
   window.downloadExtMultiWord = downloadExtMultiWord;
 
+  function reRenderExtMulti() {
+    if (window._extMultiRunsRaw) renderExtMultiResults(window._extMultiRunsRaw);
+  }
+  window.reRenderExtMulti = reRenderExtMulti;
+
   function renderExtMultiResults(results) {
+    window._extMultiRunsRaw = results; // guardar para poder volver desde el detalle
     window._extMultiRuns = results.filter(r => r.ok).map(r => r.data);
     const chip = 'display:inline-block;padding:3px 9px;border-radius:12px;font-size:.8em;';
     const okCount = results.filter(r => r.ok).length;
@@ -6128,6 +6134,7 @@
   window.viewExtRun = viewExtRun;
 
   async function analyzeInternalProject(projectId) {
+    window._extMultiRuns = null; window._extMultiRunsRaw = null; // limpiar contexto multi-peaje
     showProcessingLoading('Analizando proyecto interno…');
     try {
       const result = await api('/processing/analyze-internal', {
@@ -6163,6 +6170,17 @@
     const bySev = s.by_severity || { error: 0, warning: 0, info: 0 };
 
     const html = [];
+
+    // Barra de contexto multi-peaje: visible siempre que haya un procesamiento multi activo.
+    const multiRuns = window._extMultiRuns;
+    if (multiRuns && multiRuns.length > 0) {
+      html.push('<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--accent-soft);border-radius:8px;margin-bottom:14px;border:1px solid var(--line);">');
+      html.push('<button class="btn btn-soft btn-sm" onclick="reRenderExtMulti()">← Resumen (' + multiRuns.length + ' peajes)</button>');
+      html.push('<span class="param-mini" style="flex:1;">Viendo detalle de: <strong>' + escapeHtml(result.run.external_filename || 'archivo') + '</strong></span>');
+      html.push('<button id="extMultiWordBtn" class="btn btn-primary btn-sm" onclick="downloadExtMultiWord()">📄 Generar Word combinado (' + multiRuns.length + ' peaje' + (multiRuns.length > 1 ? 's' : '') + ')</button>');
+      html.push('</div>');
+    }
+
     html.push('<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px;">');
     html.push('<div><h2 style="margin:0;">📊 Resultado del análisis</h2>');
     html.push('<div class="param-mini">Run ID #' + result.run.id + ' — fuente: ' +
