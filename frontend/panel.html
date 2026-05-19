@@ -6062,7 +6062,12 @@
         headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
         body: JSON.stringify({ runIds, concessionLabel, periodLabel })
       });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Error al generar el Word.'); }
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        let msg = 'Error al generar el Word.';
+        try { const d = JSON.parse(txt); if (d.error) msg = d.error; } catch { if (txt) msg = txt.slice(0, 300); }
+        throw new Error(msg);
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -6092,7 +6097,7 @@
       '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">',
       '<h2 style="margin:0;">📊 Resultados del procesamiento</h2>',
       okCount > 0
-        ? '<button id="extMultiWordBtn" class="btn btn-primary" onclick="downloadExtMultiWord()">📄 Generar Word combinado (' + okCount + ' peaje' + (okCount > 1 ? 's' : '') + ')</button>'
+        ? '<button id="extMultiWordBtn" class="btn btn-primary" onclick="downloadExtMultiWord()" title="Genera informe con portadas, Tabla 1 y Tabla 2 de todos los peajes. La tabla detalle se descarga individualmente por peaje.">📄 Generar Word combinado (' + okCount + ' peaje' + (okCount > 1 ? 's' : '') + ')</button>'
         : '',
       '</div>'
     ];
@@ -6177,7 +6182,7 @@
       html.push('<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--accent-soft);border-radius:8px;margin-bottom:14px;border:1px solid var(--line);">');
       html.push('<button class="btn btn-soft btn-sm" onclick="reRenderExtMulti()">← Resumen (' + multiRuns.length + ' peajes)</button>');
       html.push('<span class="param-mini" style="flex:1;">Viendo detalle de: <strong>' + escapeHtml(result.run.external_filename || 'archivo') + '</strong></span>');
-      html.push('<button id="extMultiWordBtn" class="btn btn-primary btn-sm" onclick="downloadExtMultiWord()">📄 Generar Word combinado (' + multiRuns.length + ' peaje' + (multiRuns.length > 1 ? 's' : '') + ')</button>');
+      html.push('<button id="extMultiWordBtn" class="btn btn-primary btn-sm" onclick="downloadExtMultiWord()" title="Word con portadas, Tabla 1 y Tabla 2 de todos los peajes. Tabla detalle: descargar individualmente.">📄 Generar Word combinado (' + multiRuns.length + ' peaje' + (multiRuns.length > 1 ? 's' : '') + ')</button>');
       html.push('</div>');
     }
 

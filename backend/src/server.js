@@ -3205,7 +3205,7 @@ async function persistRunAndRespond(req, res, { sourceType, projectId, externalF
     try { return JSON.parse(v); } catch { return {}; }
   };
   res.json({
-    run: { id: result.runId, uuid: result.runUuid, source_type: sourceType, status: 'reviewing' },
+    run: { id: result.runId, uuid: result.runUuid, source_type: sourceType, status: 'reviewing', external_filename: externalFilename || null },
     summary: validation.summary,
     records: validation.records,
     incidents: incidentRows.map(r => ({
@@ -3648,18 +3648,19 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
     }));
 
     const buf = await buildReportBuffer({
-      unitLabel:      stations.map(s => s.label).join(' / '),
+      unitLabel:         stations.map(s => s.label).join(' / '),
       concession,
       periodLabel,
       stations,
-      concessionMeta: first.concessionMeta
+      concessionMeta:    first.concessionMeta,
+      includeDetailTable: false  // Omitir tabla detalle en Word combinado (demasiado grande)
     });
 
     const safeName = rawConcession.replace(/[^A-Z0-9]+/gi, '_').toUpperCase() || 'INFORME';
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="Informe_${safeName}.docx"`);
     res.send(buf);
-  } catch (e) { next(e); }
+  } catch (e) { console.error('[multi-word]', e); next(e); }
 });
 
 // GET /api/processing/runs/:id/preview  → vista previa HTML (Tabla 1 y Tabla 2) para mostrar antes del ZIP.
