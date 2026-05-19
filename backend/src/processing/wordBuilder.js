@@ -298,7 +298,7 @@ function institutionalHeader({ unitLabel, concession, periodLabel, tableTitle })
 
 // ── Documento principal ───────────────────────────────────────────────────
 
-export async function buildReportBuffer({ unitLabel, concession, periodLabel, records, directions, runSummary, incidentsSummary, sampleInfo, concessionMeta, stations, includeDetailTable }) {
+export async function buildReportBuffer({ unitLabel, concession, periodLabel, records, directions, runSummary, incidentsSummary, sampleInfo, concessionMeta, stations, includeDetailTable, detailLimit }) {
   const concName = uppercaseClean(concession);
   // Lista de peajes a iterar. Si no se pasa `stations`, se construye uno solo
   // a partir de los parámetros legacy (compatibilidad hacia atrás).
@@ -608,16 +608,23 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
       children.push(new Paragraph({ children: [new PageBreak()] }));
     }
 
-    // (4) Tabla detalle (registro por fila) — omitida en documentos combinados (varios peajes)
-    // para evitar documentos excesivamente grandes; disponible en el Word individual de cada peaje.
+    // (4) Tabla detalle (registro por fila)
     if (includeDetailTable !== false) {
+      const isTruncated = detailLimit && stRecords.length > detailLimit;
+      const detailRecs  = isTruncated ? stRecords.slice(0, detailLimit) : stRecords;
       institutionalHeader({
         unitLabel: stLabel, concession, periodLabel,
         tableTitle: null
       }).forEach(p => children.push(p));
       children.push(P('Reporte de Muestra de Flujo Vehicular Relevada en campo',
         { align: AlignmentType.CENTER, bold: true, italic: true, size: 22, afterSpacing: 120 }));
-      children.push(detailTable(stRecords));
+      if (isTruncated) {
+        children.push(P(
+          `Nota: Se muestran los primeros ${detailLimit.toLocaleString('es-PE')} registros de ${stRecords.length.toLocaleString('es-PE')} totales. El detalle completo está disponible en el Word individual de esta unidad.`,
+          { italic: true, color: '6B7280', size: 18, afterSpacing: 120 }
+        ));
+      }
+      children.push(detailTable(detailRecs));
       children.push(P('Elaboración: SGPT-CIDATT Consultoría S.A.', { align: AlignmentType.CENTER, italic: true, size: 16, color: '6B7280', beforeSpacing: 200 }));
     }
 

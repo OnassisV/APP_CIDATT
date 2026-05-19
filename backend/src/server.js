@@ -3679,8 +3679,11 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
     const overrideConcession = req.body?.concessionLabel ? String(req.body.concessionLabel).trim() : null;
     const overridePeriod     = req.body?.periodLabel     ? String(req.body.periodLabel).trim()     : null;
 
-    // Resolver cada run en paralelo
-    const deliverables = await Promise.all(runIds.map(id => resolveRunDeliverables(id)));
+    // Resolver cada run secuencialmente para no acumular memoria de todos a la vez
+    const deliverables = [];
+    for (const id of runIds) {
+      deliverables.push(await resolveRunDeliverables(id));
+    }
 
     // Concesión y período: preferir override del cliente, si no usar el del primer run
     const first = deliverables[0];
@@ -3689,6 +3692,14 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
       ? rawConcession.toUpperCase()
       : `CONCESIONARIA ${rawConcession.toUpperCase()}`;
     const periodLabel = overridePeriod || first.effectivePeriodLabel || '';
+
+    // Límite de filas de detalle por peaje: si el total supera 6000 filas se
+    // reparte equitativamente para no superar el umbral de memoria de Railway.
+    const totalRecords = deliverables.reduce((s, d) => s + d.records.length, 0);
+    const MAX_TOTAL_DETAIL = 6000;
+    const detailLimit = totalRecords > MAX_TOTAL_DETAIL
+      ? Math.max(500, Math.floor(MAX_TOTAL_DETAIL / deliverables.length))
+      : null;
 
     // Construir array stations[] que entiende buildReportBuffer
     const stations = deliverables.map(d => ({
@@ -3707,7 +3718,8 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
       concession,
       periodLabel,
       stations,
-      concessionMeta: first.concessionMeta
+      concessionMeta: first.concessionMeta,
+      detailLimit
     });
 
     const safeName = rawConcession.replace(/[^A-Z0-9]+/gi, '_').toUpperCase() || 'INFORME';
