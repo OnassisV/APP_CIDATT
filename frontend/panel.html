@@ -6220,8 +6220,8 @@
       html.push('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">');
       html.push('<strong>Incidencias por revisar (' + incidents.length + '):</strong>');
       html.push('<div style="display:flex;gap:6px;flex-wrap:wrap;">');
-      html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveAll(\'auto_fix\')">🛠 Auto-corregir todo lo posible</button>');
-      html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveAll(\'accept\')">✓ Aceptar todo</button>');
+      html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveAll(\'auto_fix\')">🛠 Auto-corregir todos los grupos</button>');
+      html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveAll(\'accept\')">✓ Aceptar todos los grupos</button>');
       html.push('</div></div>');
 
       for (const ruleKey of Object.keys(groups)) {
@@ -6233,6 +6233,21 @@
         html.push('<span style="' + chip + 'margin-left:8px;">' + group.length + '</span>');
         html.push('<div class="param-mini" style="margin-top:2px;">' + escapeHtml(lbl.descripcion || '') + '</div>');
         html.push('</summary>');
+        // Barra de acciones específica por grupo (solo afecta a este tipo de incidencia)
+        html.push('<div style="padding:8px 12px;background:#f0f4ff;border-bottom:1px solid #e5e7eb;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">');
+        html.push('<span style="font-size:.82em;color:#6b7280;font-weight:600;white-space:nowrap;">Solo este grupo:</span>');
+        if (ruleKey === 'type_unknown') {
+          html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'assign_L_2ejes\')">Asignar tipo L · 2 ejes a todo</button>');
+          html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'delete\')">🗑 Eliminar grupo</button>');
+        } else if (ruleKey === 'plate_format') {
+          html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'accept\')">✓ Aceptar placas irregulares tal cual</button>');
+          html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'delete\')">🗑 Eliminar grupo</button>');
+        } else {
+          html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'auto_fix\')">🛠 Auto-corregir grupo</button>');
+          html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'accept\')">✓ Aceptar grupo</button>');
+          html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'delete\')">🗑 Eliminar grupo</button>');
+        }
+        html.push('</div>');
         html.push(renderIncidentTable(group));
         html.push('</details>');
       }
@@ -6367,6 +6382,30 @@
       if (inc.resolution && inc.resolution !== 'pending') continue;
       inc.resolution = action;
       _processingPendingChanges[inc.id] = { resolution: action };
+    }
+    renderProcessingResult(_processingCurrentRun);
+  };
+
+  window.bulkResolveGroup = function(ruleKey, action) {
+    if (!_processingCurrentRun || !_processingCurrentRun.incidents) return;
+    let resolution = action;
+    let override = null;
+    // Acciones especiales con override implícito
+    if (action === 'assign_L_2ejes') {
+      resolution = 'manual_edit';
+      override = { tipo_vehiculo: 'L', ejes_principal: 2 };
+    }
+    for (const inc of _processingCurrentRun.incidents) {
+      if (inc.rule_key !== ruleKey) continue;
+      if (inc.resolution && inc.resolution !== 'pending') continue;
+      inc.resolution = resolution;
+      if (override) inc.override = { ...(inc.override || {}), ...override };
+      const incId = inc.id != null ? inc.id : ('tmp-' + inc.rule_key + '-' + String(inc.ref || ''));
+      _processingPendingChanges[incId] = _processingPendingChanges[incId] || {};
+      _processingPendingChanges[incId].resolution = resolution;
+      if (override) {
+        _processingPendingChanges[incId].override = { ...(_processingPendingChanges[incId].override || {}), ...override };
+      }
     }
     renderProcessingResult(_processingCurrentRun);
   };
