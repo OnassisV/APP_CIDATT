@@ -3281,9 +3281,11 @@ function preProcessRecords(records) {
     const ejesS1 = parseInt(r.ejes_semi1,     10) || 0;
     const ejesS2 = parseInt(r.ejes_semi2,     10) || 0;
 
-    // Ejes: L/M2/PNP/A siempre 2 (independiente de lo que diga el archivo).
-    // C/O/desconocido: se deja tal cual; el validador creará la incidencia para revisión manual.
-    const fixedEjesP = _TWO_AXLES_TYPES.has(fixedTipo) ? 2 : ejesP;
+    // Ejes: L/M2/PNP/A siempre 2 (sin importar lo que diga el archivo).
+    // Cualquier otro tipo con tipo válido (C, O) y ejes = 0 → mínimo 2 (no genera incidencia).
+    // Si el tipo es desconocido y ejes = 0 también ponemos 2; la incidencia que queda pendiente
+    // es type_unknown, no la de ejes.
+    const fixedEjesP = _TWO_AXLES_TYPES.has(fixedTipo) ? 2 : (ejesP === 0 ? 2 : ejesP);
     const fixedTotal = fixedEjesP + ejesS1 + ejesS2;
 
     // Deduplicación exacta: placa + hora_paso + caseta + fecha → conservar primera ocurrencia
