@@ -144,15 +144,10 @@ export function validateRecords(records, options = {}) {
       incidents.push({ ref, rule_key: 'type_unknown', severity: 'error', payload: { tipo, original: r.tipo_vehiculo } });
       out._flags.push('type_unknown');
     } else {
-      // 3) Ejes según tipo
+      // 3) Ejes según tipo — solo L/M2/PNP/A tienen un número fijo (2).
+      // C y O aceptan cualquier cantidad ≥ 1 (variable según el vehículo concreto).
       if (TWO_AXLES_TYPES.has(tipo) && ejesPrincipal !== 2) {
         incidents.push({ ref, rule_key: 'axles_invalid_for_type', severity: 'warning', payload: { tipo, ejes: ejesPrincipal, esperado: 2 } });
-        out._flags.push('axles_invalid_for_type');
-      } else if (tipo === 'C' && (ejesPrincipal < 2 || ejesPrincipal > 6)) {
-        incidents.push({ ref, rule_key: 'axles_invalid_for_type', severity: 'warning', payload: { tipo, ejes: ejesPrincipal, rango: '2-6' } });
-        out._flags.push('axles_invalid_for_type');
-      } else if (tipo === 'O' && (ejesPrincipal < 2 || ejesPrincipal > 4)) {
-        incidents.push({ ref, rule_key: 'axles_invalid_for_type', severity: 'warning', payload: { tipo, ejes: ejesPrincipal, rango: '2-4' } });
         out._flags.push('axles_invalid_for_type');
       }
     }
