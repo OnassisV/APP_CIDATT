@@ -502,41 +502,36 @@
         </div>
       </div>
 
-      <!-- Sección: procesamiento EXTERNO -->
+      <!-- Sección: procesamiento EXTERNO (multi-peaje) -->
       <div class="card">
         <div class="section-header">
           <div>
-            <h2>📥 Archivo externo (Excel)</h2>
-            <div class="param-mini">Sube un archivo .xlsx con el formato oficial. Si no lo tienes, descarga la plantilla.</div>
+            <h2>📥 Archivos externos (multi-peaje)</h2>
+            <div class="param-mini">Elige la concesionaria, carga un .xlsx por peaje (no es obligatorio tener todos) y procesa los que tengan archivo.</div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn btn-soft btn-sm" onclick="downloadProcessingTemplate()">⬇ Descargar plantilla</button>
+          <button class="btn btn-soft btn-sm" onclick="downloadProcessingTemplate()">⬇ Plantilla</button>
+        </div>
+
+        <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group" style="margin:0;">
+            <label>Concesionaria</label>
+            <select id="extConcessionSelect" onchange="onExtConcessionChange()">
+              <option value="">— Seleccionar —</option>
+            </select>
+            <input id="extConcessionCustom" placeholder="Nombre de la concesionaria…" style="display:none;margin-top:6px;" />
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label>Período (aparece en el informe)</label>
+            <input id="extPeriodLabel" placeholder="Ej. Primer Trimestre del año 2026" />
           </div>
         </div>
 
-        <div id="processingDropzone"
-             style="margin-top:14px;border:2px dashed var(--accent); border-radius:10px;padding:28px;text-align:center;cursor:pointer;background:var(--accent-soft);transition:background .15s;"
-             onclick="document.getElementById('processingFileInput').click()"
-             ondragover="event.preventDefault(); this.style.background='#cfe0ff';"
-             ondragleave="this.style.background='var(--accent-soft)';"
-             ondrop="event.preventDefault(); this.style.background='var(--accent-soft)'; handleProcessingDrop(event);">
-          <div style="font-size:32px;margin-bottom:8px;">📂</div>
-          <div style="font-weight:600;color:var(--accent-dark);">Arrastra aquí tu archivo .xlsx</div>
-          <div class="param-mini" style="margin-top:4px;">o haz clic para seleccionarlo</div>
-          <input type="file" id="processingFileInput" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;" onchange="handleProcessingFilePicked(event)"/>
-        </div>
+        <!-- Lista de peajes con file-picker por peaje -->
+        <div id="extStationsList" style="margin-top:16px;"></div>
 
-        <div id="processingExternalMeta" style="margin-top:12px;display:none;">
-          <div class="form-group" style="margin-bottom:8px;">
-            <label>Concesionaria (texto que aparecerá en el informe)</label>
-            <input id="processingConcessionLabel" placeholder="Ej. CONCESIONARIA VIAL DEL PERÚ S.A." />
-          </div>
-          <div class="form-group" style="margin-bottom:8px;">
-            <label>Período (texto que aparecerá en el informe)</label>
-            <input id="processingPeriodLabel" placeholder="Ej. Primer Trimestre del año 2026" />
-          </div>
-          <div id="processingFileSelected" class="param-mini" style="margin-bottom:8px;"></div>
-          <button class="btn btn-primary" onclick="analyzeExternalFile()">▶ Analizar archivo</button>
+        <!-- Botón procesar (aparece cuando hay ≥1 archivo) -->
+        <div id="extProcessBtnRow" style="display:none;margin-top:16px;text-align:right;">
+          <button class="btn btn-primary" onclick="processExternalMulti()">▶ Procesar peajes con archivo</button>
         </div>
       </div>
     </div>
@@ -5821,17 +5816,18 @@
   // Solo se conserva la pestaña adicional de coordinador para admin/director.
 
   // ── PROCESAMIENTO (Director) ──────────────────────────────────────────────
-  let _processingExternalFile = null;
   let _processingCurrentRun = null;
 
   async function loadProcessingView() {
     _processingCurrentRun = null;
     document.getElementById('processingResultCard').style.display = 'none';
     document.getElementById('processingResultContent').innerHTML = '';
-    _processingExternalFile = null;
-    document.getElementById('processingFileInput').value = '';
-    document.getElementById('processingExternalMeta').style.display = 'none';
-    document.getElementById('processingFileSelected').textContent = '';
+    // Reset estado externo multi-peaje
+    _extStationFiles.clear();
+    document.getElementById('extStationsList').innerHTML = '';
+    document.getElementById('extProcessBtnRow').style.display = 'none';
+    document.getElementById('extPeriodLabel').value = '';
+    await initExtConcessionSelect();
 
     const target = document.getElementById('processingProjectsList');
     target.innerHTML = '<div class="empty-state">Cargando proyectos…</div>';
@@ -5896,31 +5892,199 @@
   }
   window.downloadProcessingTemplate = downloadProcessingTemplate;
 
-  function handleProcessingDrop(event) {
-    const files = event.dataTransfer && event.dataTransfer.files;
-    if (!files || !files.length) return;
-    setProcessingFile(files[0]);
-  }
-  window.handleProcessingDrop = handleProcessingDrop;
+  // ── PROCESAMIENTO EXTERNO MULTI-PEAJE ─────────────────────────────────────
+  const _extStationFiles = new Map(); // stationId → { file, name }
 
-  function handleProcessingFilePicked(event) {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
-    setProcessingFile(file);
+  async function ensureExtStructureLoaded() {
+    if (stationCatalogRows.length) return;
+    try {
+      const data = await api('/catalog/structure');
+      _parametersSnapshot = data;
+      buildStationCatalogFromStructure(data);
+    } catch (_) {}
   }
-  window.handleProcessingFilePicked = handleProcessingFilePicked;
 
-  function setProcessingFile(file) {
-    if (!/\.xlsx$/i.test(file.name)) {
-      alert('Solo se aceptan archivos .xlsx.');
+  async function initExtConcessionSelect() {
+    await ensureExtStructureLoaded();
+    const sel = document.getElementById('extConcessionSelect');
+    if (!sel) return;
+    const seen = new Map();
+    for (const s of stationCatalogRows) {
+      if (s.concessionKey && !seen.has(s.concessionKey)) seen.set(s.concessionKey, s.concessionName);
+    }
+    const sorted = Array.from(seen.entries()).sort((a, b) => a[1].localeCompare(b[1], 'es'));
+    sel.innerHTML = '<option value="">— Seleccionar —</option>' +
+      sorted.map(([k, n]) => '<option value="' + esc(k) + '">' + esc(n) + '</option>').join('') +
+      '<option value="__otra__">Otra (texto libre)</option>';
+  }
+
+  function onExtConcessionChange() {
+    const sel = document.getElementById('extConcessionSelect');
+    const custom = document.getElementById('extConcessionCustom');
+    const key = sel.value;
+    custom.style.display = key === '__otra__' ? 'block' : 'none';
+    _extStationFiles.clear();
+    document.getElementById('extProcessBtnRow').style.display = 'none';
+    if (key === '__otra__') {
+      renderExtStationsList(null);
+    } else if (key) {
+      renderExtStationsList(key);
+    } else {
+      document.getElementById('extStationsList').innerHTML = '';
+    }
+  }
+  window.onExtConcessionChange = onExtConcessionChange;
+
+  function getExtConcessionLabel() {
+    const sel = document.getElementById('extConcessionSelect');
+    if (!sel) return '';
+    if (sel.value === '__otra__') return (document.getElementById('extConcessionCustom').value || '').trim();
+    const opt = sel.options[sel.selectedIndex];
+    return opt ? opt.textContent.trim() : '';
+  }
+
+  function renderExtStationsList(concessionKey) {
+    const container = document.getElementById('extStationsList');
+    const stations = concessionKey
+      ? stationCatalogRows.filter(s => s.concessionKey === concessionKey)
+      : [];
+
+    if (!stations.length) {
+      container.innerHTML = '<div class="param-mini" style="color:var(--muted);">No hay peajes configurados en la base de datos para esta concesionaria.</div>';
       return;
     }
-    _processingExternalFile = file;
-    document.getElementById('processingFileSelected').innerHTML =
-      '✅ Archivo: <strong>' + escapeHtml(file.name) + '</strong> (' +
-      (file.size / 1024).toFixed(1) + ' KB)';
-    document.getElementById('processingExternalMeta').style.display = 'block';
+
+    let html = '<div class="param-mini" style="margin-bottom:10px;">' +
+      stations.length + ' peaje(s) — sube un archivo por cada uno (opcional).</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">';
+    for (const st of stations) {
+      html += buildExtStationRow(st.id, escapeHtml(st.name));
+    }
+    html += '</div>';
+    container.innerHTML = html;
   }
+
+  function buildExtStationRow(id, nameHtml) {
+    const safeId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeName = nameHtml.replace(/'/g, '&#39;');
+    return '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;background:var(--bg);border-radius:10px;" id="extRow_' + safeId + '">' +
+      '<div style="font-weight:600;flex:1;min-width:160px;">' + nameHtml + '</div>' +
+      '<label style="cursor:pointer;padding:6px 14px;border:2px dashed var(--accent);border-radius:8px;font-size:.85rem;color:var(--accent);white-space:nowrap;flex-shrink:0;">' +
+        '📂 Seleccionar .xlsx' +
+        '<input type="file" accept=".xlsx" style="display:none;" onchange="handleExtFile(event,\'' + safeId + '\',\'' + safeName + '\')" />' +
+      '</label>' +
+      '<div id="extBadge_' + safeId + '" style="font-size:.82rem;color:var(--muted);"></div>' +
+    '</div>';
+  }
+
+  function handleExtFile(event, stId, stName) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) { alert('Solo se aceptan archivos .xlsx.'); return; }
+    _extStationFiles.set(stId, { file, name: stName });
+    const badge = document.getElementById('extBadge_' + stId);
+    if (badge) badge.innerHTML =
+      '<span style="color:var(--ok);font-weight:600;">✓</span> ' + escapeHtml(file.name) +
+      ' <button style="background:none;border:none;cursor:pointer;color:var(--danger);margin-left:4px;" ' +
+      'onclick="removeExtFile(\'' + stId + '\')" title="Quitar">✕</button>';
+    updateExtProcessBtn();
+  }
+  window.handleExtFile = handleExtFile;
+
+  function removeExtFile(stId) {
+    _extStationFiles.delete(stId);
+    const badge = document.getElementById('extBadge_' + stId);
+    if (badge) badge.innerHTML = '';
+    const row = document.getElementById('extRow_' + stId);
+    if (row) { const inp = row.querySelector('input[type="file"]'); if (inp) inp.value = ''; }
+    updateExtProcessBtn();
+  }
+  window.removeExtFile = removeExtFile;
+
+  function updateExtProcessBtn() {
+    document.getElementById('extProcessBtnRow').style.display =
+      _extStationFiles.size > 0 ? 'block' : 'none';
+  }
+
+  async function processExternalMulti() {
+    if (!_extStationFiles.size) return;
+    const concessionLabel = getExtConcessionLabel();
+    const periodLabel = (document.getElementById('extPeriodLabel').value || '').trim();
+    const entries = Array.from(_extStationFiles.entries());
+    const resultCard = document.getElementById('processingResultCard');
+    const resultContent = document.getElementById('processingResultContent');
+    resultCard.style.display = 'block';
+    resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    const runResults = [];
+    for (let i = 0; i < entries.length; i++) {
+      const [stId, { file, name }] = entries[i];
+      resultContent.innerHTML = '<div class="empty-state">⏳ Procesando ' + escapeHtml(name) +
+        ' (' + (i + 1) + ' de ' + entries.length + ')…</div>';
+      try {
+        const buf = await file.arrayBuffer();
+        const res = await fetch(API + '/processing/analyze-external', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/octet-stream',
+            'X-Filename': encodeURIComponent(file.name),
+            ...(concessionLabel ? { 'X-Concession-Label': encodeURIComponent(concessionLabel) } : {}),
+            ...(periodLabel     ? { 'X-Period-Label':      encodeURIComponent(periodLabel) }     : {})
+          },
+          body: buf
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error en el análisis.');
+        runResults.push({ name, stId, data, ok: true });
+      } catch (e) {
+        runResults.push({ name, stId, error: e.message, ok: false });
+      }
+    }
+    renderExtMultiResults(runResults);
+  }
+  window.processExternalMulti = processExternalMulti;
+
+  function renderExtMultiResults(results) {
+    window._extMultiRuns = results.filter(r => r.ok).map(r => r.data);
+    const chip = 'display:inline-block;padding:3px 9px;border-radius:12px;font-size:.8em;';
+    const html = ['<h2 style="margin:0 0 14px;">📊 Resultados del procesamiento</h2>'];
+    let runIdx = 0;
+    for (const r of results) {
+      if (!r.ok) {
+        html.push('<div style="padding:12px;border-left:4px solid var(--danger);background:var(--card);border-radius:8px;margin-bottom:10px;">');
+        html.push('<strong>' + escapeHtml(r.name) + '</strong> — <span style="color:var(--danger);">❌ ' + escapeHtml(r.error) + '</span></div>');
+        continue;
+      }
+      const s = r.data.summary || {};
+      const bySev = s.by_severity || {};
+      const pending = (r.data.incidents || []).filter(i => (i.resolution || 'pending') === 'pending').length;
+      const hasErrors = (bySev.error || 0) > 0;
+      const border = hasErrors ? 'var(--danger)' : pending ? 'var(--warn)' : 'var(--ok)';
+      const idx = runIdx++;
+      html.push('<div style="padding:12px;border-left:4px solid ' + border + ';background:var(--card);border-radius:8px;margin-bottom:10px;">');
+      html.push('<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">');
+      html.push('<div><strong>' + escapeHtml(r.name) + '</strong> <span class="param-mini" style="margin-left:6px;">Run #' + r.data.run.id + '</span></div>');
+      html.push('<div style="display:flex;gap:6px;flex-wrap:wrap;">');
+      html.push('<span style="' + chip + 'background:#e5e7eb;">Total: <strong>' + (s.total || 0) + '</strong></span>');
+      if (bySev.error)   html.push('<span style="' + chip + 'background:#fee2e2;color:#991b1b;">Errores: <strong>' + bySev.error + '</strong></span>');
+      if (bySev.warning) html.push('<span style="' + chip + 'background:#fef3c7;color:#92400e;">Warnings: <strong>' + bySev.warning + '</strong></span>');
+      if (pending)       html.push('<span style="' + chip + 'background:#fde68a;color:#7c2d12;">Pendientes: <strong>' + pending + '</strong></span>');
+      if (!hasErrors && !pending) html.push('<span style="' + chip + 'background:#dcfce7;color:#166534;">✅ Sin incidencias</span>');
+      html.push('</div></div>');
+      if (s.fecha_min) html.push('<div class="param-mini" style="margin-top:4px;">📅 ' + s.fecha_min + ' → ' + (s.fecha_max || s.fecha_min) + '</div>');
+      html.push('<div style="margin-top:8px;text-align:right;">' +
+        '<button class="btn btn-soft btn-sm" onclick="viewExtRun(' + idx + ')">🔍 Ver detalles y resolver</button>' +
+        '</div></div>');
+    }
+    document.getElementById('processingResultContent').innerHTML = html.join('');
+  }
+
+  function viewExtRun(idx) {
+    const run = window._extMultiRuns && window._extMultiRuns[idx];
+    if (run) renderProcessingResult(run);
+  }
+  window.viewExtRun = viewExtRun;
 
   async function analyzeInternalProject(projectId) {
     showProcessingLoading('Analizando proyecto interno…');
@@ -5936,37 +6100,6 @@
     }
   }
   window.analyzeInternalProject = analyzeInternalProject;
-
-  async function analyzeExternalFile() {
-    if (!_processingExternalFile) {
-      alert('Selecciona un archivo primero.');
-      return;
-    }
-    const concession = document.getElementById('processingConcessionLabel').value.trim();
-    const period = document.getElementById('processingPeriodLabel').value.trim();
-    showProcessingLoading('Analizando archivo externo…');
-    try {
-      const buf = await _processingExternalFile.arrayBuffer();
-      const res = await fetch(API + '/processing/analyze-external', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/octet-stream',
-          'X-Filename': encodeURIComponent(_processingExternalFile.name),
-          ...(concession ? { 'X-Concession-Label': encodeURIComponent(concession) } : {}),
-          ...(period ? { 'X-Period-Label': encodeURIComponent(period) } : {})
-        },
-        body: buf
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error en el análisis.');
-      _processingCurrentRun = data;
-      renderProcessingResult(data);
-    } catch (e) {
-      showProcessingError(e.message);
-    }
-  }
-  window.analyzeExternalFile = analyzeExternalFile;
 
   function showProcessingLoading(msg) {
     const card = document.getElementById('processingResultCard');
