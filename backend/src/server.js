@@ -3587,6 +3587,57 @@ app.get('/api/processing/runs/:id/word', authenticateRequest, requireMinRole('di
   } catch (e) { next(e); }
 });
 
+// POST /api/processing/multi-word  → Word combinado con múltiples peajes en un solo documento.
+// Body: { runIds: [id1, id2, ...], concessionLabel?, periodLabel? }
+app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runIds = Array.isArray(req.body?.runIds)
+      ? req.body.runIds.map(Number).filter(n => n > 0)
+      : [];
+    if (!runIds.length) throw badRequest('Se requiere al menos un run ID.');
+    if (runIds.length > 12) throw badRequest('Máximo 12 peajes por documento combinado.');
+
+    const overrideConcession = req.body?.concessionLabel ? String(req.body.concessionLabel).trim() : null;
+    const overridePeriod     = req.body?.periodLabel     ? String(req.body.periodLabel).trim()     : null;
+
+    // Resolver cada run en paralelo
+    const deliverables = await Promise.all(runIds.map(id => resolveRunDeliverables(id)));
+
+    // Concesión y período: preferir override del cliente, si no usar el del primer run
+    const first = deliverables[0];
+    const rawConcession = overrideConcession || first.concession || '';
+    const concession = /^CONCESIONARIA\s/i.test(rawConcession)
+      ? rawConcession.toUpperCase()
+      : `CONCESIONARIA ${rawConcession.toUpperCase()}`;
+    const periodLabel = overridePeriod || first.effectivePeriodLabel || '';
+
+    // Construir array stations[] que entiende buildReportBuffer
+    const stations = deliverables.map(d => ({
+      label:      d.unitLabel,
+      records:    d.records,
+      directions: d.directions,
+      sampleInfo: null,
+      photo:      d.concessionMeta?.photo      || null,
+      photo_mime: d.concessionMeta?.photo_mime || null,
+      map:        d.concessionMeta?.map        || null,
+      map_mime:   d.concessionMeta?.map_mime   || null
+    }));
+
+    const buf = await buildReportBuffer({
+      unitLabel:      stations.map(s => s.label).join(' / '),
+      concession,
+      periodLabel,
+      stations,
+      concessionMeta: first.concessionMeta
+    });
+
+    const safeName = rawConcession.replace(/[^A-Z0-9]+/gi, '_').toUpperCase() || 'INFORME';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="Informe_${safeName}.docx"`);
+    res.send(buf);
+  } catch (e) { next(e); }
+});
+
 // GET /api/processing/runs/:id/preview  → vista previa HTML (Tabla 1 y Tabla 2) para mostrar antes del ZIP.
 app.get('/api/processing/runs/:id/preview', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {

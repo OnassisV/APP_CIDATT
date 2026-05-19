@@ -6045,10 +6045,48 @@
   }
   window.processExternalMulti = processExternalMulti;
 
+  async function downloadExtMultiWord() {
+    const runs = window._extMultiRuns;
+    if (!runs || !runs.length) { alert('No hay runs procesados.'); return; }
+    const runIds = runs.map(r => r.run.id);
+    const concessionLabel = getExtConcessionLabel();
+    const periodLabel = (document.getElementById('extPeriodLabel').value || '').trim();
+    const btn = document.getElementById('extMultiWordBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Generando…'; }
+    try {
+      const res = await fetch(API + '/processing/multi-word', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runIds, concessionLabel, periodLabel })
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Error al generar el Word.'); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Informe_combinado.docx';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '📄 Generar Word combinado'; }
+    }
+  }
+  window.downloadExtMultiWord = downloadExtMultiWord;
+
   function renderExtMultiResults(results) {
     window._extMultiRuns = results.filter(r => r.ok).map(r => r.data);
     const chip = 'display:inline-block;padding:3px 9px;border-radius:12px;font-size:.8em;';
-    const html = ['<h2 style="margin:0 0 14px;">📊 Resultados del procesamiento</h2>'];
+    const okCount = results.filter(r => r.ok).length;
+    const html = [
+      '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">',
+      '<h2 style="margin:0;">📊 Resultados del procesamiento</h2>',
+      okCount > 0
+        ? '<button id="extMultiWordBtn" class="btn btn-primary" onclick="downloadExtMultiWord()">📄 Generar Word combinado (' + okCount + ' peaje' + (okCount > 1 ? 's' : '') + ')</button>'
+        : '',
+      '</div>'
+    ];
     let runIdx = 0;
     for (const r of results) {
       if (!r.ok) {
