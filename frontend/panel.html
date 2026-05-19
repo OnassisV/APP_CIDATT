@@ -6348,30 +6348,38 @@
     );
   }
 
-  // Estado local de cambios pendientes (no se persisten hasta "Guardar avances").
-  let _processingPendingChanges = {}; // incId -> { resolution?, override? }
+  // Estado local de cambios pendientes por run (no se persisten hasta "Guardar avances").
+  // Estructura: { runId: { incId: { resolution?, override? } } }
+  // Usar namespace por run evita que cambios de un peaje contaminen los de otro.
+  let _processingPendingChanges = {};
+
+  function _pendingRun() {
+    const id = String(_processingCurrentRun?.run?.id || '_');
+    if (!_processingPendingChanges[id]) _processingPendingChanges[id] = {};
+    return _processingPendingChanges[id];
+  }
 
   window.setResolutionLocal = function(incId, value) {
-    _processingPendingChanges[incId] = _processingPendingChanges[incId] || {};
-    _processingPendingChanges[incId].resolution = value;
-    // Reflejar en memoria
+    const p = _pendingRun();
+    p[incId] = p[incId] || {};
+    p[incId].resolution = value;
     const inc = (_processingCurrentRun.incidents || []).find(x => String(x.id) === String(incId));
     if (inc) inc.resolution = value;
     updatePendingChip();
   };
 
   window.setOverrideField = function(incId, field, value) {
-    _processingPendingChanges[incId] = _processingPendingChanges[incId] || {};
-    _processingPendingChanges[incId].override = _processingPendingChanges[incId].override || {};
-    _processingPendingChanges[incId].override[field] = value;
+    const p = _pendingRun();
+    p[incId] = p[incId] || {};
+    p[incId].override = p[incId].override || {};
+    p[incId].override[field] = value;
     const inc = (_processingCurrentRun.incidents || []).find(x => String(x.id) === String(incId));
     if (inc) {
       inc.override = inc.override || {};
       inc.override[field] = value;
-      // Si cambió manualmente, resolución implícita = manual_edit (si estaba pending)
       if (!inc.resolution || inc.resolution === 'pending') {
         inc.resolution = 'manual_edit';
-        _processingPendingChanges[incId].resolution = 'manual_edit';
+        p[incId].resolution = 'manual_edit';
         const sel = document.querySelector('#incidentRow-' + CSS.escape(String(incId)) + ' select');
         if (sel) sel.value = 'manual_edit';
       }
@@ -6381,19 +6389,20 @@
 
   window.bulkResolveAll = function(action) {
     if (!_processingCurrentRun || !_processingCurrentRun.incidents) return;
+    const p = _pendingRun();
     for (const inc of _processingCurrentRun.incidents) {
       if (inc.resolution && inc.resolution !== 'pending') continue;
       inc.resolution = action;
-      _processingPendingChanges[inc.id] = { resolution: action };
+      p[inc.id] = { resolution: action };
     }
     renderProcessingResult(_processingCurrentRun);
   };
 
   window.bulkResolveGroup = function(ruleKey, action) {
     if (!_processingCurrentRun || !_processingCurrentRun.incidents) return;
+    const p = _pendingRun();
     let resolution = action;
     let override = null;
-    // Acciones especiales con override implícito
     if (action === 'assign_L_2ejes') {
       resolution = 'manual_edit';
       override = { tipo_vehiculo: 'L', ejes_principal: 2 };
@@ -6404,11 +6413,9 @@
       inc.resolution = resolution;
       if (override) inc.override = { ...(inc.override || {}), ...override };
       const incId = inc.id != null ? inc.id : ('tmp-' + inc.rule_key + '-' + String(inc.ref || ''));
-      _processingPendingChanges[incId] = _processingPendingChanges[incId] || {};
-      _processingPendingChanges[incId].resolution = resolution;
-      if (override) {
-        _processingPendingChanges[incId].override = { ...(_processingPendingChanges[incId].override || {}), ...override };
-      }
+      p[incId] = p[incId] || {};
+      p[incId].resolution = resolution;
+      if (override) p[incId].override = { ...(p[incId].override || {}), ...override };
     }
     renderProcessingResult(_processingCurrentRun);
   };
@@ -6424,7 +6431,9 @@
   async function saveProcessingResolutions() {
     if (!_processingCurrentRun || !_processingCurrentRun.run) return;
     const runId = _processingCurrentRun.run.id;
-    const resolutions = Object.entries(_processingPendingChanges)
+    // Solo lee y limpia el namespace del run activo — no afecta otros peajes
+    const runChanges = _processingPendingChanges[String(runId)] || {};
+    const resolutions = Object.entries(runChanges)
       .filter(([id]) => !String(id).startsWith('tmp-'))
       .map(([id, change]) => ({
         id: parseInt(id, 10),
@@ -6436,7 +6445,7 @@
         method: 'PATCH',
         body: { resolutions }
       });
-      _processingPendingChanges = {};
+      delete _processingPendingChanges[String(runId)];
       alert('Resoluciones guardadas (' + resolutions.length + ').');
     } catch (e) {
       alert('Error: ' + e.message);
