@@ -6057,11 +6057,14 @@
     const btn = document.getElementById('extMultiWordBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Generando…'; }
     try {
+      const ctrl = new AbortController();
+      const wordTimeout = setTimeout(() => ctrl.abort(), 180000); // 3 min
       const res = await fetch(API + '/processing/multi-word', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ runIds, concessionLabel, periodLabel })
-      });
+        body: JSON.stringify({ runIds, concessionLabel, periodLabel }),
+        signal: ctrl.signal
+      }).finally(() => clearTimeout(wordTimeout));
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         let msg = 'Error al generar el Word.';

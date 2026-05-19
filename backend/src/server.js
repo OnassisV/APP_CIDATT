@@ -3693,14 +3693,6 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
       : `CONCESIONARIA ${rawConcession.toUpperCase()}`;
     const periodLabel = overridePeriod || first.effectivePeriodLabel || '';
 
-    // Límite de filas de detalle por peaje: si el total supera 6000 filas se
-    // reparte equitativamente para no superar el umbral de memoria de Railway.
-    const totalRecords = deliverables.reduce((s, d) => s + d.records.length, 0);
-    const MAX_TOTAL_DETAIL = 6000;
-    const detailLimit = totalRecords > MAX_TOTAL_DETAIL
-      ? Math.max(500, Math.floor(MAX_TOTAL_DETAIL / deliverables.length))
-      : null;
-
     // Construir array stations[] que entiende buildReportBuffer
     const stations = deliverables.map(d => ({
       label:      d.unitLabel,
@@ -3718,8 +3710,7 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
       concession,
       periodLabel,
       stations,
-      concessionMeta: first.concessionMeta,
-      detailLimit
+      concessionMeta: first.concessionMeta
     });
 
     const safeName = rawConcession.replace(/[^A-Z0-9]+/gi, '_').toUpperCase() || 'INFORME';
