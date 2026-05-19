@@ -3658,7 +3658,8 @@ app.get('/api/processing/runs/:id/word', authenticateRequest, requireMinRole('di
       directions: d.directions,
       runSummary: summary,
       incidentsSummary: { applied: d.applied },
-      concessionMeta: d.concessionMeta
+      concessionMeta: d.concessionMeta,
+      includeDetailTable: false
     });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="Informe_${d.safeName}.docx"`);
@@ -3710,7 +3711,8 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
       concession,
       periodLabel,
       stations,
-      concessionMeta: first.concessionMeta
+      concessionMeta: first.concessionMeta,
+      includeDetailTable: false
     });
 
     const safeName = rawConcession.replace(/[^A-Z0-9]+/gi, '_').toUpperCase() || 'INFORME';
@@ -3821,7 +3823,8 @@ app.get('/api/processing/runs/:id/zip', authenticateRequest, requireMinRole('dir
       records: d.records, directions: d.directions,
       runSummary: summary,
       incidentsSummary: { applied: d.applied },
-      concessionMeta: d.concessionMeta
+      concessionMeta: d.concessionMeta,
+      includeDetailTable: false
     });
     const zipBuf = await buildZipBuffer([
       { name: `${d.safeName}.xlsx`, buffer: xlsxBuf },

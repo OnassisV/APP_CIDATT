@@ -6258,7 +6258,8 @@
       html.push('<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;flex-wrap:wrap;">');
       html.push('<button class="btn btn-soft" onclick="saveProcessingResolutions()">💾 Guardar avances</button>');
       html.push('<div style="display:flex;gap:8px;flex-wrap:wrap;">');
-      html.push('<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Descargar Excel</button>');
+      html.push('<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Excel</button>');
+      html.push('<button class="btn btn-soft" onclick="downloadProcessingWord()">📄 Emitir informe Word</button>');
       html.push('<button class="btn btn-primary" onclick="saveAndGenerateOutputs()">📦 Guardar y generar entregables</button>');
       html.push('</div></div>');
     }
@@ -6469,7 +6470,8 @@
       alert('No hay análisis activo.');
       return;
     }
-    if (Object.keys(_processingPendingChanges || {}).length) {
+    const _curRunId = String(_processingCurrentRun?.run?.id || '_');
+    if (Object.keys(_processingPendingChanges[_curRunId] || {}).length) {
       await saveProcessingResolutions();
     }
     const runId = _processingCurrentRun.run.id;
