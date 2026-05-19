@@ -6273,14 +6273,28 @@
   function renderIncidentSummary(inc, rec) {
     const p = inc.payload || {};
     const placa = rec.placa_principal || p.placa || '—';
-    const tipo = rec.tipo_vehiculo || p.tipo || '';
-    const fecha = rec.fecha || '';
-    const hora = rec.hora_paso || p.hora || '';
-    const detalleExtra = JSON.stringify(p);
+    const tipo  = rec.tipo_vehiculo  || p.tipo  || '—';
+    const fecha = rec.fecha    || '';
+    const hora  = (rec.hora_paso || '').slice(0, 5);
+
+    // Ficha del registro: los campos clave que permiten identificar la fila en la data
+    const caseta  = rec.caseta   != null ? 'Caseta ' + rec.caseta : '';
+    const sentido = rec.sentido  || '';
+    const ejesP   = rec.ejes_principal != null ? rec.ejes_principal : '?';
+    const ejesS1  = rec.ejes_semi1  || 0;
+    const ejesS2  = rec.ejes_semi2  || 0;
+    const total   = rec.total_ejes  != null ? rec.total_ejes : '?';
+    const semiStr = (rec.placa_semi1 || ejesS1)
+      ? ' · Semi1: ' + (rec.placa_semi1 || '—') + '/' + ejesS1 + 'ej'
+      : '';
+    const fichaPartes = [caseta, sentido].filter(Boolean).join(' · ');
+    const fichaEjes = 'Ejes P:' + ejesP + semiStr + ' Total:' + total;
+
     return '<div style="font-size:.92em;">' +
-      '<div><strong>' + escapeHtml(placa) + '</strong> ' + (tipo ? '· ' + escapeHtml(tipo) : '') + '</div>' +
-      '<div class="param-mini">' + escapeHtml(fecha) + ' ' + escapeHtml(hora) + '</div>' +
-      '<div class="param-mini" style="color:#6b7280;">' + escapeHtml(detalleExtra) + '</div>' +
+      '<div><strong>' + escapeHtml(placa) + '</strong> · ' + escapeHtml(tipo) + '</div>' +
+      '<div class="param-mini">' + escapeHtml(fecha) + (hora ? ' ' + escapeHtml(hora) : '') + '</div>' +
+      (fichaPartes ? '<div class="param-mini" style="color:#374151;">' + escapeHtml(fichaPartes) + '</div>' : '') +
+      '<div class="param-mini" style="color:#6b7280;">' + escapeHtml(fichaEjes) + '</div>' +
       '</div>';
   }
 
