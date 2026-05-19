@@ -6209,10 +6209,19 @@
 
     if (incidents.length === 0) {
       html.push('<div class="empty-state" style="color:#15803d;">✅ Sin incidencias. Datos limpios.</div>');
-      html.push('<div style="margin-top:12px;text-align:right;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">');
-      html.push('<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Descargar Excel</button>');
+      html.push('<div style="margin-top:12px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;align-items:center;">');
+      if (multiRuns && multiRuns.length > 1) {
+        html.push('<button class="btn btn-soft" onclick="reRenderExtMulti()">← Resumen (' + multiRuns.length + ' peajes)</button>');
+      } else {
+        html.push('<span></span>');
+      }
+      html.push('<div style="display:flex;gap:8px;flex-wrap:wrap;">');
+      if (multiRuns && multiRuns.length > 1) {
+        html.push('<button class="btn btn-soft" id="extMultiWordBtnB" onclick="downloadExtMultiWord()">📄 Word combinado</button>');
+      }
+      html.push('<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Excel</button>');
       html.push('<button class="btn btn-primary" onclick="generateProcessingOutputs()">📦 Generar entregables (ZIP + Word)</button>');
-      html.push('</div>');
+      html.push('</div></div>');
     } else {
       // Agrupar por regla
       const groups = {};
@@ -6256,10 +6265,18 @@
       }
 
       html.push('<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;flex-wrap:wrap;">');
+      html.push('<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">');
+      if (multiRuns && multiRuns.length > 1) {
+        html.push('<button class="btn btn-soft" onclick="reRenderExtMulti()">← Resumen (' + multiRuns.length + ' peajes)</button>');
+      }
       html.push('<button class="btn btn-soft" onclick="saveProcessingResolutions()">💾 Guardar avances</button>');
+      html.push('</div>');
       html.push('<div style="display:flex;gap:8px;flex-wrap:wrap;">');
+      if (multiRuns && multiRuns.length > 1) {
+        html.push('<button class="btn btn-soft" id="extMultiWordBtnB" onclick="downloadExtMultiWord()">📄 Word combinado</button>');
+      }
       html.push('<button class="btn btn-soft" onclick="downloadProcessingExcel()">⬇ Excel</button>');
-      html.push('<button class="btn btn-soft" onclick="downloadProcessingWord()">📄 Emitir informe Word</button>');
+      html.push('<button class="btn btn-soft" onclick="downloadProcessingWord()">📄 Word individual</button>');
       html.push('<button class="btn btn-primary" onclick="saveAndGenerateOutputs()">📦 Guardar y generar entregables</button>');
       html.push('</div></div>');
     }
