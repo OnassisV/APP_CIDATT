@@ -3245,6 +3245,52 @@ app.post('/api/processing/analyze-internal', authenticateRequest, requireMinRole
   } catch (e) { next(e); }
 });
 
+// Helper: pre-procesamiento para datos externos antes de validate.
+// 1) Recupera tipo de vehículo desde otra fila con la misma placa (si tiene tipo válido).
+// 2) Asigna 2 ejes_principal cuando el registro viene sin ejes.
+// 3) Elimina duplicados exactos (misma placa + hora + caseta + fecha), conservando la 1ª ocurrencia.
+const _EXT_VALID_TYPES = new Set(['L', 'C', 'M2', 'O', 'PNP', 'A']);
+function preProcessRecords(records) {
+  // Paso 1: mapa placa → primer tipo válido encontrado en el dataset
+  const plateTypeMap = new Map();
+  for (const r of records) {
+    const placa = String(r.placa_principal || '').toUpperCase().trim();
+    const tipo  = String(r.tipo_vehiculo  || '').toUpperCase().trim();
+    if (placa && _EXT_VALID_TYPES.has(tipo) && !plateTypeMap.has(placa)) {
+      plateTypeMap.set(placa, tipo);
+    }
+  }
+
+  // Paso 2: correcciones + deduplicación
+  const seen = new Set();
+  const out  = [];
+  for (const r of records) {
+    const placa = String(r.placa_principal || '').toUpperCase().trim();
+    const tipo  = String(r.tipo_vehiculo  || '').toUpperCase().trim();
+
+    // Recuperación de tipo: sólo cuando hay coincidencia de placa con tipo válido en el mismo archivo
+    const fixedTipo = (!_EXT_VALID_TYPES.has(tipo) && placa && plateTypeMap.has(placa))
+      ? plateTypeMap.get(placa)
+      : tipo;
+
+    // Ejes principal = 2 cuando falta (0 o null); recalcular total si también faltaba
+    const ejesP  = parseInt(r.ejes_principal, 10) || 0;
+    const ejesS1 = parseInt(r.ejes_semi1,     10) || 0;
+    const ejesS2 = parseInt(r.ejes_semi2,     10) || 0;
+    const fixedEjesP = ejesP === 0 ? 2 : ejesP;
+    const totalDecl  = parseInt(r.total_ejes, 10) || 0;
+    const fixedTotal = totalDecl || (fixedEjesP + ejesS1 + ejesS2);
+
+    // Deduplicación exacta: placa + hora_paso + caseta + fecha → conservar primera ocurrencia
+    const dedupeKey = `${placa}|${String(r.hora_paso||'').trim()}|${String(r.caseta||'').trim()}|${String(r.fecha||'').trim()}`;
+    if (placa && r.hora_paso && seen.has(dedupeKey)) continue;
+    if (placa && r.hora_paso) seen.add(dedupeKey);
+
+    out.push({ ...r, tipo_vehiculo: fixedTipo, ejes_principal: fixedEjesP, ejes_semi1: ejesS1, ejes_semi2: ejesS2, total_ejes: fixedTotal });
+  }
+  return out;
+}
+
 // POST /api/processing/analyze-external (raw body = .xlsx, header X-Filename)
 app.post('/api/processing/analyze-external', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
   try {
@@ -3264,7 +3310,6 @@ app.post('/api/processing/analyze-external', authenticateRequest, requireMinRole
         `SELECT code, directions FROM ${TABLES.booths} WHERE station_id = ?`,
         [stationId]
       );
-      // Mapa: código de caseta → primer sentido registrado para esa caseta
       const boothDir = new Map();
       for (const b of booths) {
         if (b.directions) boothDir.set(String(b.code).trim(), String(b.directions).trim());
@@ -3279,15 +3324,18 @@ app.post('/api/processing/analyze-external', authenticateRequest, requireMinRole
       }
     }
 
-    const expectedSentidos = Array.from(new Set(parsed.records.map(r => r.sentido).filter(Boolean)));
-    const validation = validateRecords(parsed.records, { expectedSentidos });
+    // Pre-procesamiento: dedup + recuperación de tipo + ejes mínimos
+    const preprocessed = preProcessRecords(parsed.records);
+
+    const expectedSentidos = Array.from(new Set(preprocessed.map(r => r.sentido).filter(Boolean)));
+    const validation = validateRecords(preprocessed, { expectedSentidos });
     await persistRunAndRespond(req, res, {
       sourceType: 'external',
       projectId: null,
       externalFilename: filename,
       concessionLabel,
       periodLabel,
-      records: parsed.records,
+      records: preprocessed,
       validation,
       contextExtra: { sheetName: parsed.sheetName, columnMap: parsed.columnMap }
     });
@@ -3648,12 +3696,11 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
     }));
 
     const buf = await buildReportBuffer({
-      unitLabel:         stations.map(s => s.label).join(' / '),
+      unitLabel:      stations.map(s => s.label).join(' / '),
       concession,
       periodLabel,
       stations,
-      concessionMeta:    first.concessionMeta,
-      includeDetailTable: false  // Omitir tabla detalle en Word combinado (demasiado grande)
+      concessionMeta: first.concessionMeta
     });
 
     const safeName = rawConcession.replace(/[^A-Z0-9]+/gi, '_').toUpperCase() || 'INFORME';
