@@ -6023,14 +6023,17 @@
         ' (' + (i + 1) + ' de ' + entries.length + ')…</div>';
       try {
         const buf = await file.arrayBuffer();
+        // stId puede ser numérico (id de la DB) o un string sanitizado; lo enviamos tal cual.
+        const numericStationId = parseInt(stId, 10) || null;
         const res = await fetch(API + '/processing/analyze-external', {
           method: 'POST',
           headers: {
             'Authorization': 'Bearer ' + token,
             'Content-Type': 'application/octet-stream',
             'X-Filename': encodeURIComponent(file.name),
-            ...(concessionLabel ? { 'X-Concession-Label': encodeURIComponent(concessionLabel) } : {}),
-            ...(periodLabel     ? { 'X-Period-Label':      encodeURIComponent(periodLabel) }     : {})
+            ...(concessionLabel    ? { 'X-Concession-Label': encodeURIComponent(concessionLabel) } : {}),
+            ...(periodLabel        ? { 'X-Period-Label':      encodeURIComponent(periodLabel) }     : {}),
+            ...(numericStationId   ? { 'X-Station-Id':        String(numericStationId) }            : {})
           },
           body: buf
         });

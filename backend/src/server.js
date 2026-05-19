@@ -3253,8 +3253,32 @@ app.post('/api/processing/analyze-external', authenticateRequest, requireMinRole
     const filename = req.headers['x-filename'] ? safeHeader(req.headers['x-filename']) : 'archivo.xlsx';
     const concessionLabel = req.headers['x-concession-label'] ? safeHeader(req.headers['x-concession-label']) : null;
     const periodLabel = req.headers['x-period-label'] ? safeHeader(req.headers['x-period-label']) : null;
+    const stationId = req.headers['x-station-id'] ? parseInt(req.headers['x-station-id'], 10) || null : null;
+
     const parsed = parseExternalWorkbook(req.body);
     if (!parsed.records.length) throw badRequest('El archivo no contiene filas de detalle.');
+
+    // Rellenar sentido desde la BD según caseta, cuando el archivo no lo trae.
+    if (stationId) {
+      const booths = await query(
+        `SELECT code, directions FROM ${TABLES.booths} WHERE station_id = ?`,
+        [stationId]
+      );
+      // Mapa: código de caseta → primer sentido registrado para esa caseta
+      const boothDir = new Map();
+      for (const b of booths) {
+        if (b.directions) boothDir.set(String(b.code).trim(), String(b.directions).trim());
+      }
+      if (boothDir.size) {
+        for (const r of parsed.records) {
+          if (!r.sentido && r.caseta != null) {
+            const dir = boothDir.get(String(r.caseta).trim());
+            if (dir) r.sentido = dir;
+          }
+        }
+      }
+    }
+
     const expectedSentidos = Array.from(new Set(parsed.records.map(r => r.sentido).filter(Boolean)));
     const validation = validateRecords(parsed.records, { expectedSentidos });
     await persistRunAndRespond(req, res, {
