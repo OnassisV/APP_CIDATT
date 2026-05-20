@@ -6182,10 +6182,23 @@
     // Barra de contexto multi-peaje: visible siempre que haya un procesamiento multi activo.
     const multiRuns = window._extMultiRuns;
     if (multiRuns && multiRuns.length > 0) {
-      html.push('<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--accent-soft);border-radius:8px;margin-bottom:14px;border:1px solid var(--line);">');
-      html.push('<button class="btn btn-soft btn-sm" onclick="reRenderExtMulti()">← Resumen (' + multiRuns.length + ' peajes)</button>');
-      html.push('<span class="param-mini" style="flex:1;">Viendo detalle de: <strong>' + escapeHtml(result.run.external_filename || 'archivo') + '</strong></span>');
-      html.push('<button id="extMultiWordBtn" class="btn btn-primary btn-sm" onclick="downloadExtMultiWord()">📄 Generar Word combinado (' + multiRuns.length + ' peaje' + (multiRuns.length > 1 ? 's' : '') + ')</button>');
+      // Barra de tabs: permite saltar directamente entre peajes sin volver al resumen
+      html.push('<div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;background:var(--accent-soft);border-radius:8px;margin-bottom:14px;border:1px solid var(--line);align-items:center;">');
+      html.push('<span style="font-size:.82em;color:#6b7280;font-weight:600;white-space:nowrap;align-self:center;">Peajes:</span>');
+      multiRuns.forEach(function(run, idx) {
+        const isActive = run.run.id === result.run.id;
+        const pending = (run.incidents || []).filter(function(i){ return (i.resolution || 'pending') === 'pending'; }).length;
+        const hasErr  = ((run.summary || {}).by_severity || {}).error > 0;
+        const name    = (run.run.external_filename || ('Peaje ' + (idx + 1))).replace(/\.xlsx$/i, '').toUpperCase();
+        const badge   = pending > 0 ? ' (' + pending + (hasErr ? '❌' : '⚠') + ')' : ' ✓';
+        const bg      = isActive ? 'background:#1e40af;color:#fff;border:none;'
+                      : hasErr   ? 'background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;'
+                      : pending  ? 'background:#fef3c7;color:#92400e;border:1px solid #fde68a;'
+                      :            'background:#dcfce7;color:#166534;border:1px solid #86efac;';
+        html.push('<button class="btn btn-sm" style="' + bg + 'border-radius:6px;padding:5px 12px;font-size:.85em;" onclick="viewExtRun(' + idx + ')">' + escapeHtml(name) + badge + '</button>');
+      });
+      html.push('<div style="flex:1;"></div>');
+      html.push('<button id="extMultiWordBtn" class="btn btn-primary btn-sm" onclick="downloadExtMultiWord()">📄 Word combinado (' + multiRuns.length + ')</button>');
       html.push('</div>');
     }
 
@@ -6265,12 +6278,7 @@
       }
 
       html.push('<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;flex-wrap:wrap;">');
-      html.push('<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">');
-      if (multiRuns && multiRuns.length > 1) {
-        html.push('<button class="btn btn-soft" onclick="reRenderExtMulti()">← Resumen (' + multiRuns.length + ' peajes)</button>');
-      }
       html.push('<button class="btn btn-soft" onclick="saveProcessingResolutions()">💾 Guardar avances</button>');
-      html.push('</div>');
       html.push('<div style="display:flex;gap:8px;flex-wrap:wrap;">');
       if (multiRuns && multiRuns.length > 1) {
         html.push('<button class="btn btn-soft" id="extMultiWordBtnB" onclick="downloadExtMultiWord()">📄 Word combinado</button>');
