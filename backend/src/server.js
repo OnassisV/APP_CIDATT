@@ -3590,13 +3590,20 @@ async function resolveRunDeliverables(runId) {
     const extStationName = run.external_filename ? run.external_filename.replace(/\.xlsx$/i, '').trim() : '';
     unitLabel = extStationName ? extStationName.toUpperCase() : 'UNIDAD';
     if (concession && !/^CONCESIONARIA/i.test(concession)) concession = `CONCESIONARIA ${concession.toUpperCase()}`;
-    // Resolver estación por nombre de archivo para enriquecer sentido desde la BD
+    // Resolver estación por nombre de archivo → usar nombre de BD (no el nombre del archivo)
     if (extStationName) {
       const extSt = await query(
-        `SELECT id FROM ${TABLES.stations} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+        `SELECT id, name FROM ${TABLES.stations} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
         [extStationName]
       );
-      if (extSt.length) resolvedStationId = extSt[0].id;
+      if (extSt.length) {
+        resolvedStationId = extSt[0].id;
+        const dbName = String(extSt[0].name || '');
+        const isConteo = /conteo|ticlio/i.test(dbName);
+        const prefix = isConteo ? 'UNIDAD DE CONTEO' : 'UNIDAD DE PEAJE';
+        const cleanName = dbName.replace(/^\s*unidad\s+de\s+(peaje|conteo)\s+/i, '').trim();
+        unitLabel = `${prefix} ${cleanName.toUpperCase()}`;
+      }
     }
     // Intentar cargar metadatos por nombre de concesión
     if (concession) {

@@ -538,7 +538,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     const stSample = buildSampleInfo(st);
 
     // (1) Portada de la unidad
-    children.push(P('AUDITORIA FLUJO VEHICULAR A LA',
+    children.push(P('AUDITORIA DE FLUJO VEHICULAR A LA',
       { align: AlignmentType.CENTER, bold: true, size: 28, color: '1F4E78', beforeSpacing: 1200, afterSpacing: 80 }));
     children.push(P(stLabel.toUpperCase(),
       { align: AlignmentType.CENTER, bold: true, size: 32, color: '1F4E78', afterSpacing: 600 }));
