@@ -3618,6 +3618,22 @@ async function resolveRunDeliverables(runId) {
         map_mime: conc[0].map_mime || null
       };
     }
+    // Cargar imágenes de la estación (foto y mapa) — tienen prioridad sobre las de la concesión
+    if (resolvedStationId) {
+      const stRow = await query(
+        `SELECT photo_blob, photo_mime, map_blob, map_mime FROM ${TABLES.stations} WHERE id = ? LIMIT 1`,
+        [resolvedStationId]
+      );
+      if (stRow.length) {
+        concessionMeta = {
+          ...concessionMeta,
+          photo:      stRow[0].photo_blob  || concessionMeta.photo      || null,
+          photo_mime: stRow[0].photo_mime  || concessionMeta.photo_mime || null,
+          map:        stRow[0].map_blob    || concessionMeta.map        || null,
+          map_mime:   stRow[0].map_mime    || concessionMeta.map_mime   || null
+        };
+      }
+    }
   }
 
   // Enriquecer sentido usando la configuración de casetas de la BD (autoritativo sobre el dato).
