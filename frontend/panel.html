@@ -6480,8 +6480,32 @@
   window.saveProcessingResolutions = saveProcessingResolutions;
 
   async function saveAndGenerateOutputs() {
-    await saveProcessingResolutions();
-    await openProcessingPreview();
+    const multiRuns = window._extMultiRuns;
+    if (multiRuns && multiRuns.length > 1) {
+      // Guardar todos los peajes con cambios pendientes
+      for (const runData of multiRuns) {
+        const runId = runData.run?.id;
+        if (!runId) continue;
+        const pending = _processingPendingChanges[String(runId)] || {};
+        const resolutions = Object.entries(pending)
+          .filter(([id]) => !String(id).startsWith('tmp-'))
+          .map(([id, v]) => ({ id: parseInt(id, 10), resolution: v.resolution || 'pending', override: v.override || null }))
+          .filter(r => r.id > 0);
+        if (!resolutions.length) { delete _processingPendingChanges[String(runId)]; continue; }
+        try {
+          await api('/processing/runs/' + runId + '/incidents', { method: 'PATCH', body: { resolutions } });
+          delete _processingPendingChanges[String(runId)];
+        } catch (e) {
+          alert('Error al guardar ' + (runData.run.external_filename || 'peaje ' + runId) + ': ' + e.message);
+          return;
+        }
+      }
+      updatePendingChip();
+      openMultiPreview(multiRuns.map(r => r.run.id));
+    } else {
+      await saveProcessingResolutions();
+      await openProcessingPreview();
+    }
   }
   window.saveAndGenerateOutputs = saveAndGenerateOutputs;
 
@@ -6489,6 +6513,81 @@
     openProcessingPreview();
   }
   window.generateProcessingOutputs = generateProcessingOutputs;
+
+  async function downloadRunExcel(runId, name) {
+    try {
+      const res = await fetch(API + '/processing/runs/' + runId + '/excel', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.status); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = (name || ('run' + runId)) + '.xlsx';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+  window.downloadRunExcel = downloadRunExcel;
+
+  async function downloadMultiZip(runIds, btn) {
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Generando…'; }
+    try {
+      const res = await fetch(API + '/processing/multi-zip', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runIds })
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.status); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const cd = res.headers.get('Content-Disposition') || '';
+      a.download = (cd.match(/filename="?([^";]+)/)?.[1]) || 'Entregables.zip';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+    }
+  }
+  window.downloadMultiZip = downloadMultiZip;
+
+  function openMultiPreview(runIds) {
+    const multiRuns = window._extMultiRuns || [];
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px;z-index:9999;overflow:auto';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:12px;max-width:680px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.35)';
+
+    let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+    html += '<h2 style="margin:0;color:#1e3a8a">Entregables (' + runIds.length + ' peajes)</h2>';
+    html += '<button class="btn btn-soft" onclick="this.closest(\'.multi-preview-modal\').remove()">✕ Cerrar</button>';
+    html += '</div>';
+    html += '<div style="background:#f1f5f9;padding:10px 14px;border-radius:8px;margin-bottom:18px;font-size:13px;color:#334155">';
+    html += '<strong>' + runIds.length + ' Excel</strong> (uno por peaje) + <strong>1 Word combinado</strong> empaquetados en ZIP.</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px">';
+    for (let i = 0; i < runIds.length; i++) {
+      const rid = runIds[i];
+      const nm = ((multiRuns[i]?.run?.external_filename || ('Peaje ' + (i + 1))).replace(/\.xlsx$/i, '')).toUpperCase();
+      html += '<button class="btn btn-soft" onclick="downloadRunExcel(' + rid + ',\'' + escapeHtml(nm) + '\')" style="text-align:left">⬇ Excel — ' + escapeHtml(nm) + '</button>';
+    }
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:14px;border-top:1px solid #e2e8f0">';
+    html += '<button class="btn btn-soft" onclick="downloadExtMultiWord()">📄 Word combinado</button>';
+    html += '<button class="btn btn-primary" id="multiZipBtn" onclick="downloadMultiZip([' + runIds.join(',') + '],this)">📦 Descargar ZIP completo</button>';
+    html += '</div>';
+
+    box.innerHTML = html;
+    modal.className = 'multi-preview-modal';
+    modal.appendChild(box);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
+  }
+  window.openMultiPreview = openMultiPreview;
 
   async function _downloadProcessingFile(suffix, filenameFallback, ext) {
     if (!_processingCurrentRun || !_processingCurrentRun.run) {

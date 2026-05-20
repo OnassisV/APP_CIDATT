@@ -3497,6 +3497,7 @@ async function loadRunForOutput(runId) {
 async function resolveRunDeliverables(runId) {
   const { run, records, incidents } = await loadRunForOutput(runId);
   const { records: finalRecords, applied } = applyResolutions(records, incidents);
+  let resolvedStationId = null;
 
   let unitLabel = 'UNIDAD';
   let concession = run.concession_label || '';
@@ -3536,6 +3537,7 @@ async function resolveRunDeliverables(runId) {
       }
     }
     if (chosenStation) {
+      resolvedStationId = chosenStation.id;
       const nm = String(chosenStation.name || '');
       const isConteo = /conteo|ticlio/i.test(nm);
       const prefix = isConteo ? 'UNIDAD DE CONTEO' : 'UNIDAD DE PEAJE';
@@ -3585,8 +3587,17 @@ async function resolveRunDeliverables(runId) {
     }
   }
   if (run.source_type === 'external') {
-    unitLabel = run.external_filename ? run.external_filename.replace(/\.xlsx$/i, '').toUpperCase() : 'UNIDAD';
+    const extStationName = run.external_filename ? run.external_filename.replace(/\.xlsx$/i, '').trim() : '';
+    unitLabel = extStationName ? extStationName.toUpperCase() : 'UNIDAD';
     if (concession && !/^CONCESIONARIA/i.test(concession)) concession = `CONCESIONARIA ${concession.toUpperCase()}`;
+    // Resolver estación por nombre de archivo para enriquecer sentido desde la BD
+    if (extStationName) {
+      const extSt = await query(
+        `SELECT id FROM ${TABLES.stations} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+        [extStationName]
+      );
+      if (extSt.length) resolvedStationId = extSt[0].id;
+    }
     // Intentar cargar metadatos por nombre de concesión
     if (concession) {
       const cleanName = concession.replace(/^CONCESIONARIA\s+/i, '').trim();
@@ -3609,7 +3620,21 @@ async function resolveRunDeliverables(runId) {
     }
   }
 
-  const directions = Array.from(new Set(finalRecords.map(r => r.sentido).filter(Boolean))).slice(0, 2);
+  // Enriquecer sentido usando la configuración de casetas de la BD (autoritativo sobre el dato)
+  if (resolvedStationId) {
+    const booths = await query(
+      `SELECT code, directions FROM ${TABLES.booths} WHERE station_id = ?`,
+      [resolvedStationId]
+    );
+    if (booths.length) {
+      const boothDirMap = new Map(booths.map(b => [String(b.code).toUpperCase(), b.directions]));
+      for (const r of finalRecords) {
+        const code = String(r.caseta || '').toUpperCase();
+        if (code && boothDirMap.has(code)) r.sentido = boothDirMap.get(code);
+      }
+    }
+  }
+  const directions = Array.from(new Set(finalRecords.map(r => r.sentido).filter(Boolean)));
   const safeName = unitLabel.replace(/[^A-Z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'unidad';
 
   // Detectar período real cubierto por los datos (para alertar si difiere del declarado)
@@ -3720,6 +3745,69 @@ app.post('/api/processing/multi-word', authenticateRequest, requireMinRole('dire
     res.setHeader('Content-Disposition', `attachment; filename="Informe_${safeName}.docx"`);
     res.send(buf);
   } catch (e) { console.error('[multi-word]', e); next(e); }
+});
+
+// POST /api/processing/multi-zip  → ZIP con N excels (uno por peaje) + 1 Word combinado.
+// Body: { runIds: [id1, id2, ...] }
+app.post('/api/processing/multi-zip', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runIds = Array.isArray(req.body?.runIds)
+      ? req.body.runIds.map(Number).filter(n => n > 0)
+      : [];
+    if (!runIds.length) throw badRequest('Se requiere al menos un run ID.');
+    if (runIds.length > 12) throw badRequest('Máximo 12 peajes por ZIP.');
+
+    const deliverables = [];
+    for (const id of runIds) {
+      deliverables.push(await resolveRunDeliverables(id));
+    }
+
+    const first = deliverables[0];
+    const rawConcession = first.concession || '';
+    const concession = /^CONCESIONARIA\s/i.test(rawConcession)
+      ? rawConcession.toUpperCase()
+      : `CONCESIONARIA ${rawConcession.toUpperCase()}`;
+    const periodLabel = first.effectivePeriodLabel || '';
+
+    const zipEntries = [];
+
+    // Excel individual por peaje
+    for (const d of deliverables) {
+      const xlsxBuf = await buildUnitBuffer({
+        unitLabel: d.unitLabel, concession: d.concession,
+        periodLabel: d.effectivePeriodLabel,
+        records: d.records, directions: d.directions
+      });
+      zipEntries.push({ name: `${d.safeName}.xlsx`, buffer: xlsxBuf });
+    }
+
+    // Word combinado (todos los peajes en un solo documento)
+    const stations = deliverables.map(d => ({
+      label:      d.unitLabel,
+      records:    d.records,
+      directions: d.directions,
+      sampleInfo: null,
+      photo:      d.concessionMeta?.photo      || null,
+      photo_mime: d.concessionMeta?.photo_mime || null,
+      map:        d.concessionMeta?.map        || null,
+      map_mime:   d.concessionMeta?.map_mime   || null
+    }));
+    const docxBuf = await buildReportBuffer({
+      unitLabel:      stations.map(s => s.label).join(' / '),
+      concession,
+      periodLabel,
+      stations,
+      concessionMeta: first.concessionMeta,
+      includeDetailTable: false
+    });
+    const safeConcession = rawConcession.replace(/[^A-Z0-9]+/gi, '_').replace(/^_|_$/g, '').toUpperCase() || 'INFORME';
+    zipEntries.push({ name: `Informe_${safeConcession}.docx`, buffer: docxBuf });
+
+    const zipBuf = await buildZipBuffer(zipEntries);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="Entregables_${safeConcession}.zip"`);
+    res.send(zipBuf);
+  } catch (e) { console.error('[multi-zip]', e); next(e); }
 });
 
 // GET /api/processing/runs/:id/preview  → vista previa HTML (Tabla 1 y Tabla 2) para mostrar antes del ZIP.
