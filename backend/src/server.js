@@ -3158,16 +3158,16 @@ app.get('/api/processing/projects', authenticateRequest, requireMinRole('directo
 });
 
 // Helper: persiste run + incidencias y devuelve respuesta unificada.
-async function persistRunAndRespond(req, res, { sourceType, projectId, externalFilename, concessionLabel, periodLabel, records, validation, contextExtra }) {
+async function persistRunAndRespond(req, res, { sourceType, projectId, stationId, externalFilename, concessionLabel, periodLabel, records, validation, contextExtra }) {
   const runUuid = crypto.randomUUID();
   const result = await withTransaction(async (conn) => {
     const [insertRun] = await conn.execute(
       `INSERT INTO ${TABLES.processingRuns}
-         (run_uuid, source_type, project_id, external_filename, director_user_id,
+         (run_uuid, source_type, project_id, station_id, external_filename, director_user_id,
           concession_label, period_label, total_input, total_output, total_pending, summary_json, records_json, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reviewing')`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reviewing')`,
       [
-        runUuid, sourceType, projectId || null, externalFilename || null,
+        runUuid, sourceType, projectId || null, stationId || null, externalFilename || null,
         req.authUser.id, concessionLabel || null, periodLabel || null,
         records.length, records.length, validation.incidents.length,
         JSON.stringify(validation.summary),
@@ -3339,6 +3339,7 @@ app.post('/api/processing/analyze-external', authenticateRequest, requireMinRole
     await persistRunAndRespond(req, res, {
       sourceType: 'external',
       projectId: null,
+      stationId,
       externalFilename: filename,
       concessionLabel,
       periodLabel,
@@ -3467,7 +3468,7 @@ app.patch('/api/processing/runs/:id/incidents', authenticateRequest, requireMinR
 // Helper: carga records + incidents + metadatos de un run.
 async function loadRunForOutput(runId) {
   const runs = await query(
-    `SELECT id, source_type, project_id, external_filename, concession_label, period_label,
+    `SELECT id, source_type, project_id, station_id, external_filename, concession_label, period_label,
             summary_json, records_json, status
        FROM ${TABLES.processingRuns} WHERE id = ? LIMIT 1`,
     [runId]
@@ -3590,20 +3591,20 @@ async function resolveRunDeliverables(runId) {
     const extStationName = run.external_filename ? run.external_filename.replace(/\.xlsx$/i, '').trim() : '';
     unitLabel = extStationName ? extStationName.toUpperCase() : 'UNIDAD';
     if (concession && !/^CONCESIONARIA/i.test(concession)) concession = `CONCESIONARIA ${concession.toUpperCase()}`;
-    // Resolver estación por nombre de archivo → usar nombre de BD (no el nombre del archivo)
-    if (extStationName) {
-      const extSt = await query(
-        `SELECT id, name FROM ${TABLES.stations} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
-        [extStationName]
-      );
-      if (extSt.length) {
-        resolvedStationId = extSt[0].id;
-        const dbName = String(extSt[0].name || '');
-        const isConteo = /conteo|ticlio/i.test(dbName);
-        const prefix = isConteo ? 'UNIDAD DE CONTEO' : 'UNIDAD DE PEAJE';
-        const cleanName = dbName.replace(/^\s*unidad\s+de\s+(peaje|conteo)\s+/i, '').trim();
-        unitLabel = `${prefix} ${cleanName.toUpperCase()}`;
-      }
+    // Resolver estación: primero por station_id guardado en el run, luego fallback por nombre de archivo.
+    const candidateId = run.station_id || null;
+    const stRows = candidateId
+      ? await query(`SELECT id, name FROM ${TABLES.stations} WHERE id = ? LIMIT 1`, [candidateId])
+      : (extStationName
+          ? await query(`SELECT id, name FROM ${TABLES.stations} WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`, [extStationName])
+          : []);
+    if (stRows.length) {
+      resolvedStationId = stRows[0].id;
+      const dbName = String(stRows[0].name || '');
+      const isConteo = /conteo|ticlio/i.test(dbName);
+      const prefix = isConteo ? 'UNIDAD DE CONTEO' : 'UNIDAD DE PEAJE';
+      const cleanName = dbName.replace(/^\s*unidad\s+de\s+(peaje|conteo)\s+/i, '').trim();
+      unitLabel = `${prefix} ${cleanName.toUpperCase()}`;
     }
     // Intentar cargar metadatos por nombre de concesión
     if (concession) {
@@ -4044,6 +4045,7 @@ async function runMigrations() {
   try { await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN photo_mime VARCHAR(60) NULL`); } catch (_) {}
   try { await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN map_blob LONGBLOB NULL`); } catch (_) {}
   try { await query(`ALTER TABLE ${TABLES.stations} ADD COLUMN map_mime VARCHAR(60) NULL`); } catch (_) {}
+  try { await query(`ALTER TABLE ${TABLES.processingRuns} ADD COLUMN station_id INT UNSIGNED NULL AFTER project_id`); } catch (_) {}
   // Migración one-shot: si una concesión tiene imágenes y su(s) peaje(s) no, copiar las
   // imágenes al PRIMER peaje de la concesión (orden por id) — modelo antiguo → nuevo.
   try {
