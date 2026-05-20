@@ -1397,7 +1397,7 @@ function decodeImagePayload(body) {
       const id = parseOptionalInt(req.params.id);
       if (!id) return res.status(404).end();
       const [row] = await query(
-        `SELECT ${kind}_blob AS blob, ${kind}_mime AS mime FROM ${TABLES.concessions} WHERE id = ? LIMIT 1`,
+        `SELECT ${kind}_blob AS \`blob\`, ${kind}_mime AS mime FROM ${TABLES.concessions} WHERE id = ? LIMIT 1`,
         [id]
       );
       if (!row || !row.blob) return res.status(404).end();
@@ -1454,7 +1454,7 @@ function decodeImagePayload(body) {
       const id = parseOptionalInt(req.params.id);
       if (!id) return res.status(404).end();
       const [row] = await query(
-        `SELECT ${kind}_blob AS blob, ${kind}_mime AS mime FROM ${TABLES.stations} WHERE id = ? LIMIT 1`,
+        `SELECT ${kind}_blob AS \`blob\`, ${kind}_mime AS mime FROM ${TABLES.stations} WHERE id = ? LIMIT 1`,
         [id]
       );
       if (!row || !row.blob) return res.status(404).end();
