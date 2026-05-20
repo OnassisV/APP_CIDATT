@@ -3620,17 +3620,26 @@ async function resolveRunDeliverables(runId) {
     }
   }
 
-  // Enriquecer sentido usando la configuración de casetas de la BD (autoritativo sobre el dato)
+  // Enriquecer sentido usando la configuración de casetas de la BD (autoritativo sobre el dato).
+  // El dato puede traer caseta como número (1, 2) o código (C-1, C-2) — normalizamos ambos lados.
   if (resolvedStationId) {
     const booths = await query(
       `SELECT code, directions FROM ${TABLES.booths} WHERE station_id = ?`,
       [resolvedStationId]
     );
     if (booths.length) {
-      const boothDirMap = new Map(booths.map(b => [String(b.code).toUpperCase(), b.directions]));
+      const boothDirMap = new Map();
+      for (const b of booths) {
+        const code = String(b.code).toUpperCase();
+        boothDirMap.set(code, b.directions);           // "C-1" → dir
+        const num = code.replace(/\D/g, '');
+        if (num) boothDirMap.set(num, b.directions);   // "1"   → dir
+      }
       for (const r of finalRecords) {
-        const code = String(r.caseta || '').toUpperCase();
-        if (code && boothDirMap.has(code)) r.sentido = boothDirMap.get(code);
+        const raw  = String(r.caseta ?? '').toUpperCase().trim();
+        const num  = raw.replace(/\D/g, '');
+        const dir  = boothDirMap.get(raw) || boothDirMap.get(num);
+        if (dir) r.sentido = dir;
       }
     }
   }
