@@ -319,12 +319,30 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
         photo: (concessionMeta || {}).photo, photo_mime: (concessionMeta || {}).photo_mime,
         map:   (concessionMeta || {}).map,   map_mime:   (concessionMeta || {}).map_mime
       }];
+  // Separar peajes regulares de unidades de conteo.
+  const isConteoStation = (st) => /CONTEO|TICLIO/.test(uppercaseClean(st.label || ''));
+  const peajeStations  = stationList.filter(s => !isConteoStation(s));
+  const conteoStations = stationList.filter(s =>  isConteoStation(s));
+  // Orden en el documento: primero peajes, luego conteos
+  const orderedStations = [...peajeStations, ...conteoStations];
+
   // Para las páginas globales (intro, títulos) se usan los datos del primer peaje.
   const firstSt = stationList[0];
   const dirs = (firstSt.directions && firstSt.directions.length ? firstSt.directions : ['Sentido único']).slice(0, 4);
   const unitName = uppercaseClean(firstSt.label || unitLabel);
   // Detectar si es Unidad de Conteo (vs Peaje) por nombre.
   const isConteo = /CONTEO|TICLIO/.test(unitName);
+
+  // Meses del trimestre para el texto de la sección complementaria.
+  function quarterMonths(pl) {
+    const l = (pl || '').toLowerCase();
+    if (/primer/i.test(l))  return 'Enero a Marzo';
+    if (/segundo/i.test(l)) return 'Abril a Junio';
+    if (/tercer/i.test(l))  return 'Julio a Septiembre';
+    if (/cuarto/i.test(l))  return 'Octubre a Diciembre';
+    return null;
+  }
+  const quarterMonthsText = quarterMonths(periodLabel);
   // Nombre corto del peaje/conteo sin el prefijo institucional.
   const unitShort = unitName
     .replace(/^UNIDAD DE (PEAJE|CONTEO)\s+/i, '')
@@ -404,7 +422,7 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     children.push(P(
       `Por lo que el presente informe de Relevamiento de campo, a solicitud del CONCESIONARIO ` +
       `contiene la información de relevamiento de la primera muestra de campo en la Unidad de ` +
-      `Conteo Vehicular ${unitTitle} del ${lowerPeriod || 'período correspondiente'} del año ${year}.`
+      `Conteo Vehicular ${unitTitle} del ${lowerPeriod || 'período correspondiente'}${quarterMonthsText ? ' (' + quarterMonthsText + ')' : ''}.`
     ));
     children.push(P(
       `Dicha información, que de manera posterior será contrastada para su verificación y para ` +
@@ -493,14 +511,15 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
       ]
     })
   ];
-  stationList.forEach((st, idx) => {
+  // Tabla 1: solo peajes regulares (la Unidad de Conteo aparece en su sección complementaria).
+  const tabla1Stations = peajeStations.length > 0 ? peajeStations : stationList;
+  tabla1Stations.forEach((st, idx) => {
     const si = buildSampleInfo(st);
     const stName = uppercaseClean(st.label);
-    const stShort = stName.replace(/^UNIDAD DE (PEAJE|CONTEO)\s+/i, '').trim() || stName;
     sampleRows.push(new TableRow({
       children: [
         tableCell(String(idx + 1)),
-        tableCell(/CONTEO|TICLIO/.test(stName) ? stShort.charAt(0) + stShort.slice(1).toLowerCase() : stName),
+        tableCell(stName),
         tableCell(si.ubicacion || '—'),
         tableCell(si.fechaCampo || '—'),
         tableCell(si.turno || '—'),
@@ -530,10 +549,73 @@ export async function buildReportBuffer({ unitLabel, concession, periodLabel, re
     return null;
   };
 
-  for (let stIdx = 0; stIdx < stationList.length; stIdx++) {
-    const st = stationList[stIdx];
+  for (let stIdx = 0; stIdx < orderedStations.length; stIdx++) {
+    const st = orderedStations[stIdx];
+    const stIsConteo = isConteoStation(st);
     const stLabel = st.label || '';
     const stDirs = (st.directions && st.directions.length ? st.directions : ['Sentido único']).slice(0, 4);
+
+    // Si es una unidad de conteo dentro de un documento multi-peaje, insertar sección complementaria.
+    if (stIsConteo && stationList.length > 1) {
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+      children.push(H('INFORME DE RELEVAMIENTO DE CAMPO COMPLEMENTARIO', 1,
+        { align: AlignmentType.LEFT, color: '000000', size: 24 }));
+      const stShortConteo = uppercaseClean(stLabel).replace(/^UNIDAD DE (PEAJE|CONTEO)\s+/i, '').trim();
+      const stShortLower  = stShortConteo.charAt(0) + stShortConteo.slice(1).toLowerCase();
+      const monthsText = quarterMonthsText ? ` (${quarterMonthsText})` : '';
+      children.push(P(
+        `Con fecha {{FECHA_INICIO_CONTROL}}, el CONCESIONARIO dio inicio al control del flujo ` +
+        `vehicular en la Unidad de conteo ${stShortLower} ubicado en el {{KM_UBICACION}}; la cual ` +
+        `deberá entrar en operación como unidad de Peaje; una vez que las obras descritas en el ` +
+        `Apéndice 6 del Anexo XII del Contrato de Concesión hayan sido concluidas y recepcionadas ` +
+        `por el CONCEDENTE.`
+      ));
+      children.push(P(
+        `En tal sentido, en el contrato de locación de servicio suscrita entre el CONCESIONARIO y ` +
+        `el Auditor de Tráfico, se acordó incluir tanto en las actividades de campo como en el ` +
+        `Informe de Relevamiento de campo, a la Unidad de Conteo de ${stShortLower}, suscribiendo las ` +
+        `actividades al Manual de Selección de la Empresa Auditora de Tráfico Vehicular.`
+      ));
+      children.push(P(
+        `Por lo que el presente informe de Relevamiento de campo, a solicitud del CONCESIONARIO ` +
+        `contiene la información de relevamiento de la primera muestra de campo en la Unidad de ` +
+        `Conteo Vehicular ${stShortLower} del ${lowerPeriod || 'período correspondiente'}${monthsText}.`
+      ));
+      children.push(P(
+        `Dicha información, que de manera posterior será contrastada para su verificación y para ` +
+        `los fines que el concesionario crea conveniente. En la Tabla 2 se detalla las fechas ` +
+        `realizadas en la unidad de Conteo ${stShortLower}.`
+      ));
+      // Tabla Nº | Unidad de Peaje | Ubicación | Fecha de Campo | Turno | Sentido | Garitas
+      const conteoSI = buildSampleInfo(st);
+      const conteoRows = [
+        new TableRow({
+          tableHeader: true,
+          children: [
+            tableCell('Nº',                     { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+            tableCell('Unidad de Peaje',         { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+            tableCell('Ubicación',               { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+            tableCell('Fecha de Campo',          { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+            tableCell('Turno',                   { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+            tableCell('Sentido de Circulación',  { bold: true, shade: '1F4E78', color: 'FFFFFF' }),
+            tableCell('Garitas de Peaje',        { bold: true, shade: '1F4E78', color: 'FFFFFF' })
+          ]
+        }),
+        new TableRow({
+          children: [
+            tableCell('1'),
+            tableCell(stShortConteo.charAt(0) + stShortConteo.slice(1).toLowerCase()),
+            tableCell(conteoSI.ubicacion || '—'),
+            tableCell(conteoSI.fechaCampo || '—'),
+            tableCell(conteoSI.turno || '—'),
+            tableCell(conteoSI.sentidoCirc || 'Ambos sentidos'),
+            tableCell(conteoSI.garitas || 'Todas')
+          ]
+        })
+      ];
+      children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: conteoRows }));
+      children.push(P(''));
+    }
     const stRecords = st.records || [];
     const stSample = buildSampleInfo(st);
 
