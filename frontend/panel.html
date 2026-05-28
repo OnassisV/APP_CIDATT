@@ -6508,10 +6508,67 @@
       openMultiPreview(multiRuns.map(r => r.run.id));
     } else {
       await saveProcessingResolutions();
-      await openProcessingPreview();
+      const run = _processingCurrentRun?.run;
+      const stations = _processingCurrentRun?.context?.stations;
+      if (run?.source_type === 'internal' && stations?.length > 1) {
+        openInternalSplitPreview(run.id, stations);
+      } else {
+        await openProcessingPreview();
+      }
     }
   }
   window.saveAndGenerateOutputs = saveAndGenerateOutputs;
+
+  function openInternalSplitPreview(runId, stations) {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px;z-index:9999;overflow:auto';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:12px;max-width:560px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.35)';
+    let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+    html += '<h2 style="margin:0;color:#1e3a8a">Entregables (' + stations.length + ' peajes)</h2>';
+    html += '<button class="btn btn-soft" onclick="this.closest(\'.internal-split-modal\').remove()">✕ Cerrar</button>';
+    html += '</div>';
+    html += '<div style="background:#f1f5f9;padding:10px 14px;border-radius:8px;margin-bottom:18px;font-size:13px;color:#334155">';
+    html += '<strong>' + stations.length + ' Excel</strong> (uno por peaje) + <strong>1 Word combinado</strong> empaquetados en ZIP.</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px">';
+    for (const s of stations) {
+      html += '<div style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:.9em;color:#334155">📍 ' + escapeHtml(s.name || 'Peaje') + '</div>';
+    }
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:14px;border-top:1px solid #e2e8f0">';
+    html += '<button class="btn btn-primary" id="internalSplitZipBtn" onclick="downloadInternalSplitZip(' + runId + ', this)">📦 Descargar ZIP completo</button>';
+    html += '</div>';
+    box.innerHTML = html;
+    modal.className = 'internal-split-modal';
+    modal.appendChild(box);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
+  }
+  window.openInternalSplitPreview = openInternalSplitPreview;
+
+  async function downloadInternalSplitZip(runId, btn) {
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Generando…'; }
+    try {
+      const res = await fetch(API + '/processing/runs/' + runId + '/split-zip', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.status); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const cd = res.headers.get('Content-Disposition') || '';
+      a.download = (cd.match(/filename="?([^";]+)/)?.[1]) || 'Entregables.zip';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+    }
+  }
+  window.downloadInternalSplitZip = downloadInternalSplitZip;
 
   function generateProcessingOutputs() {
     openProcessingPreview();

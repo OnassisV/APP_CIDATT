@@ -3957,6 +3957,82 @@ app.get('/api/processing/runs/:id/zip', authenticateRequest, requireMinRole('dir
   } catch (e) { next(e); }
 });
 
+// GET /api/processing/runs/:id/split-zip → interno multi-peaje: 1 Excel por peaje + 1 Word combinado.
+app.get('/api/processing/runs/:id/split-zip', authenticateRequest, requireMinRole('director'), async (req, res, next) => {
+  try {
+    const runId = parseInt(req.params.id, 10);
+    const { run, records, incidents } = await loadRunForOutput(runId);
+    if (run.source_type !== 'internal' || !run.project_id) throw badRequest('Solo disponible para proyectos internos.');
+    const { records: finalRecords } = applyResolutions(records, incidents);
+
+    const stations = await query(
+      `SELECT ts.id, ts.name, ts.photo_blob, ts.photo_mime, ts.map_blob, ts.map_mime
+         FROM ${TABLES.stations} ts
+         INNER JOIN ${TABLES.projectSites} ps ON ps.station_id = ts.id AND ps.project_id = ?
+        ORDER BY ts.name`,
+      [run.project_id]
+    );
+    const concRow = await query(
+      `SELECT c.name, c.legal_name, c.project_description, c.invitation_date, c.carta_number,
+              c.photo_blob, c.photo_mime, c.map_blob, c.map_mime
+         FROM ${TABLES.concessions} c
+         INNER JOIN ${TABLES.projects} p ON p.concession_id = c.id
+        WHERE p.id = ? LIMIT 1`,
+      [run.project_id]
+    );
+    const concession = concRow.length ? `CONCESIONARIA ${concRow[0].name.toUpperCase()}` : (run.concession_label || '');
+    const concessionMeta = concRow.length ? {
+      legal_name: concRow[0].legal_name, project_description: concRow[0].project_description,
+      invitation_date: concRow[0].invitation_date, carta_number: concRow[0].carta_number,
+      photo: concRow[0].photo_blob, photo_mime: concRow[0].photo_mime,
+      map: concRow[0].map_blob, map_mime: concRow[0].map_mime
+    } : {};
+    const periodLabel = run.period_label || '';
+
+    const zipEntries = [];
+    const stationsData = [];
+
+    for (const station of stations) {
+      const stRecords = finalRecords.filter(r => String(r._station_id) === String(station.id));
+      if (!stRecords.length) continue;
+      const nm = String(station.name || '');
+      const isConteo = /conteo|ticlio/i.test(nm);
+      const prefix = isConteo ? 'UNIDAD DE CONTEO' : 'UNIDAD DE PEAJE';
+      const cleanName = nm.replace(/^\s*unidad\s+de\s+(peaje|conteo)\s+/i, '').trim();
+      const unitLabel = `${prefix} ${cleanName.toUpperCase()}`;
+      const directions = Array.from(new Set(stRecords.map(r => r.sentido).filter(Boolean)));
+      const stationImages = {
+        photo: station.photo_blob || concessionMeta.photo || null,
+        photo_mime: station.photo_mime || concessionMeta.photo_mime || null,
+        map: station.map_blob || concessionMeta.map || null,
+        map_mime: station.map_mime || concessionMeta.map_mime || null
+      };
+      const xlsxBuf = await buildUnitBuffer({ unitLabel, concession, periodLabel, records: stRecords, directions });
+      const safeName = cleanName.replace(/[^A-Z0-9]+/gi, '_').replace(/^_|_$/g, '').toUpperCase() || `PEAJE_${station.id}`;
+      zipEntries.push({ name: `${safeName}.xlsx`, buffer: xlsxBuf });
+      stationsData.push({ label: unitLabel, records: stRecords, directions, sampleInfo: null, ...stationImages });
+    }
+
+    if (!stationsData.length) throw badRequest('No hay registros para generar entregables.');
+
+    const docxBuf = await buildReportBuffer({
+      unitLabel: stationsData.map(s => s.label).join(' / '),
+      concession,
+      periodLabel,
+      stations: stationsData,
+      concessionMeta,
+      includeDetailTable: false
+    });
+    const safeConcession = (run.concession_label || 'INFORME').replace(/[^A-Z0-9]+/gi, '_').replace(/^_|_$/g, '').toUpperCase();
+    zipEntries.push({ name: `Informe_${safeConcession}.docx`, buffer: docxBuf });
+
+    const zipBuf = await buildZipBuffer(zipEntries);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="Entregables_${safeConcession}.zip"`);
+    res.send(zipBuf);
+  } catch (e) { next(e); }
+});
+
 app.get(/^\/(?!api).*/, (_req, res) => {
   res.sendFile(path.join(frontendDir, 'index.html'));
 });
