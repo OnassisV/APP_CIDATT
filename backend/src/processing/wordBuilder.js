@@ -79,7 +79,7 @@ function logoRun(filename, widthPx, heightPx, label) {
   return new TextRun({ text: label || '[ Insertar logo aquí ]', bold: true, color: '1B3A66', size: 22, font: 'Arial' });
 }
 
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 8);
+// Las horas se derivan dinámicamente de los registros (ver pivotTable).
 
 // ── Helpers de párrafo / celda ────────────────────────────────────────────
 
@@ -125,6 +125,14 @@ function tableCell(text, opts = {}) {
 }
 
 function pivotTable({ records, aggregator }) {
+  // Horas presentes en los datos: garantiza que suma horaria = total del día.
+  const hourSet = new Set();
+  for (const r of records) {
+    const h = r.hora_bloque != null ? Number(r.hora_bloque) : null;
+    if (h != null && !isNaN(h)) hourSet.add(h);
+  }
+  const HOURS = Array.from(hourSet).sort((a, b) => a - b);
+
   const rows = [
     new TableRow({
       tableHeader: true,

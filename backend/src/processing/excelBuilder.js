@@ -11,7 +11,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const ExcelJS = require('exceljs');
 
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 8); // 8..19
+// Las horas se derivan dinámicamente de los registros por dirección (ver buildPivotSheet).
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -194,6 +194,15 @@ function buildPivotSheet(sheet, { title, aggregator, unitLabel, concession, peri
 
     // Datos por fecha y hora
     const dirRecords = records.filter(r => (r.sentido || '') === dir);
+
+    // Horas presentes en los datos: garantiza que suma horaria = total del día.
+    const hourSet = new Set();
+    for (const r of dirRecords) {
+      const h = r.hora_bloque != null ? Number(r.hora_bloque) : null;
+      if (h != null && !isNaN(h)) hourSet.add(h);
+    }
+    const HOURS = Array.from(hourSet).sort((a, b) => a - b);
+
     const byDate = new Map();
     for (const r of dirRecords) {
       if (!r.fecha) continue;

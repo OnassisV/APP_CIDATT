@@ -3873,7 +3873,6 @@ app.get('/api/processing/runs/:id/preview', authenticateRequest, requireMinRole(
 });
 
 function buildPreviewHtml(d) {
-  const HOURS = Array.from({ length: 12 }, (_, i) => i + 8);
   const sumBy = (records, group, agg) => {
     let acc = 0;
     for (const r of records) {
@@ -3883,6 +3882,14 @@ function buildPreviewHtml(d) {
     return acc;
   };
   const tableFor = (records, agg) => {
+    // Horas presentes en los datos: garantiza que suma horaria = total del día.
+    const hourSet = new Set();
+    for (const r of records) {
+      const h = r.hora_bloque != null ? Number(r.hora_bloque) : null;
+      if (h != null && !isNaN(h)) hourSet.add(h);
+    }
+    const HOURS = Array.from(hourSet).sort((a, b) => a - b);
+
     const byDate = new Map();
     for (const r of records) {
       if (!r.fecha) continue;
