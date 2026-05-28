@@ -6266,6 +6266,7 @@
           html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'delete\')">🗑 Eliminar grupo</button>');
         } else if (ruleKey === 'plate_format') {
           html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'accept\')">✓ Aceptar placas irregulares tal cual</button>');
+          html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'placa_ilegible\')">🚫 Placa Ilegible a todos</button>');
           html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'delete\')">🗑 Eliminar grupo</button>');
         } else {
           html.push('<button class="btn btn-soft btn-sm" onclick="bulkResolveGroup(\'' + ruleKey + '\', \'auto_fix\')">🛠 Auto-corregir grupo</button>');
@@ -6432,6 +6433,9 @@
     if (action === 'assign_L_2ejes') {
       resolution = 'manual_edit';
       override = { tipo_vehiculo: 'L', ejes_principal: 2 };
+    } else if (action === 'placa_ilegible') {
+      resolution = 'manual_edit';
+      override = { placa_principal: 'Placa Ilegible' };
     }
     for (const inc of _processingCurrentRun.incidents) {
       if (inc.rule_key !== ruleKey) continue;

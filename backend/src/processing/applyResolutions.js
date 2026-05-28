@@ -54,7 +54,12 @@ export function applyResolutions(records, incidents) {
 
       if (resolution === 'manual_edit') {
         const ovr = inc.override || {};
-        if (ovr.placa_principal != null && ovr.placa_principal !== '') r.placa_principal = cleanPlate(ovr.placa_principal);
+        if (ovr.placa_principal != null && ovr.placa_principal !== '') {
+          // Usar el valor tal cual si contiene espacios (etiquetas como "Placa Ilegible"),
+          // aplicar cleanPlate solo cuando es una placa corregida manualmente.
+          const raw = String(ovr.placa_principal).trim();
+          r.placa_principal = raw.includes(' ') ? raw : cleanPlate(raw);
+        }
         if (ovr.tipo_vehiculo != null && ovr.tipo_vehiculo !== '') {
           r.tipo_vehiculo = String(ovr.tipo_vehiculo).toUpperCase().trim();
           r.tipo_grupo = vehicleGroup(r.tipo_vehiculo);
